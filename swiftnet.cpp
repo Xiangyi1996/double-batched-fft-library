@@ -13,7 +13,7 @@ using namespace sycl::ext::oneapi::experimental::matrix;
 
 template <int WIDTH, int N_ITERS, bool BACKWARD = false>
 void work_group_layer(nd_item<1> item,Activation activation, half* act_mem, half* weights_layer, float* out,float* forward_act = nullptr) {
-	auto sg = it.get_sub_group();
+	auto sg = item.get_sub_group();
 	int sgId = sg.get_group_id();
 	int N_BLOCKS = WIDTH / 16;
 	device_ptr<half> w(weights_layer);
