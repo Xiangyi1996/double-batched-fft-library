@@ -92,10 +92,10 @@ void kernel_swiftnet_backward(
 	int sgId = sg.get_group_id();
 	int idx = 16 * groupId * N_ITERS;
 	int weights_stride = WIDTH * WIDTH;
-	device_ptr loss(loss_gradients);
-	device_ptr fwd(forward);
-	device_ptr w(weights);
-	device_ptr act(act_shmem);
+	device_ptr<half> loss(loss_gradients);
+	device_ptr<half> fwd(forward);
+	device_ptr<half> w(weights);
+	device_ptr<half> act(act_shmem);
 	//Backprop last layer
 	if (out_width <= 16) {
 		joint_matrix<half, TM, TK, OUTPUT_LAYOUT> act_matrix;
@@ -105,15 +105,15 @@ void kernel_swiftnet_backward(
 		for (int l = 0; l < N_ITERS; l++) {
 			joint_matrix_fill(sg, result_matrix, 0.0f);
 
-			joint_matrix_load(sg, act_matrix, loss + (idx * 16 * l) + out_stride, out_stride);
+			joint_matrix_load(sg, act_matrix, loss + (idx * 8 * l) + out_stride, out_stride);
 
 			result_matrix = joint_matrix_mad(sg, act_matrix, weights_matrix, result_matrix);
 
-			joint_matrix_load(forward_matrix, fwd + WIDTH * batch_size * n_hidden_matmuls + 16 * sgId + (idx + l * 16) * WIDTH, WIDTH);
+			joint_matrix_load(forward_matrix, fwd + WIDTH * batch_size * n_hidden_matmuls + 16 * sgId + (idx + l * 8) * WIDTH, WIDTH);
 
 			matrix_activation_bacward<half>(ACTIVATION, result_matrix, forward_matrix);
 
-			joint_matrix_store(act + weights_col + (16 * l) * (WIDTH), result_matrix, WIDTH, matrix_layout::row_major);
+			joint_matrix_store(act + weights_col + (8 * l) * (WIDTH), result_matrix, WIDTH, matrix_layout::row_major);
 
 		}
 
@@ -165,7 +165,7 @@ mlp_swiftnet_backward(
 			q.memcpy(weights_device,weights.data(),weights.size()*sizeof(half) );
 			q.memcpy(temp_device, temporaries.data(), temporaries.size() * sizeof(half));
 			q.memcpy(weights_1_device, weights_first_layer.data(), weights_first_layer.size() * sizeof(half));
-			q.memcpy(out_device, dl_output.data(), dl_output.size() * sizeof(half));
+			q.memcpy(out_device, dl_output.data(), dl_output.size() * sizeof(float));
 			q.memcpy(fwd_device, forward.data(), forward.size() * sizeof(half));
 			h.parallel_for(nd_range<1>(batch_size * 2, 128), [=](nd_item<1> item) [[intel::reqd_sub_group_size(32)]] {
 				kernel_swiftnet_backward<WIDTH, N_ITERS, ACTIVATION, matrix_layout::row_major>(item,out_device,weights_device,temp_device,fwd_device,act_shmem,weights_1_device,out_stride,batch_size,out_width,n_hidden_matmuls);
@@ -266,7 +266,7 @@ workgroup_load_input_static(nd_item<1> item, __half* __restrict__ act_shmem, con
 	const uint32_t row = (8 * li + sgId * 8 * 32) / WIDTH;
 
 	for (int i = 0; i < N_ITERS; ++i) {
-		*(int4*)&act_shmem[lane_offset + (row + 16 * i) * WIDTH] = *(int4*)&input_workgroup[lane_offset + (row + 16 * i) * WIDTH];
+		act_shmem[lane_offset + (row + 16 * i) * WIDTH] = input_workgroup[lane_offset + (row + 16 * i) * WIDTH];
 	}
 }
 
