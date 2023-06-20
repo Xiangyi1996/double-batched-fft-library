@@ -1,2 +1,2 @@
 # tiny-nn
-Intel device fast lightning neural network framework
+Lightning fast small neural networks on Intel GPU.
