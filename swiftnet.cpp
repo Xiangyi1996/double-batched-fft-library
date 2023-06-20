@@ -13,6 +13,8 @@ using namespace sycl::ext::oneapi::experimental::matrix;
 
 
 #define SG_SIZE 32
+#define WG_SIZE 4*SG_SIZE
+#define BATCH_CHUNK 64
 
 template <int WIDTH, int N_ITERS, bool BACKWARD = false>
 void work_group_layer(nd_item<1> item,Activation activation, half* act_mem, half* weights_layer, float* out,float* forward_act = nullptr) {
@@ -167,7 +169,7 @@ mlp_swiftnet_backward(
 			q.memcpy(weights_1_device, weights_first_layer.data(), weights_first_layer.size() * sizeof(half));
 			q.memcpy(out_device, dl_output.data(), dl_output.size() * sizeof(float));
 			q.memcpy(fwd_device, forward.data(), forward.size() * sizeof(half));
-			h.parallel_for(nd_range<1>(batch_size * 2, 128), [=](nd_item<1> item) [[intel::reqd_sub_group_size(32)]] {
+			h.parallel_for(nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE), [=](nd_item<1> item) [[intel::reqd_sub_group_size(32)]] {
 				kernel_swiftnet_backward<WIDTH, N_ITERS, ACTIVATION, matrix_layout::row_major>(item,out_device,weights_device,temp_device,fwd_device,act_shmem,weights_1_device,out_stride,batch_size,out_width,n_hidden_matmuls);
 				}
 			});
@@ -421,7 +423,7 @@ mlp_swift_forward(Activation output_activation,
 				q.memcpy(intermediate_output_device, intermediate_output.data(), intermediate_output.size() * sizeof(half));
 
 				cgh.parallel_for<class imatrix>(
-					nd_range<2>(nd_range<1>(batch_size * 2, 128),
+					nd_range<2>(nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE),
 						[=](nd_item<1> item) [[intel::reqd_sub_group_size(32)]]
 						{
 							kernel_swift_mlp<N_BLOCKS, N_ITERS>(spmd_item,
