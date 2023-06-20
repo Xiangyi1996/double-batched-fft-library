@@ -215,7 +215,7 @@ __device__ void workgroup_write_output_static(const __half* __restrict__ act_shm
 
 
 template <int WIDTH, typename T, Activation ACTIVATION, bool INFERENCE>
-mlp_swift_forward(queue q, Activation output_activation,
+mlp_swift_forward(Activation output_activation,
 	const std::vector<half>& weights,
 	const std::vector<half>& input,
 	std::vector<half>& intermediate_output,
@@ -229,18 +229,33 @@ mlp_swift_forward(queue q, Activation output_activation,
 	size_t NDRangeM = batch_size / TM;
 	size_t NDRangeN = input_width / TN;
 
+	int N_BLOCKS = WIDTH / 16;
+	const N_ITERS = 16;
+
+	auto selector = gpu_selector();
+	queue q = queue(selector)
+
 	q.submit([&](handler& cgh)
 		{
-			auto accC = bufC.get_access<access::mode::read_write>(cgh);
-			auto accA = bufA.get_access<access::mode::read_write>(cgh);
-			auto accB = bufB.get_access<access::mode::read_write>(cgh);
+			half* weights_device = malloc_device<half>(weights.size(), q);;
+			half* inputs_device = malloc_device<half>(inputs.size(), q);
+			half* output_device = malloc_device<half>(output.size(), q);
+			half* intermediate_output_device = malloc_device<half>(intermediate_output.size(), q);
+
+			int shmem size = 16 * N_ITERS * WIDTH;
+
+			half* act_shmem = malloc_device<half>(shmem_size, q);
+
+			q.memcpy(weights_device, weights.data(), weights.size() * sizeof(half));
+			q.memcpy(inputs_device, inputs.data(), inputs.size() * sizeof(half));
+			q.memcpy(output_device, output.data(), output.size() * sizeof(half));
+			q.memcpy(intermediate_output_device, intermediate_output.data(), intermediate_output.size() * sizeof(half));
 
 			cgh.parallel_for<class imatrix>(
-				nd_range<2>({ NDRangeM, NDRangeN * SG_SZ }, { 1, 1 * SG_SZ }),
-				[=](nd_item<2> spmd_item) [[intel::reqd_sub_group_size(SG_SZ)]]
-
+				nd_range<2>(nd_range<1>(batch_size * 2, 128),
+					[=](nd_item<1> item) [[intel::reqd_sub_group_size(32)]]
 				{
-					kernel_swift_mlp(spmd_item,
+					kernel_swift_mlp<N_BLOCKS, N_ITERS>(spmd_item,
 						output_activation,
 						input,
 						weights,
