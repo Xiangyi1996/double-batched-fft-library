@@ -329,10 +329,10 @@ workgroup_last_layer_forward(Activation activation,
 
 	joint_matrix<half, TM, TK, matrix_layout::row_major> act_matrix(sg);
 
-	joint_matrix<half, TK, TN, weight_mat_layout> weight_matrix0(sg);
-	joint_matrix<half, TK, TN, weight_mat_layout> weight_matrix1(sg);
-	joint_matrix<half, TK, TN, weight_mat_layout> weight_matrix2(sg);
-	joint_matrix<half, TK, TN, weight_mat_layout> weight_matrix3(sg);
+	joint_matrix<half, TK, TN, matrix_layout::col_major> weight_matrix0(sg);
+	joint_matrix<half, TK, TN, matrix_layout::col_major> weight_matrix1(sg);
+	joint_matrix<half, TK, TN, matrix_layout::col_major> weight_matrix2(sg);
+	joint_matrix<half, TK, TN, matrix_layout::col_major> weight_matrix3(sg);
 
 	joint_matrix<float, TM, TN, matrix_layout::row_major> result_matrix(sg);
 

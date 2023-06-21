@@ -26,13 +26,14 @@ T relu(T val) {
 }
 
 template<typename T>
-T leakyRelu(T val){
+T leakyRelu(T val) {
 	if (val >= 0) {
 		return val;
 	}
 	else {
-		return (T) * 0.01f * val;
+		return (T)0.01f * val;
 	}
+}
 
 template<typename T,typename joint_matrix_t>
 void matrix_activation(Group sg,Activation activation,joint_matrix_t& frag) {
@@ -71,7 +72,7 @@ void matrix_activation(Group sg,Activation activation,joint_matrix_t& frag) {
 		}
 	default:
 		return;
-
+	}
 }
 
 
@@ -97,11 +98,11 @@ void matrix_activation_backward(Group sg,Activation activation,joint_matrix_t& f
 		return;
 	case Activation::Exponential:
 		for (int i = 0; i < data.length(); i++) {
-			data[i] = data[i]*fwd_data[i];
+			data[i] = data[i] * fwd_data[i];
 		}
 		return;
 	case Activation::Sine:
-		
+
 		return;
 	case Activation::Sigmoid:
 		for (int i = 0; i < data.length(); i++) {
@@ -116,5 +117,5 @@ void matrix_activation_backward(Group sg,Activation activation,joint_matrix_t& f
 		}
 	default:
 		return;
-
+	}
 }
