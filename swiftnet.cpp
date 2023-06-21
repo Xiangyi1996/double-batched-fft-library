@@ -385,7 +385,7 @@ __device__ void workgroup_write_output_static(const __half* __restrict__ act_shm
 }
 
 
-template <int WIDTH, typename T, Activation ACTIVATION, bool INFERENCE>
+template <int WIDTH>
 mlp_swift_forward(Activation output_activation,
 	const std::vector<half>& weights,
 	const std::vector<half>& input,
@@ -438,10 +438,13 @@ mlp_swift_forward(Activation output_activation,
 								output_width,
 								n_hidden_layers,
 								matrix_layout::col_major,
-								matrix_layout::col_majors)
+								matrix_layout::col_major)
 						};
 
 						};
+}
+
+
 
 
 
