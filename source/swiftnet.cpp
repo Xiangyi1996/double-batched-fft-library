@@ -7,6 +7,7 @@
 
 using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;
+using bf16 = sycl::ext::oneapi::bfloat16;
 #define TM 8
 #define TK 16
 #define TN 16
@@ -17,24 +18,26 @@ using namespace sycl::ext::oneapi::experimental::matrix;
 #define BATCH_CHUNK 64
 
 template <int WIDTH, int N_ITERS, bool BACKWARD = false>
-void work_group_layer(nd_item<1> item,Activation activation, half* act_mem, half* weights_layer, float* out,float* forward_act = nullptr) {
-	auto sg = item.get_sub_group();
+void work_group_layer(nd_item<1> item,Activation activation, bf16* act_mem, bf16* weights_layer, float* out,float* forward_act = nullptr) {
+	
+	auto sg = it.get_sub_group();
 	int sgId = sg.get_group_id();
-	int N_BLOCKS = WIDTH / 16;
-	device_ptr<half> w(weights_layer);
-	device_ptr<half> a(act_mem);
+	const int N_BLOCKS = WIDTH / 16;
+	device_ptr<bf16> w(weights_layer);
+	device_ptr<bf16> a(act_mem);
 	device_ptr<float> o(out);
-	using weight_mat_layout = std::conditional<BACKWARD, matrix_layout::row_major, matrix_layout::col_major>;
 	
-	joint_matrix<half, TM, TK, matrix_layout::row_major> act_matrix(sg);
-	
-	joint_matrix<half, TK, TN, weight_mat_layout> weight_matrix0(sg);
-	joint_matrix<half, TK, TN, weight_mat_layout> weight_matrix1(sg);
-	joint_matrix<half, TK, TN, weight_mat_layout> weight_matrix2(sg);
-	joint_matrix<half, TK, TN, weight_mat_layout> weight_matrix3(sg);
-	
-	joint_matrix<float, TM, TN, matrix_layout::row_major> result_matrix(sg);
 
+	
+	joint_matrix<sub_group, bf16, use::a, TM, TK, layout::row_major> act_matrix;
+	
+	joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix0;
+	joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix1;
+	joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix2;
+	joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix3;
+	
+	joint_matrix<sub_group, float, use::accumulator, TM, TN> result_matrix;
+	// We load weights matrices into register
 	if (BACKWARD) {
 		joint_matrix_load(sg, weight_matrix0,w +  16 * 0 * WIDTH + 16 * sgId, WIDTH, matrix_layout::row_major);
 		joint_matrix_load(sg, weight_matrix1,w +  16 * 1 * WIDTH + 16 * sgId, WIDTH, matrix_layout::row_major);
@@ -42,33 +45,32 @@ void work_group_layer(nd_item<1> item,Activation activation, half* act_mem, half
 		joint_matrix_load(sg, weight_matrix3,w +  16 * 3 * WIDTH + 16 * sgId, WIDTH, matrix_layout::row_major);
 	}
 	else {
-		joint_matrix_load(sg, weight_matrix0,w + WIDTH * 16 * sgId + 16 * 0, WIDTH, matrix_layout::col_major);
-		joint_matrix_load(sg, weight_matrix1,w + WIDTH * 16 * sgId + 16 * 1, WIDTH, matrix_layout::col_major);
-		joint_matrix_load(sg, weight_matrix2,w + WIDTH * 16 * sgId + 16 * 2, WIDTH, matrix_layout::col_major);
-		joint_matrix_load(sg, weight_matrix3,w + WIDTH * 16 * sgId + 16 * 3, WIDTH, matrix_layout::col_major);
+		joint_matrix_load(sg, weight_matrix0, w + 16 * 2 * sgId + 8 * 0 * WIDTH * 2, WIDTH*2);
+		joint_matrix_load(sg, weight_matrix1, w + 16 * 2 * sgId + 8 * 1 * WIDTH * 2, WIDTH*2);
+		joint_matrix_load(sg, weight_matrix2, w + 16 * 2 * sgId + 8 * 2 * WIDTH * 2, WIDTH*2);
+		joint_matrix_load(sg, weight_matrix3, w + 16 * 2 * sgId + 8 * 3 * WIDTH * 2, WIDTH*2);
 	}
 	
 	for (int l = 0; l < N_ITERS; l++) {
 		joint_matrix_fill(sg, result_matrix, 0.0f);
 
-		
-		joint_matrix_load(sg, act_matrix, a + 16 * 0 + 8 * l * WIDTH, WIDTH,matrix_layout::row_major);
-		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix0, result_matrix);
-		joint_matrix_load(sg, act_matrix, a + 16 * 1 + 8 * l * WIDTH, WIDTH, matrix_layout::row_major);
+		//We load act_matrix in register and do matrix mult
+		joint_matrix_load(sg, act_matrix, a + 16 * 1 + 8 * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix1, result_matrix);
-		joint_matrix_load(sg, act_matrix, a + 16 * 2 + 8 * l * WIDTH, WIDTH, matrix_layout::row_major);
+		joint_matrix_load(sg, act_matrix, a + 16 * 2 + 8 * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix2, result_matrix);
-		joint_matrix_load(sg, act_matrix, a + 16 * 3 + 8 * l * WIDTH, WIDTH, matrix_layout::row_major);
+		joint_matrix_load(sg, act_matrix, a + 16 * 3 + 8 * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix3, result_matrix);
 		if (BACKWARD) {
 			device_ptr f(forward_act);
 			joint_matrix_load(sg, act_matrix, f + 16 * sgId + l * 8 * WIDTH, WIDTH);
-			matrix_activation<float, joint_matrix<float, TM, TN>,joint_matrix<half,TM,TK>>(sg, activation, result_matrix,act_matrix);
+			matrix_activation_backward<float, joint_matrix<float, TM, TN>,joint_matrix<half,TM,TK>>(sg, activation, result_matrix,act_matrix);
 		}
 		else {
 			matrix_activation<float, joint_matrix<float, TM, TN>>(sg, activation, result_matrix);
 		}
-		joint_matrix_store(sg, result_matrix, o + 16 * sgId + 8 * l * WIDTH, WIDTH, matrix_layout::row_major);
+		// we store the result
+		joint_matrix_store(sg, result_matrix, o + 16 * sgId + 8 * l * WIDTH, WIDTH, layout::row_major);
 	}
 
 }
@@ -77,12 +79,12 @@ void work_group_layer(nd_item<1> item,Activation activation, half* act_mem, half
 template <int WIDTH, int N_ITERS, Activation ACTIVATION, typename OUTPUT_LAYOUT>
 void kernel_swiftnet_backward(
 	nd_item<1> item ,
-	half* loss_gradients,
-	half* weights,
+	bf16* loss_gradients,
+	bf16* weights,
 	float* back_act_gradient,
-	half* forward,
-	half* act_shmem,
-	half* weights_first_layer,
+	bf16* forward,
+	bf16* act_shmem,
+	bf16* weights_first_layer,
 	uint32_t out_stride,
 	uint32_t batch_size,
 	uint32_t out_width,
@@ -100,10 +102,10 @@ void kernel_swiftnet_backward(
 	device_ptr<half> act(act_shmem);
 	//Backprop last layer
 	if (out_width <= 16) {
-		joint_matrix<half, TM, TK, OUTPUT_LAYOUT> act_matrix;
-		joint_matrix<half, TK, TN, matrix_layout::row_major> weights_matrix;
-		joint_matrix<float, TM, TN> result_matrix;
-		joint_matrix<half,TM,TK,matrix_layout::row_major> froward_matrix
+		joint_matrix<sub_group,bf16,use::a ,TM, TK, layout::row_major> act_matrix;
+		joint_matrix<sub_group,bf16, use::b,TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weights_matrix;
+		joint_matrix<sub_group,float,use::accumulator ,TM, TN> result_matrix;
+		joint_matrix<sub_group,bf16,use::a,TM,TK,matrix_layout::row_major> forward_matrix;
 		for (int l = 0; l < N_ITERS; l++) {
 			joint_matrix_fill(sg, result_matrix, 0.0f);
 
@@ -115,7 +117,7 @@ void kernel_swiftnet_backward(
 
 			matrix_activation_bacward<half>(ACTIVATION, result_matrix, forward_matrix);
 
-			joint_matrix_store(act + weights_col + (8 * l) * (WIDTH), result_matrix, WIDTH, matrix_layout::row_major);
+			joint_matrix_store(act + weights_col + (8 * l) * (WIDTH), result_matrix, WIDTH, layout::row_major);
 
 		}
 
@@ -140,11 +142,11 @@ void kernel_swiftnet_backward(
 
 template<int WIDTH,Activation ACTIVATION>
 mlp_swiftnet_backward(
-	std::vector<half> weights_first_layer,
-	std::vector<half> weights,
+	std::vector<bf16> weights_first_layer,
+	std::vector<bf16> weights,
 	std::vector<float> dl_output,
-	std::vector<half> temporaries,
-	std::vector<half> forward,
+	std::vector<bf16> temporaries,
+	std::vector<bf16> forward,
 	const uint32_t n_hidden_matmuls,
 	const uint32_t out_width,
 	const uint32_t out_stride,
@@ -157,11 +159,11 @@ mlp_swiftnet_backward(
 	try {
 		q.submit([&](handler& h) {
 			//Transfer data to device memory
-			half* weights_device = malloc_device<half>(weights.size(), q);
-			half* temp_device = malloc_device<half>(temporaries.size(), q);
-			half* weights_1_device = malloc_device<half>(weights_first_layer.size(), q);
-			half* out_device = malloc_device<half>(dl_output.size(), q);
-			half* fwd_device = malloc_device<half>(forward.size(), q);
+			bf16* weights_device = malloc_device<bf16>(weights.size(), q);
+			bf16* temp_device = malloc_device<bf16>(temporaries.size(), q);
+			bf16* weights_1_device = malloc_device<bf16>(weights_first_layer.size(), q);
+			bf16* out_device = malloc_device<bf16>(dl_output.size(), q);
+			bf16* fwd_device = malloc_device<bf16>(forward.size(), q);
 			int shmem size = 16 * N_ITERS * WIDTH;
 			half* act_shmem = malloc_device<half>(shmem_size, q);
 			q.memcpy(weights_device,weights.data(),weights.size()*sizeof(half) );
@@ -185,10 +187,10 @@ mlp_swiftnet_backward(
 template <int WIDTH, int N_ITERS, Activation activation>
 kernel_swift_mlp(nd_item<1> item,
 	const Activation output_activation,
-	const __half* __restrict__ input,
-	const __half* __restrict__ weights_layer,
+	const bf16* __restrict__ input,
+	const bf16* __restrict__ weights_layer,
 	float* __restrict__ out_intermediate_layer,
-	half* act_shmem,
+	bf16* act_shmem,
 	float* __restrict__ out,
 	const uint32_t output_stride,
 	const uint32_t batch_size,
@@ -243,7 +245,7 @@ kernel_swift_mlp(nd_item<1> item,
 
 
 template<WIDTH, int N_ITERS>
-void workgroup_load_input_static(nd_item<1> item, half* act_shmem, half* input) {
+void workgroup_load_input_static(nd_item<1> item, bf16* act_shmem, bf16* input) {
 	int localId = item.get_local_id();
 	auto sg = item.get_sub_group();
 	int sgId = sg.get_local_id()[0];
