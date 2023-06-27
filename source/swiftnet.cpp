@@ -28,31 +28,13 @@ void work_group_layer(nd_item<1> it, Activation activation, bf16* act_mem, bf16*
 	device_ptr<bf16> f(forward_act);
 	device_ptr<float> o(out);
 	
-	it.barrier();
 
 	joint_matrix<sub_group, bf16, use::a, TM, TK, layout::row_major> act_matrix;
-	//joint_matrix<sub_group, half, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrices[N_BLOCKS];
-	joint_matrix<sub_group, bf16, use::b, TK, TN, layout::dynamic> weight_matrix0;
 	joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix0;
 	joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix1;
 	joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix2;
 	joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix3;
 	joint_matrix<sub_group, float, use::accumulator, TM, TN> result_matrix;
-	
-	/*joint_matrix<sub_group, bf16, use::b, TK, TN, layout::row_major> weight_test;
-	joint_matrix_fill(sg, weight_test, 1.0f);
-	joint_matrix_fill(sg, act_matrix, 1.0f);
-	joint_matrix_fill(sg, result_matrix, 0.0f);
-	result_matrix = joint_matrix_mad(sg, act_matrix, weight_test, result_matrix);
-	auto data = get_wi_data(sg, result_matrix);
-	outs << data[0] << endl;*/
-	
-
-
-	//joint_matrix_fill(sg, weight_matrix0, bf16(1.0f));
-	
-	
-	
 	
 	joint_matrix_load(sg, weight_matrix0, w + 16 * 2 * sgId + 8 * 0 * WIDTH * 2, WIDTH * 2);
 	joint_matrix_load(sg, weight_matrix1, w + 16 * 2 * sgId + 8 * 1 * WIDTH * 2, WIDTH * 2);
@@ -62,9 +44,7 @@ void work_group_layer(nd_item<1> it, Activation activation, bf16* act_mem, bf16*
 	
 
 
-	/*for (int i = 0; i < N_BLOCKS; i++) {
-		joint_matrix_load(sg, weight_matrices[i], w + WIDTH * 16 * sgId + 16 * i, WIDTH);
-	}*/
+	
 
 
 	for (int l = 0; l < N_ITERS; l++) {
@@ -81,17 +61,7 @@ void work_group_layer(nd_item<1> it, Activation activation, bf16* act_mem, bf16*
 		joint_matrix_load(sg, act_matrix, a + 16 * 2 + 8 * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix2, result_matrix);
 		joint_matrix_load(sg, act_matrix, a + 16 * 3 + 8 * l * WIDTH, WIDTH);
-		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix3, result_matrix);*/
-		
-		
-		/*auto data = get_wi_data(sg, result_matrix);
-		
-		for (int i = 0; i < data.length(); i++) {
-			float x = (float)data[i];
-			outs << x;
-			elt_activation<float>(Activation::Sine, x);
-			outs << " " << x << endl;
-		}*/
+		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix3, result_matrix);
 		
 		joint_matrix_store(sg, result_matrix, o + 16 * sgId + 8 * l * WIDTH, WIDTH, layout::row_major);
 
