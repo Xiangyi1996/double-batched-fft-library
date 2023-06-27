@@ -13,7 +13,7 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 #define TN 16
 
 
-#define SG_SIZE 32
+#define SG_SIZE 16
 #define WG_SIZE 4*SG_SIZE
 #define BATCH_CHUNK 64
 
