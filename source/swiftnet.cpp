@@ -17,16 +17,16 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 #define WG_SIZE 4*SG_SIZE
 #define BATCH_CHUNK 64
 
-template <int WIDTH, int N_ITERS, bool BACKWARD = false>
-void work_group_layer(nd_item<1> it, Activation activation, bf16* act_mem, bf16* weights_layer, float* out, stream outs, bf16* forward_act = nullptr) {
+template <int WIDTH, int N_ITERS, typename T, bool BACKWARD = false>
+void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, bf16* weights_layer, T* out, stream outs, bf16* forward_act = nullptr) {
 	
-	auto sg = it.get_sub_group();
+	auto sg = item.get_sub_group();
 	int sgId = sg.get_group_id();
-	const int N_BLOCKS = WIDTH / 16;
+	const int N_BLOCKS = WIDTH / TK;
 	device_ptr<bf16> w(weights_layer);
 	device_ptr<bf16> a(act_mem);
-	device_ptr<bf16> f(forward_act);
 	device_ptr<float> o(out);
+	device_ptr<bf16> f(forward_act);
 	
 
 	joint_matrix<sub_group, bf16, use::a, TM, TK, layout::row_major> act_matrix;
@@ -36,42 +36,33 @@ void work_group_layer(nd_item<1> it, Activation activation, bf16* act_mem, bf16*
 	joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix3;
 	joint_matrix<sub_group, float, use::accumulator, TM, TN> result_matrix;
 	
-	joint_matrix_load(sg, weight_matrix0, w + 16 * 2 * sgId + 8 * 0 * WIDTH * 2, WIDTH * 2);
-	joint_matrix_load(sg, weight_matrix1, w + 16 * 2 * sgId + 8 * 1 * WIDTH * 2, WIDTH * 2);
-	joint_matrix_load(sg, weight_matrix2, w + 16 * 2 * sgId + 8 * 2 * WIDTH * 2, WIDTH * 2);
-	joint_matrix_load(sg, weight_matrix3, w + 16 * 2 * sgId + 8 * 3 * WIDTH * 2, WIDTH * 2);
-	
-	
-
-
-	
-
+	joint_matrix_load(sg, weight_matrix0, w + TN * 2 * sgId + TK / 2 * 0 * WIDTH * 2, WIDTH * 2);
+	joint_matrix_load(sg, weight_matrix1, w + TN * 2 * sgId + TK / 2 * 1 * WIDTH * 2, WIDTH * 2);
+	joint_matrix_load(sg, weight_matrix2, w + TN * 2 * sgId + TK / 2 * 2 * WIDTH * 2, WIDTH * 2);
+	joint_matrix_load(sg, weight_matrix3, w + TN * 2 * sgId + TK / 2 * 3 * WIDTH * 2, WIDTH * 2);
 
 	for (int l = 0; l < N_ITERS; l++) {
 		joint_matrix_fill(sg, result_matrix, 0.0f);
 
-		joint_matrix_load(sg, act_matrix, a + 16 * 0 + 8 * l * WIDTH, WIDTH);
+		joint_matrix_load(sg, act_matrix, a + TK * 0 + TM * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix0, result_matrix);
-
-		
-		
-		
-		joint_matrix_load(sg, act_matrix, a + 16 * 1 + 8 * l * WIDTH, WIDTH);
+		joint_matrix_load(sg, act_matrix, a + TK * 1 + TM * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix1, result_matrix);
-		joint_matrix_load(sg, act_matrix, a + 16 * 2 + 8 * l * WIDTH, WIDTH);
+		joint_matrix_load(sg, act_matrix, a + TK * 2 + TM * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix2, result_matrix);
-		joint_matrix_load(sg, act_matrix, a + 16 * 3 + 8 * l * WIDTH, WIDTH);
+		joint_matrix_load(sg, act_matrix, a + TK * 3 + TM * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix3, result_matrix);
-		
-		joint_matrix_store(sg, result_matrix, o + 16 * sgId + 8 * l * WIDTH, WIDTH, layout::row_major);
-
+	
 		if (BACKWARD) {
-			matrix_activation_backward<float,bf16>(it,activation,o+16*sgId+8*l*WIDTH,f + 16*sgId + l * 8 * WIDTH,WIDTH,outs);
+			matrix_activation_backward<T,bf16>(item,activation,o+TK*sgId+TM*l*WIDTH,f + TK*sgId + l * TM * WIDTH,WIDTH,outs);
 				
 		}
 		else {
-			matrix_activation<float>(it, activation, o + 16 * sgId + 8 * l * WIDTH, WIDTH, outs);
+			matrix_activation<T>(item, activation, o + TK * sgId + TM * l * WIDTH, WIDTH, outs);
 		}
+
+		joint_matrix_store(sg, result_matrix, o + TM * sgId + TN * l * WIDTH, WIDTH, layout::row_major);
+
 	}
 }
 
@@ -183,43 +174,85 @@ mlp_swiftnet_backward(
 	}
 }
 
+//Fix les index pour copier la memoire
+template <int WIDTH, int N_ITERS>
+void workgroup_load_input_static(nd_item<1> item, bf16* act_shmem, const bf16* input) {
+	int localId = item.get_local_id();
+	auto sg = item.get_sub_group();
+	int sgId = sg.get_group_id();
 
-template <int WIDTH, int N_ITERS, Activation activation>
-kernel_swift_mlp(nd_item<1> item,
+	int offset = (8 * localId) % WIDTH;
+	int row = (16 * localId + sgId * 64) / WIDTH;
+
+	for (int i = 0; i < N_ITERS; i++) {
+		for (int j = 0; j < TN; j++) {
+			for (int k = 0; k < TM; k++) {
+				act_shmem[TN * sgId + TM * i * WIDTH + j + k * WIDTH] = input[TN * sgId + TM * i * WIDTH + j + k * WIDTH];
+			}
+		}
+	}
+}
+
+
+template <int WIDTH, int N_ITERS>
+void workgroup_write_output_static(nd_item<1> item, bf16* act_shmem, float* output_threadblock) {
+
+	int localId = item.get_local_id();
+	auto sg = item.get_sub_group();
+	int sgId = sg.get_group_id();
+
+	int offset = (8 * localId) % WIDTH;
+	int row = (16 * localId + sgId * 64) / WIDTH;
+
+	for (int i = 0; i < N_ITERS; i++) {
+		for (int j = 0; j < TN; j++) {
+			for (int k = 0; k < TM; k++) {
+				output_threadblock[TN * sgId + TM * i * WIDTH + j + k * WIDTH] = act_shmem[TN * sgId + TM * i * WIDTH + j + k * WIDTH];
+			}
+		}
+	}
+}
+
+
+template <int WIDTH, int N_ITERS, typename T, Activation activation>
+void kernel_swift_mlp(nd_item<1> item,
 	const Activation output_activation,
-	const bf16* __restrict__ input,
-	const bf16* __restrict__ weights_layer,
-	float* __restrict__ out_intermediate_layer,
+	bf16* input,
+	bf16* weights_layer,
+	T* out_intermediate_layer,
 	bf16* act_shmem,
-	float* __restrict__ out,
+	T* out,
 	const uint32_t output_stride,
-	const uint32_t batch_size,
 	const uint32_t input_width,
 	const uint32_t output_width,
 	const uint32_t n_hidden_matmuls,
-	const matrix_layout input_layout,
-	const matrix_layout output_layout) {
+	const layout input_layout,
+	const layout output_layout,
+	stream outs) {
 
-	
-	
+
 
 	// Handle first layer because it has different input
 
-	const int elem_idx = 16 * item.get_local_id(0) * N_ITERS;
+	auto wg = item.get_group();
+	const int wg_idx = wg.get_group_id();
+	const int elem_idx = WIDTH * wg_idx;
 
 	if (input_width == WIDTH) {
-		work_group_load_input_static<WIDTH, N_ITERS>(act_shmem, input + elem_idx * WIDTH);
-		work_group_layer<WIDTH, N_ITERS, false>(item, activation, act_mem, weights_layer, out);
-	}
-	else {
-		workgroup_input_layer_forward_dynamic<WIDTH, N_ITERS, matrix_layout::row_major>(activation,
-			act_shmem,
-			input + elem_idx * input_width,
-			weights_layer,
-			input_width,
-			batch_size);
 
+		workgroup_load_input_static<WIDTH, N_ITERS>(item, act_shmem + elem_idx * WIDTH, input + elem_idx * WIDTH);
+		work_group_layer<WIDTH, N_ITERS, T, false>(item, activation, act_shmem + elem_idx * WIDTH, weights_layer, out + elem_idx * WIDTH,stream outs );
 	}
+	//else {
+	//	workgroup_input_layer_forward_dynamic<WIDTH, N_ITERS, matrix_layout::row_major>(activation,
+	//		act_shmem,
+	//		input + elem_idx * input_width,
+	//		weights_layer,
+	//		input_width,
+	//		batch_size,
+	//      stream outs);
+
+	//}
 
 	// Handle hidden layers all together
 
@@ -228,55 +261,44 @@ kernel_swift_mlp(nd_item<1> item,
 	const int last_weight_lenght = WIDTH * output_width;
 
 	for (int k = 0; k < n_hidden_matmuls; k++) {
-		work_group_layer<WIDTH, N_ITERS, false>(item, activation, act_shmem, weights_layer + first_weight_length + k * hidden_weight_lenght, out);
+		work_group_layer<WIDTH, N_ITERS, T, false>(item, activation, act_shmem + elem_idx * WIDTH, weights_layer + first_weight_length + k * hidden_weight_lenght, out + elem_idx * WIDTH,stream outs);
 	}
 
-	// Handle output layer
-	if (out) {
-		workgroup_last_layer_forward<WIDTH, N_ITERS, OUT_T>(output_activation,
-			act_shmem,
-			weights_layer + first_weights_stride + weights_stride * n_hidden_matmuls,
-			out + elem_idx * output_stride,
-			output_stride,
-			output_layout);
+	workgroup_write_output_static<WIDTH, N_ITERS>(item, act_shmem, out + elem_idx * WIDTH);
 
-	}
-}
+	//// Handle output layer
+	//if (out) {
+	//	workgroup_last_layer_forward<WIDTH, N_ITERS, OUT_T>(output_activation,
+	//		act_shmem,
+	//		weights_layer + first_weights_stride + weights_stride * n_hidden_matmuls,
+	//		out + elem_idx * output_stride,
+	//		output_stride,
+	//		output_layout,
+	//      stream outs);
 
-
-template<WIDTH, int N_ITERS>
-void workgroup_load_input_static(nd_item<1> item, bf16* act_shmem, bf16* input) {
-	int localId = item.get_local_id();
-	auto sg = item.get_sub_group();
-	int sgId = sg.get_local_id()[0];
-
-	int offset = (8 * localId) % WIDTH;
-	itn row = (8 * localId + sgId * 8 * 32) / WIDTH;
-
-	for (int i = 0; i < N_ITERS; i++) {
-		act_shmem[offset + (row + 8 * i) * WIDTH] = input[offset + (row + 8 * i) * WIDTH];
-	}
+	//}
 }
 
 template <int WIDTH, int N_ITERS>
-workgroup_input_layer_forward_dynamic<WIDTH, N_ITERS, matrix_layout::row_major>(nd_item<1> item,
+void workgroup_input_layer_forward_dynamic(nd_item<1> item,
 	Activation activation,
-	__half* __restrict__ act_shmem,
-	const __half* __restrict__ input,
-	const __half* __restrict__ weights_layer,
-	float __restrict out_intermediate_layer,
+	bf16* act_shmem,
+	const bf16* input,
+	bf16* weights_layer,
+	float* out_intermediate_layer,
 	const int input_width,
-	const int batch_size)
+	const int batch_size,
+	stream outs)
 {
 	auto sg = item.get_sub_group();
 	int sgId = sg.get_group_id();
+	const int N_BLOCKS = WIDTH / TK;
 	const int li = item.get_local_id(0);
-	const int N_BLOCKS = input_width / 16;
-	device_ptr<half> w(weights_layer);
-	device_ptr<half> a(act_shmem);
+	device_ptr<bf16> w(weights_layer);
+	device_ptr<bf16> a(act_shmem);
 	device_ptr<float> o(out_intermediate_layer);
 
-	__half* __restrict__ weights_shmem = act_shmem + 16 * input_width;
+	bf16* weights_shmem = act_shmem + 16 * input_width;
 
 	const int n_element_load = N_BLOCKS * 32 * 8;
 	const int wi_elem_idx = (li + sgId * 32) * 8;
@@ -284,167 +306,151 @@ workgroup_input_layer_forward_dynamic<WIDTH, N_ITERS, matrix_layout::row_major>(
 	const int n_elements_weights = WIDTH * input_width;
 
 	for (int i = wi_elem_idx; i < n_elements_weights; i += n_element_load) {
-		*(int4*)&weights_shmem[i] = *(int4*)&weights_this_layer[i];
+		weights_shmem[i] = weights_layer[i];
 	}
 
-	joint_matrix<half, TM, TK, matrix_layout::row_major> act_matrix(sg);
+	joint_matrix<sub_group, bf16, use::a, TM, TK, layout::row_major> act_matrix;
+	joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix;
 
-	joint_matrix<half, TK, TN, matrix_layout::col_major> weight_matrix(sg);
+	joint_matrix<sub_group, float, use::accumulator, TM, TN> result_matrix;
 
-	joint_matrix<float, TM, TN, matrix_layout::row_major> result_matrix(sg);
-
-	const int n_operations = input_width / 16;
+	const int n_operations = input_width / TK;
 
 	for (int l = 0; l < N_ITERS; l++) {
-		const int n_elems_input = 16 * input_width;
-		for (int i = wi_elem_i; i < n_elems_input; idx += n_element_load) {
-			act_shmem[i] = input_threadblock[l * n_elems_a + i];
+		const int n_elems_input = TK * input_width;
+		for (int i = wi_elem_idx; i < n_elems_input; i += n_element_load) {
+			act_shmem[i] = input[l * n_element_load + i];
 		}
 
 		joint_matrix_fill(sg, result_matrix, 0.0f);
 		for (int i = 0; i < n_operations; i++) {
-			joint_matrix_load(sg, act_matrix, a + 16 * i, input_width, matrix_layout::row_major);
-			joint_matrix_load(sg, weight_matrix, w + 16 * i + 16 * sgId * input_width, input_width, matrix_layout::col_major);
+			joint_matrix_load(sg, act_matrix, a + TK * i, input_width);
+			joint_matrix_load(sg, weight_matrix, w + TN / 2 * 2 * sgId * 8 * input_width + TK * i * 2, input_width * 2);
+
 			result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix, result_matrix);
-			matrix_activation<float, joint_matrix<float, TM, TN>>(sg, activation, result_matrix);
-			joint_matrix_store(sg, result_matrix, o + 16 * sgId + 8 * l * WIDTH, WIDTH, matrix_layout::row_major)
+			//matrix_activation<T>(item, activation, o + TK * sgId + TM * l * WIDTH, WIDTH, outs);
+			joint_matrix_store(sg, result_matrix, o + TN * sgId + TM * l * WIDTH, WIDTH, layout::row_major);
 		}
 	}
-
 }
 
 template <int WIDTH, int N_ITERS>
-workgroup_last_layer_forward(Activation activation,
-	__half* __restrict__ act_mem,
-	const __half* __restrict__ input,
-	const __half* __restrict__ weights_layer,
-	float __restrict out,
-	const int output_stride) {
+void workgroup_last_layer_forward(nd_item<1> item,
+	Activation activation,
+	bf16* act_mem,
+	const bf16* input,
+	bf16* weights_layer,
+	float* out,
+	const int output_stride,
+	stream outs) {
 
 	auto sg = item.get_sub_group();
 	int sgId = sg.get_group_id();
 	const int li = item.get_local_id(0);
 	int N_BLOCKS = WIDTH / 16;
-	device_ptr<half> w(weights_layer);
-	device_ptr<half> a(act_mem);
+	device_ptr<bf16> w(weights_layer);
+	device_ptr<bf16> a(act_mem);
 	device_ptr<float> o(out);
 
-	joint_matrix<half, TM, TK, matrix_layout::row_major> act_matrix(sg);
+	joint_matrix<sub_group, bf16, use::a, TM, TK, layout::row_major> act_matrix;
+	//joint_matrix<sub_group, half, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrices[N_BLOCKS];
+	joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix0;
+	joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix1;
+	joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix2;
+	joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix3;
+	joint_matrix<sub_group, float, use::accumulator, TM, TN> result_matrix;
 
-	joint_matrix<half, TK, TN, matrix_layout::col_major> weight_matrix0(sg);
-	joint_matrix<half, TK, TN, matrix_layout::col_major> weight_matrix1(sg);
-	joint_matrix<half, TK, TN, matrix_layout::col_major> weight_matrix2(sg);
-	joint_matrix<half, TK, TN, matrix_layout::col_major> weight_matrix3(sg);
-
-	joint_matrix<float, TM, TN, matrix_layout::row_major> result_matrix(sg);
-
-
-	__half* __restrict__ weights_shmem = act_shmem + N_ITERS * 16 * WIDTH;
+	bf16* weights_shmem = act_mem + N_ITERS * 16 * WIDTH;
 
 	const int weights_row = (8 * li) % WIDTH;
-	const int weights_col = (8 * li + 8 * 32 * sdUd) / WIDTH;
+	const int weights_col = (8 * li + 8 * 32 * sgId) / WIDTH;
 
-	*(int4*)&weights_shmem[weights_row + weights_col * WIDTH] = *(int4*)&weights_this_layer[weights_row + weights_col * WIDTH];
+	weights_shmem[weights_row + weights_col * WIDTH] = weights_layer[weights_row + weights_col * WIDTH];
+
+	joint_matrix_load(sg, weight_matrix0, w + 16 * 2 * sgId + 8 * 0 * WIDTH * 2, WIDTH * 2);
+	joint_matrix_load(sg, weight_matrix1, w + 16 * 2 * sgId + 8 * 1 * WIDTH * 2, WIDTH * 2);
+	joint_matrix_load(sg, weight_matrix2, w + 16 * 2 * sgId + 8 * 2 * WIDTH * 2, WIDTH * 2);
+	joint_matrix_load(sg, weight_matrix3, w + 16 * 2 * sgId + 8 * 3 * WIDTH * 2, WIDTH * 2);
 
 
-	joint_matrix_load(sg, weight_matrix0, w + WIDTH * 16 * sgId + 16 * 0, WIDTH, matrix_layout::col_major);
-	joint_matrix_load(sg, weight_matrix1, w + WIDTH * 16 * sgId + 16 * 1, WIDTH, matrix_layout::col_major);
-	joint_matrix_load(sg, weight_matrix2, w + WIDTH * 16 * sgId + 16 * 2, WIDTH, matrix_layout::col_major);
-	joint_matrix_load(sg, weight_matrix3, w + WIDTH * 16 * sgId + 16 * 3, WIDTH, matrix_layout::col_major);
 
-
-	for (int i = sgId; i < N_ITERS; i += N_BLOCKS) {
+	for (int l = 0; l < N_ITERS; l++) {
 		joint_matrix_fill(sg, result_matrix, 0.0f);
 
-		joint_matrix_load(sg, act_matrix, a + 16 * 0 + 8 * i * WIDTH, WIDTH, matrix_layout::row_major);
+		joint_matrix_load(sg, act_matrix, a + 16 * 0 + 8 * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix0, result_matrix);
-		joint_matrix_load(sg, act_matrix, a + 16 * 1 + 8 * i * WIDTH, WIDTH, matrix_layout::row_major);
+		joint_matrix_load(sg, act_matrix, a + 16 * 1 + 8 * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix1, result_matrix);
-		joint_matrix_load(sg, act_matrix, a + 16 * 2 + 8 * i * WIDTH, WIDTH, matrix_layout::row_major);
+		joint_matrix_load(sg, act_matrix, a + 16 * 2 + 8 * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix2, result_matrix);
-		joint_matrix_load(sg, act_matrix, a + 16 * 3 + 8 * i * WIDTH, WIDTH, matrix_layout::row_major);
+		joint_matrix_load(sg, act_matrix, a + 16 * 3 + 8 * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix3, result_matrix);
 
-		matrix_activation<float, joint_matrix<float, TM, TN>>(sg, activation, result_matrix);
+		//matrix_activation<T>(item, activation, o + TK * sgId + TM * l * WIDTH, WIDTH, outs);
 
-		joint_matrix_store(sg, result_matrix, o + 8 * i * output_stride, output_stride, matrix_layout::row_major);
+		joint_matrix_store(sg, result_matrix, o + 16 * sgId + 8 * l * WIDTH, WIDTH, layout::row_major);
+
 	}
 }
 
-template <int WIDTH, int N_ITERS>
-__device__ void workgroup_write_output_static(const __half* __restrict__ act_shmem, __half* __restrict__ output_workgroup) {
-
-	const int li = item.get_local_id(0);
-	auto sg = item.get_sub_group();
-	int sgId = sg.get_group_id();
-
-	const uint32_t lane_offset = (8 * li) % WIDTH;
-	const uint32_t row = (8 * li + sgId * 8 * 32) / WIDTH;
-
-	for (int i = 0; i < N_ITERS; ++i) {
-		output_workgroup[lane_offset + (row + 8 * i) * WIDTH] = act_shmem[lane_offset + (row + 8 * i) * (WIDTH + SKEW)];
-	}
-}
-
-
-template <int WIDTH>
-mlp_swift_forward(Activation output_activation,
-	const std::vector<half>& weights,
-	const std::vector<half>& input,
-	std::vector<half>& intermediate_output,
-	std::vector<float>& output,
+template <int WIDTH, typename T>
+void mlp_swift_forward(Activation output_activation,
+	const std::vector<bf16>& weights,
+	const std::vector<bf16>& inputs,
+	std::vector<T>& intermediate_output,
 	const int output_stride,
 	const int n_hidden_layers,
 	const int batch_size,
 	const int input_width,
 	const int output_width)
 {
-	size_t NDRangeM = batch_size / TM;
-	size_t NDRangeN = input_width / TN;
 
-	int N_BLOCKS = WIDTH / 16;
-	const N_ITERS = 16;
 
-	auto selector = gpu_selector();
-	queue q = queue(selector)
+	const int N_BLOCKS = WIDTH / TK;
+	const int N_ITERS = WIDTH / TM;
 
-		q.submit([&](handler& cgh)
-			{
-				half* weights_device = malloc_device<half>(weights.size(), q);;
-				half* inputs_device = malloc_device<half>(inputs.size(), q);
-				float* output_device = malloc_device<float>(output.size(), q);
-				half* intermediate_output_device = malloc_device<half>(intermediate_output.size(), q);
+	queue q = queue();
 
-				int shmem size = 16 * N_ITERS * WIDTH;
 
-				half* act_shmem = malloc_device<half>(shmem_size, q);
+	bf16* inputs_device = malloc_shared<bf16>(inputs.size(), q);
+	bf16* weights_layer_device = malloc_shared<bf16>(weights.size(), q);
+	T* output_device = malloc_shared<T>(inputs.size(), q);
+	T* intermediate_output_device = malloc_shared<T>(intermediate_output.size(), q);
 
-				q.memcpy(weights_device, weights.data(), weights.size() * sizeof(half));
-				q.memcpy(inputs_device, inputs.data(), inputs.size() * sizeof(half));
-				q.memcpy(output_device, output.data(), output.size() * sizeof(float));
-				q.memcpy(intermediate_output_device, intermediate_output.data(), intermediate_output.size() * sizeof(half));
 
-				cgh.parallel_for<class imatrix>(
-					nd_range<2>(nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE),
-						[=](nd_item<1> item) [[intel::reqd_sub_group_size(32)]]
-						{
-							kernel_swift_mlp<N_BLOCKS, N_ITERS>(spmd_item,
-								output_activation,
-								input,
-								weights,
-								intermediate_output,
-								output,
-								output_stride,
-								batch_size,
-								input_width,
-								output_width,
-								n_hidden_layers,
-								matrix_layout::col_major,
-								matrix_layout::col_major)
-						};
+	int shmem_size = WIDTH * WIDTH;
 
-						};
+	bf16* act_shmem = malloc_device<bf16>(shmem_size, q);
+
+	q.memcpy(weights_layer_device, weights.data(), weights.size() * sizeof(bf16));
+	q.memcpy(inputs_device, inputs.data(), inputs.size() * sizeof(bf16));
+	//q.memcpy(output_device, output.data(), output.size() * sizeof(T));
+	q.memcpy(intermediate_output_device, intermediate_output.data(), intermediate_output.size() * sizeof(T));
+
+	q.submit([&](handler& cgh)
+		{
+			cgh.parallel_for<class imatrix>(
+				nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE),
+				[=](nd_item<1> item) [[intel::reqd_sub_group_size(8)]]
+				{
+					kernel_swift_mlp<WIDTH, N_ITERS, T, Activation::None>(item,
+						output_activation,
+						inputs_device,
+						weights_layer_device,
+						intermediate_output_device,
+						act_shmem,
+						output_device,
+						output_stride,
+						input_width,
+						output_width,
+						n_hidden_layers,
+						layout::col_major,
+						layout::col_major);
+				});
+		});
+	//q.memcpy(output, output_device, output.size() * sizeof(float));
 }
+
 
 
 
