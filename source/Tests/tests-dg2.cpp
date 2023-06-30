@@ -19,15 +19,14 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 #define BATCH_CHUNK 64
 
 template <int WIDTH, int N_ITERS, typename T, bool BACKWARD = false>
-void work_group_layer(nd_item<1> it, Activation activation, bf16* act_mem, bf16* weights_layer, T* out) {
+void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, bf16* weights_layer, T* out,  bf16* forward_act = nullptr) {
 
-	auto sg = it.get_sub_group();
+	auto sg = item.get_sub_group();
 	int sgId = sg.get_group_id();
 	const int N_BLOCKS = WIDTH / TK;
 	device_ptr<bf16> w(weights_layer);
 	device_ptr<bf16> a(act_mem);
 	device_ptr<float> o(out);
-
 
 	joint_matrix<sub_group, bf16, use::a, TM, TK, layout::row_major> act_matrix;
 	joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix0;
@@ -61,7 +60,7 @@ void work_group_layer(nd_item<1> it, Activation activation, bf16* act_mem, bf16*
 
 		}
 		else {
-			//matrix_activation<float>(it, activation, o + 16 * sgId + 8 * l * WIDTH, WIDTH, outs);
+			//matrix_activation<float>(it, activation, o + TK * sgId + TM * l * WIDTH, WIDTH, outs);
 		}
 	}
 	for (int i = 0; i < N_ITERS; i++) {
@@ -296,40 +295,40 @@ void mlp_swift_forward(Activation output_activation,
 	const std::vector<bf16>& weights,
 	const std::vector<bf16>& inputs,
 	std::vector<T>& intermediate_output,
+	std::vector<T>& output,
 	const int output_stride,
 	const int n_hidden_layers,
 	const int batch_size,
 	const int input_width,
 	const int output_width)
 {
-
-
 	const int N_BLOCKS = WIDTH / TK;
 	const int N_ITERS = WIDTH / TM;
 
 	queue q = queue();
 
+	std::vector<bf16> act(batch_size * WIDTH, bf16(0.0f));
 
 	bf16* inputs_device = malloc_shared<bf16>(inputs.size(), q);
 	bf16* weights_layer_device = malloc_shared<bf16>(weights.size(), q);
-	T* output_device = malloc_shared<T>(inputs.size(), q);
+	T* output_device = malloc_shared<T>(output.size(), q);
 	T* intermediate_output_device = malloc_shared<T>(intermediate_output.size(), q);
 
 
-	int shmem_size = WIDTH * WIDTH;
+	int shmem_size = batch_size * WIDTH;
 
-	bf16* act_shmem = malloc_device<bf16>(shmem_size, q);
+	bf16* act_shmem = malloc_shared<bf16>(shmem_size, q);
 
-	q.memcpy(weights_layer_device, weights.data(), weights.size() * sizeof(bf16));
 	q.memcpy(inputs_device, inputs.data(), inputs.size() * sizeof(bf16));
-	//q.memcpy(output_device, output.data(), output.size() * sizeof(T));
+	q.memcpy(weights_layer_device, weights.data(), weights.size() * sizeof(bf16));
 	q.memcpy(intermediate_output_device, intermediate_output.data(), intermediate_output.size() * sizeof(T));
+	q.memcpy(act_shmem, act.data(), batch_size * WIDTH * sizeof(bf16));
 
 	q.submit([&](handler& cgh)
 		{
 			cgh.parallel_for<class imatrix>(
 				nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE),
-				[=](nd_item<1> item) [[intel::reqd_sub_group_size(8)]]
+				[=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]]
 				{
 					kernel_swift_mlp<WIDTH, N_ITERS, T, Activation::None>(item,
 						output_activation,
@@ -345,8 +344,11 @@ void mlp_swift_forward(Activation output_activation,
 						layout::col_major,
 						layout::col_major);
 				});
-		});
-	//q.memcpy(output, output_device, output.size() * sizeof(float));
+		}).wait();
+
+	q.memcpy(output.data(), output_device, output.size() * sizeof(T));
+
+
 }
 
 void test0() {
@@ -533,8 +535,8 @@ void test2() {
 	}
 	for (int i = 0; i < WIDTH; i++) {
 		for (int j = 0; j < WIDTH; j++) {
-			weight[WIDTH * i + j] = bf16(1.0f * (WIDTH * i + j));
-			weight[WIDTH *WIDTH + WIDTH * i + j] = bf16(1.0f);
+			weight[WIDTH * i + j] = bf16(1.0f / 100);
+			weight[WIDTH *WIDTH + WIDTH * i + j] = bf16(1.0f / 100);
 		}
 	}
 	for (int i = 0; i < WIDTH / 2; i++) {
@@ -576,8 +578,9 @@ void test2() {
 				layout::col_major,
 				layout::col_major);
 			});
-		//q.memcpy(out_res, out, 64 * 64 * sizeof(half));
 		}).wait();
+
+		q.memcpy(out_res.data(), out, 128 * 64 * sizeof(float));
 
 		for (int i = 0; i < batch_size; i++) {
 			for (int j = 0; j < WIDTH; j++) {
@@ -594,7 +597,7 @@ void test2() {
 			}
 		}
 		for (int i = WIDTH * WIDTH; i < WIDTH * WIDTH + 10; i++) {
-			std::cout << out[i] << " " << res2[i] << std::endl;
+			std::cout << out_res[i] << " " << res2[i] << std::endl;
 		}
 
 
@@ -613,26 +616,26 @@ void test3() {
 	const int input_width = 64;
 	const int output_width = 64;
 
-	std::vector<bf16> input(batch_size * WIDTH, 1);
-	std::vector<bf16> weight(WIDTH * WIDTH * (n_hidden_layers + 1), 0);
-	std::vector<bf16> packed_weight((n_hidden_layers + 1) * WIDTH * WIDTH, 0);
-	std::vector<float> intermediate_output(batch_size * WIDTH, 0);
-	std::vector<float> out(batch_size * WIDTH, 0);
+	std::vector<bf16> input(batch_size * WIDTH, bf16(1.0f));
+	std::vector<bf16> weight(WIDTH * WIDTH * (n_hidden_layers + 1), bf16(0.0f));
+	std::vector<bf16> packed_weight((n_hidden_layers + 1) * WIDTH * WIDTH, bf16(0.0f));
+	std::vector<float> intermediate_output((n_hidden_layers + 1) * batch_size * WIDTH, bf16(0.0f));
+	std::vector<float> output(batch_size * WIDTH, bf16(0.0f));
 
 
-	float res1[batch_size * WIDTH];
-	float res2[batch_size * WIDTH];
+	std::vector<float> res1(batch_size * WIDTH, 0);
+	std::vector<float> res2(batch_size * WIDTH, 0);
 
 	for (int i = 0; i < batch_size; i++) {
 		for (int j = 0; j < WIDTH; j++) {
-			input[i * WIDTH + j] = bf16(1.0f);
+			input[i * WIDTH + j] = bf16(1.0f *j / 30);
 		}
 
 	}
 	for (int i = 0; i < WIDTH; i++) {
 		for (int j = 0; j < WIDTH; j++) {
-			weight[WIDTH * i + j] = bf16(1.0f);
-			weight[WIDTH * WIDTH + WIDTH * i + j] = bf16(1.0f);
+			weight[WIDTH * i + j] = bf16(1.0f  *j / 39);
+			weight[WIDTH * WIDTH + WIDTH * i + j] = bf16(1.0f/39);
 		}
 	}
 	for (int i = 0; i < WIDTH / 2; i++) {
@@ -649,6 +652,7 @@ void test3() {
 		packed_weight,
 		input,
 		intermediate_output,
+		output,
 		output_stride,
 		n_hidden_layers,
 		batch_size,
@@ -671,7 +675,7 @@ void test3() {
 		}
 	}
 	for (int i = 0; i < 10; i++) {
-		std::cout << out[i] << " " << res2[i] << std::endl;
+		std::cout << output[i] << " " << res2[i] << std::endl;
 	}
 
 }
