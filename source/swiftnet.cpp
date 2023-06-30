@@ -402,7 +402,8 @@ void mlp_swift_forward(Activation output_activation,
 	const int n_hidden_layers,
 	const int batch_size,
 	const int input_width,
-	const int output_width)
+	const int output_width,,
+	stream outs)
 {
 
 
@@ -445,7 +446,8 @@ void mlp_swift_forward(Activation output_activation,
 						output_width,
 						n_hidden_layers,
 						layout::col_major,
-						layout::col_major);
+						layout::col_major,
+						stream outs);
 				});
 		});
 	//q.memcpy(output, output_device, output.size() * sizeof(float));
