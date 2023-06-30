@@ -56,7 +56,5 @@ std::unique_ptr<Context> FullyFusedMLP<T, WIDTH>::forward_pass(stream outs, cons
 		default: throw std::runtime_error{"Unsupported activation."};
 		}
 
-
-
 	return forward;
 	}
