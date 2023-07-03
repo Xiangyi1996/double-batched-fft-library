@@ -187,7 +187,6 @@ void mlp_swiftnet_backward(
 				kernel_swiftnet_backward<WIDTH, N_ITERS, ACTIVATION>(item, deltas_device, weights_device, fwd_device, out_inter, batch_number, n_hidden_matmuls, outs);
 				});
 			});
-		q.memcpy(forward.data(), fwd_device, forward.size() * sizeof(bf16));
 		for (int i = 0; i < deltas.size(); i++) {
 			deltas[i] = deltas_device[i];
 		}
