@@ -202,16 +202,10 @@ void matrix_activation(nd_item<1> it, Activation activation, device_ptr<T> out,i
 
 template<typename outT, typename fwdT,typename resT,int SG_SZ>
 void matrix_activation_backward(nd_item<1> it, Activation activation, device_ptr<outT> out, device_ptr<fwdT> fwd,resT* res, int stride) {
-	int id = it.get_local_id();
+	int id = it.get_local_id()%SG_SZ;
 	for (int i = 0; i < 8; i++) {
 		
 		elt_activation_bwd<outT, fwdT, resT>(activation, out[i * stride + id], fwd[i * stride + id], res[i * stride + id]);
-		
-		if (SG_SZ == 8) {
-			elt_activation_bwd<outT, fwdT, resT>(activation, out[i * stride + 8 + id], fwd[i * stride + 8 + id], res[i * stride + 8 + id]);
-		}
-			
-		
 		
 	}
  }
