@@ -58,7 +58,7 @@ void work_group_layer_backward(nd_item<1> it, Activation activation, bf16* act_m
 
 		joint_matrix_store(sg, result_matrix, o + TN * sgId + TM * l * WIDTH, WIDTH, layout::row_major);
 		
-		matrix_activation_backward<float, bf16, bf16,TN>(it, activation, o + TN * sgId + 8 * l * WIDTH, f + TN * sgId + l * 8 * WIDTH, out + TN * sgId + 8 * l * WIDTH, WIDTH);
+		matrix_activation_backward<float, bf16, bf16,SG_SZ>(it, activation, o + TN * sgId + 8 * l * WIDTH, f + TN * sgId + l * 8 * WIDTH, out + TN * sgId + 8 * l * WIDTH, WIDTH);
 		
 		
 
