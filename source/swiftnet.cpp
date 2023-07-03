@@ -56,10 +56,11 @@ void work_group_layer_backward(nd_item<1> it, Activation activation, bf16* act_m
 		joint_matrix_load(sg, act_matrix, a + TK * 3 + TM * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix3, result_matrix);
 
-		joint_matrix_store(sg, result_matrix, o + TN * sgId + TK * l * WIDTH, WIDTH, layout::row_major);
-
+		joint_matrix_store(sg, result_matrix, o + TN * sgId + TM * l * WIDTH, WIDTH, layout::row_major);
+		
 		matrix_activation_backward<float, bf16, bf16,TN>(it, activation, o + TN * sgId + 8 * l * WIDTH, f + TN * sgId + l * 8 * WIDTH, out + TN * sgId + 8 * l * WIDTH, WIDTH);
-
+		
+		
 
 
 
