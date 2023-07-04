@@ -539,8 +539,104 @@ void test1() {
 }
 
 void test2() {
-	L2Loss loss();
-	Trainer train
+
+	const int batch_size = 128;
+	const int WIDTH = 64;
+
+	const float scale = 1.0f;
+
+	std::vector<bf16> inputs(batch_size * WIDTH, bf16(1.0f));
+	std::vector<float> output(batch_size * WIDTH, 0.0f);
+	std::vector<float> dL_output(batch_size * WIDTH, 0.0f);
+	std::vector<float> target(batch_size * WIDTH, 8192.0f);
+	std::vector<float> grads(batch_size * WIDTH, 0.0f);
+	std::vector<float> losses(batch_size * WIDTH, 0.0f);
+
+	L2Loss<float> loss;
+	Trainer<float, 64> train(64, 64, 1, Activation::None, Activation::None, loss);
+
+	train.training_step(inputs, output, dL_output, target, grads, losses, scale);
+
+	for (int i = 0; i < 5; i++) {
+
+		std::cout << "losses : " << losses[i] << std::endl;
+		std::cout << "grads : " << grads[i] << std::endl;
+		std::cout << "output : " << output[i] << std::endl;
+	}
+
+}
+
+void test3() {
+
+	const int batch_size = 128;
+	const int WIDTH = 64;
+	const int N_ITERS = 8;
+	const int n_hidden_layers = 1;
+	const int output_stride = 64;
+	const int input_width = 64;
+	const int output_width = 64;
+
+	std::vector<bf16> input(batch_size * WIDTH, bf16(1.0f));
+	std::vector<bf16> weight(WIDTH * WIDTH * (n_hidden_layers + 1), bf16(0.0f));
+	std::vector<bf16> packed_weight((n_hidden_layers + 1) * WIDTH * WIDTH, bf16(0.0f));
+	std::vector<float> intermediate_output((n_hidden_layers + 1) * batch_size * WIDTH, bf16(0.0f));
+	std::vector<float> output(batch_size * WIDTH, bf16(0.0f));
+
+
+	std::vector<float> res1(batch_size * WIDTH, 0);
+	std::vector<float> res2(batch_size * WIDTH, 0);
+
+	for (int i = 0; i < batch_size; i++) {
+		for (int j = 0; j < WIDTH; j++) {
+			input[i * WIDTH + j] = bf16(1.0f * j / 30);
+		}
+
+	}
+	for (int i = 0; i < WIDTH; i++) {
+		for (int j = 0; j < WIDTH; j++) {
+			weight[WIDTH * i + j] = bf16(1.0f * j / 39);
+			weight[WIDTH * WIDTH + WIDTH * i + j] = bf16(1.0f / 39);
+		}
+	}
+	for (int i = 0; i < WIDTH / 2; i++) {
+		for (int j = 0; j < WIDTH; j++) {
+			packed_weight[i * WIDTH * 2 + 2 * j] = weight[2 * i * WIDTH + j];
+			packed_weight[i * WIDTH * 2 + 2 * j + 1] = weight[(2 * i + 1) * WIDTH + j];
+			packed_weight[WIDTH * WIDTH + i * WIDTH * 2 + 2 * j] = weight[WIDTH * WIDTH + 2 * i * WIDTH + j];
+			packed_weight[WIDTH * WIDTH + i * WIDTH * 2 + 2 * j + 1] = weight[WIDTH * WIDTH + (2 * i + 1) * WIDTH + j];
+
+		}
+	}
+
+	mlp_swift_forward<WIDTH, float, Activation::None>(Activation::None,
+		packed_weight,
+		input,
+		intermediate_output,
+		output,
+		output_stride,
+		n_hidden_layers,
+		batch_size,
+		input_width,
+		output_width);
+
+
+	for (int i = 0; i < batch_size; i++) {
+		for (int j = 0; j < WIDTH; j++) {
+			for (int k = 0; k < WIDTH; k++) {
+				res1[i * WIDTH + j] += (float)input[i * WIDTH + k] * (float)weight[k * WIDTH + j];
+			}
+		}
+	}
+	for (int i = 0; i < batch_size; i++) {
+		for (int j = 0; j < WIDTH; j++) {
+			for (int k = 0; k < WIDTH; k++) {
+				res2[i * WIDTH + j] += (float)res1[i * WIDTH + k] * (float)weight[WIDTH * WIDTH + k * WIDTH + j];
+			}
+		}
+	}
+	for (int i = 0; i < 10; i++) {
+		std::cout << output[i] << " " << res2[i] << std::endl;
+	}
 
 }
 
@@ -548,8 +644,12 @@ void test2() {
 
 int main() {
 
-	std::cout << "Test 1" << std::endl;
-	test1();
+	/*std::cout << "Test 1" << std::endl;
+	test1();*/
+	std::cout << "Test 2" << std::endl;
+	test2();
+	std::cout << "Test 3" << std::endl;
+	test3();
 
 	return 0;
 }
