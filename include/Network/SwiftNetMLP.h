@@ -21,6 +21,8 @@ public:
 
 	void initialize_params();
 
+	std::vector<bf16> m_weights_matrices;
+
 private:
 	int m_n_hidden_layers;
 	int m_n_hidden_matrices;
@@ -31,8 +33,6 @@ private:
 
 	Activation m_activation;
 	Activation m_output_activation;
-
-	std::vector<bf16> m_weights_matrices;
 	std::vector<bf16> m_weights_matrices_inferences;
 	std::vector<bf16> m_grads_matrices;
 
