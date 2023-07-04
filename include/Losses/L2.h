@@ -35,7 +35,6 @@ template< typename T>
 class L2Loss : public Loss<T> {
 public:
 	void evaluate(
-		queue q,
 		const int dims,
 		const int stride,
 		const float scale,
@@ -44,6 +43,9 @@ public:
 		std::vector<T> grads,
 		std::vector<float> values
 	) const override {
+
+		queue q;
+
 		q.submit([&](handler& h) {
 			h.parallel_for<class imatrix>(nd_range<1>(preds.size()/128,128 ), [=](nd_item<1> it) [[intel::reqd_sub_group_size(SG_SIZE)]] {
 				L2_loss<T>(preds.size(),
