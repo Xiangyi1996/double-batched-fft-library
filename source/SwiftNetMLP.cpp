@@ -21,11 +21,11 @@ SwiftNetMLP<T, WIDTH>::SwiftNetMLP(
 	m_activation{ activation },
 	m_output_activation{ output_activation }
 {
-	m_n_hidden_matrices = m_n_hidden_layers;
+	m_n_hidden_matrices = m_n_hidden_layers - 1;
 
-	m_weights_matrices.resize(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices);
-	m_weights_matrices_inferences.resize(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices);
-	m_grads_matrices.resize(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices);
+	m_weights_matrices.resize(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width);
+	m_weights_matrices_inferences.resize(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width);
+	m_grads_matrices.resize(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width);
 
 
 }
@@ -44,20 +44,25 @@ void SwiftNetMLP<T, WIDTH>::initialize_params() {
 			m_weights_matrices_inferences[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f);
 			m_grads_matrices[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f);
 		}
-
 	}
+	for (int i = 0; i < m_net_width * m_output_width; i++) {
+		m_weights_matrices[m_n_hidden_matrices * m_net_width * m_net_width + m_net_width * m_inputs_width + i] = bf16(1.0f);
+		m_weights_matrices_inferences[m_n_hidden_matrices * m_net_width * m_net_width + m_net_width * m_inputs_width + i] = bf16(1.0f);
+		m_grads_matrices[m_n_hidden_matrices * m_net_width * m_net_width + m_net_width * m_inputs_width + i] = bf16(1.0f);
+	}
+	
 }
 
 template <typename T, int WIDTH>
 std::vector<float> SwiftNetMLP<T, WIDTH>::forward_pass(const std::vector<bf16>& input, std::vector<T>& output) {
 
 	int output_stride = WIDTH;
-	int batch_size = input.size() / WIDTH;
-	std::vector<float> forward(128 * WIDTH * (m_n_hidden_matrices + 1), 0.0f);
+	int batch_size = input.size() / m_inputs_width;
+	std::vector<float> forward(128 * WIDTH * (m_n_hidden_matrices + 2), 0.0f);
 	std::cout << m_weights_matrices[0] << std::endl;
 
 	switch (m_activation) {
-	case Activation::None:        mlp_swift_forward<WIDTH, T, Activation::None>(m_output_activation, m_weights_matrices, input, forward, output, output_stride, m_n_hidden_matrices, 128, m_inputs_width, m_output_width); break;
+	case Activation::None:        mlp_swift_forward<WIDTH, T, Activation::None>(m_output_activation, m_weights_matrices, input, forward, output, output_stride, m_n_hidden_matrices, batch_size, m_inputs_width, m_output_width); break;
 	case Activation::Exponential: mlp_swift_forward<WIDTH, T, Activation::Exponential>(m_output_activation, m_weights_matrices, input, forward, output, output_stride, m_n_hidden_matrices, batch_size, m_inputs_width, m_output_width); break;
 	case Activation::Sigmoid:     mlp_swift_forward<WIDTH, T, Activation::Sigmoid>(m_output_activation, m_weights_matrices, input, forward, output, output_stride, m_n_hidden_matrices, batch_size, m_inputs_width, m_output_width); break;
 	case Activation::ReLU:        mlp_swift_forward<WIDTH, T, Activation::ReLU>(m_output_activation, m_weights_matrices, input, forward, output, output_stride, m_n_hidden_matrices, batch_size, m_inputs_width, m_output_width); break;
