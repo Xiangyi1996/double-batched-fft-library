@@ -45,7 +45,7 @@ public:
 		std::vector<float> values
 	) const override {
 		q.submit([&](handler& h) {
-			h.parallel_for<class imatrix>(nd_range<1>(preds.size()/128,128 ), [=](nd_item<1> it) [[intel::reqd_sub_group_size(16)]] {
+			h.parallel_for<class imatrix>(nd_range<1>(preds.size()/128,128 ), [=](nd_item<1> it) [[intel::reqd_sub_group_size(SG_SIZE)]] {
 				L2_loss<T>(preds.size(),
 					dims,
 					stride,

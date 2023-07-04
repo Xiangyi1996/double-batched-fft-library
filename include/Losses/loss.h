@@ -1,5 +1,9 @@
 #pragma once
-#includ <cmath.h>
+#include <cmath.h>
+
+#define SG_SIZE 8
+#define WG_SIZE 8*SG_SIZE
+#define BATCH_CHUNK 64
 
 template<typename T>
 class Loss {
