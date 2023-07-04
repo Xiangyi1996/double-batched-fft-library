@@ -4,6 +4,7 @@
 #include "activation.h"
 #include "SwiftNetMLP.h"
 #include "L2.h"
+#include "sgd.h"
 #include "trainer.h"
 
 
@@ -553,7 +554,8 @@ void test2() {
 	std::vector<float> losses(batch_size * WIDTH, 0.0f);
 
 	L2Loss<float> loss;
-	Trainer<float, 64> train(64, 64, 1, Activation::None, Activation::None, loss);
+	SGDOptimizer<float> optim;
+	Trainer<float, 64> train(64, 64, 1, Activation::None, Activation::None, loss, optim);
 
 	train.training_step(inputs, output, dL_output, target, grads, losses, scale);
 
