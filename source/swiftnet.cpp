@@ -190,6 +190,7 @@ void mlp_swiftnet_backward(
 		for (int i = 0; i < deltas.size(); i++) {
 			deltas[i] = deltas_device[i];
 		}
+		q.memcpy(deltas.data(), deltas_device, deltas.size() * sizeof(bf16));
 	}
 	
 	catch (std::exception const& e)
