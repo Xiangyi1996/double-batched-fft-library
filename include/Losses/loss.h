@@ -10,7 +10,6 @@ class Loss {
 public:
 	
 	virtual void evaluate(
-		queue q,
 		const int dims,
 		const int stride,
 		const float scale,
