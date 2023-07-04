@@ -3,6 +3,9 @@
 #include <CL/sycl.hpp>
 #include "activation.h"
 #include "SwiftNetMLP.h"
+#include "L2.h"
+#include "trainer.h"
+
 
 
 
@@ -402,7 +405,6 @@ std::vector<float> SwiftNetMLP<T, WIDTH>::forward_pass(const std::vector<bf16>& 
 	int output_stride = WIDTH;
 	int batch_size = input.size()/WIDTH;
 	std::vector<float> forward(128 * WIDTH * (m_n_hidden_matrices + 1 ), 0.0f);
-	std::cout << m_weights_matrices[0] << std::endl;
 
 	switch (m_activation) {
 	case Activation::None:        mlp_swift_forward<WIDTH, T, Activation::None>(m_output_activation, m_weights_matrices, input, forward, output,output_stride, m_n_hidden_matrices, 128, m_inputs_width, m_output_width); break;
@@ -515,7 +517,7 @@ std::vector<float> SwiftNetMLP<T, WIDTH>::forward_pass(const std::vector<bf16>& 
 
 
 
-void test4() {
+void test1() {
 
 	const int batch_size = 128;
 	const int WIDTH = 64;
@@ -536,10 +538,18 @@ void test4() {
 
 }
 
+void test2() {
+	L2Loss loss();
+	Trainer train
+
+}
+
+
+
 int main() {
 
-	std::cout << "Test 4" << std::endl;
-	test4();
+	std::cout << "Test 1" << std::endl;
+	test1();
 
 	return 0;
 }
