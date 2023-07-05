@@ -9,16 +9,19 @@ class SwiftNetMLP {
 public:
 	SwiftNetMLP(int input_width, int output_width, int n_hidden_layers, Activation activation, Activation output_activation);
 
-	std::vector<float> forward_pass(const std::vector<bf16>& input, std::vector<T>& output);
+	std::vector<bf16> forward_pass(const std::vector<bf16>& input, std::vector<T>& output);
 
 	void backward_pass(
-		const std::vector<bf16>& input, std::vector<bf16>& grads, std::vector<T>& forward,std::vector<T>& act_fwd
+		const std::vector<bf16>& input, std::vector<bf16>& grads, std::vector<bf16>& forward,std::vector<bf16>& act_fwd
 	);
-	void dgemm_last_layer_backward(std::vector<bf16>& grads, std::vector<T>& forward, std::vector<T>& act_fwd, std::vector<bf16>& loss, int batch_size);
+	void dgemm_last_layer_backward(std::vector<bf16>& grads, std::vector<bf16>& forward, std::vector<bf16>& act_fwd, std::vector<bf16>& loss, int batch_size);
 	void set_params(T* params, T* inference_params, T* gradients);
 
 	void initialize_params();
 	std::vector<bf16> m_grads_matrices;
+	std::vector<bf16> m_weights_matrices;
+	std::vector<bf16> m_weightsT_matrices;
+
 private:
 	int m_n_hidden_layers;
 	int m_n_hidden_matrices;
@@ -30,8 +33,6 @@ private:
 	Activation m_activation;
 	Activation m_output_activation;
 
-	std::vector<bf16> m_weights_matrices;
-	std::vector<bf16> m_weightsT_matrices;
 	std::vector<bf16> m_weights_matrices_inferences;
 	
 
