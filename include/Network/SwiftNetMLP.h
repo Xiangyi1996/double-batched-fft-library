@@ -12,10 +12,9 @@ public:
 	std::vector<float> forward_pass(const std::vector<bf16>& input, std::vector<T>& output);
 
 	void backward_pass(
-		const std::vector<bf16>& input,
-		const std::vector<T>& output,
-		const std::vector<bf16>& dL_output
+		const std::vector<bf16>& input, std::vector<bf16>& grads, std::vector<T>& forward
 	);
+	void dgemm_last_layer_backward(std::vector<bf16>& grads, std::vector<T> forward, int batch_size);
 
 	void set_params(T* params, T* inference_params, T* gradients);
 
