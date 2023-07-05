@@ -13,13 +13,22 @@ public:
 		m_optim = optim;
 	}
 
-	void training_step(const std::vector<bf16>& input, std::vector<T>& output, std::vector<float>& dL_output, std::vector<T>& target, std::vector<T>& grads, std::vector<T>& losses, const float scale) {
+	void training_step(const std::vector<bf16>& input, std::vector<T>& output, std::vector<float>& dL_output, std::vector<T>& target, std::vector<bf16>& grads, std::vector<T>& losses, const float scale) {
 		auto forward = m_model.forward_pass(input, output);
 		m_loss.evaluate(WIDTH, WIDTH, scale, output, target, grads, losses);
-		//m_model.backward_pass(input, grads, forward);
-		//std::cout << " weigth before optim : " << m_model.m_weights_matrices[0] << std::endl;
+		std::vector<bf16> act_forward(128 * WIDTH * (1 + 2), 0.0f);
+		const int input_size = input.size();
+
+		for (int i = 0; i < input_size; i++) {
+			act_forward[i] = input[i];
+		}
+		for (int i = 0; i < forward.size(); i++) {
+			act_forward[i + input_size] = forward[i];
+		}
+		m_model.backward_pass(input, grads, forward, act_forward);
+		std::cout << " weigth before optim : " << m_model.m_weights_matrices[0] << std::endl;
 		m_optim.step(scale, m_model.m_weights_matrices, m_model.m_weightsT_matrices, grads);
-		//std::cout << " weigth after optim : " << m_model.m_weights_matrices[0] << std::endl;
+		std::cout << " weigth after optim : " << m_model.m_weights_matrices[0] << std::endl;
 
 		/*for (int i = 0; i < 10; i++) {
 			for (int j = 0; j < 10; j++) {
