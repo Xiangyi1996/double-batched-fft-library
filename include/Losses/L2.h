@@ -10,7 +10,7 @@ void L2_loss(id<1> idx,
 	const float scale,
 	T* preds,
 	T* targets,
-	T* grads,
+	bf16* grads,
 	T* values) {
 	
 
@@ -25,7 +25,7 @@ void L2_loss(id<1> idx,
 
 	values[idx] = difference * difference / N_total_elements;
 
-	grads[idx] = (scale * 2 * (preds[idx] - targets[target_idx]) / N_total_elements);
+	grads[idx] =bf16( scale * 2 * (preds[idx] - targets[target_idx]) / N_total_elements);
 	
 }
 
@@ -38,7 +38,7 @@ public:
 		const float scale,
 		std::vector<T>& preds,
 		std::vector<T>& targets,
-		std::vector<T>& grads,
+		std::vector<bf16>& grads,
 		std::vector<T>& values
 	) const override {
 
@@ -48,7 +48,7 @@ public:
 
 		T* preds_device = malloc_shared<T>(preds.size(), q);
 		T* targets_device = malloc_shared<T>(targets.size(), q);
-		T* grads_device = malloc_shared<T>(grads.size(), q);
+		bf16* grads_device = malloc_shared<bf16>(grads.size(), q);
 		T* values_device = malloc_shared<T>(values.size(), q);
 
 		q.memcpy(preds_device, preds.data(), preds.size() * sizeof(T));
@@ -67,7 +67,7 @@ public:
 			values_device);
 		}).wait();
 
-		q.memcpy(grads.data(), grads_device, grads.size() * sizeof(T));
+		q.memcpy(grads.data(), grads_device, grads.size() * sizeof(bf16));
 		q.memcpy(values.data(), values_device, values.size() * sizeof(T));
 		q.wait();
 

@@ -20,7 +20,7 @@ public:
 		const float scale,
 		std::vector<T>& pred,
 		std::vector<T>& target,
-		std::vector<T>& grads,
+		std::vector<bf16>& grads,
 		std::vector<T>& values
 		) const = 0;
 };
