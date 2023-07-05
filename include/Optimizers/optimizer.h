@@ -5,13 +5,13 @@
 #include <stdint.h>
 #include <json/json.hpp>
 using json = nlohmann::json;
-template <typename T>
+template <typename T, int WIDTH>
 class Optimizer {
 public:
 	virtual ~Optimizer() {}
-	
 
-	virtual void step(float loss_scale, std::vector<bf16>& weights, std::vector<T>& gradients) const  = 0;
+	virtual void step(float loss_scale, std::vector<bf16>& weights, std::vector<bf16>& weightsT, std::vector<T>& gradients) const  = 0;
+
 };
 
 
