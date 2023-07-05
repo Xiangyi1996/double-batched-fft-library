@@ -10,7 +10,7 @@ class Optimizer {
 public:
 	virtual ~Optimizer() {}
 
-	virtual void step(float loss_scale, std::vector<bf16>& weights, std::vector<bf16>& weightsT, std::vector<T>& gradients) const  = 0;
+	virtual void step(float loss_scale, std::vector<bf16>& weights, std::vector<bf16>& weightsT, std::vector<bf16>& gradients) const  = 0;
 
 };
 

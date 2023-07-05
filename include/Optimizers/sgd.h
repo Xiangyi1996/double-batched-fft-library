@@ -9,7 +9,7 @@ void sgd_step(id<1> idx,
 	const float learning_rate,
 	const float l2_reg,
 	bf16* weights,
-	T* gradients
+	bf16* gradients
 ) {
 
 	const bf16 weight = weights[idx];
@@ -30,7 +30,7 @@ void sgd_stepT(id<1> idx,
 	const float learning_rate,
 	const float l2_reg,
 	bf16* weightsT,
-	T* gradients
+	bf16* gradients
 ) {
 
 	const int i = idx / WIDTH;
@@ -65,7 +65,7 @@ public:
 	//	m_l2_reg = 1e-8f;
 	//}
 
-	void step(float loss_scale, std::vector<bf16>& weights, std::vector<bf16>& weightsT, std::vector<T>& gradients) const  override {
+	void step(float loss_scale, std::vector<bf16>& weights, std::vector<bf16>& weightsT, std::vector<bf16>& gradients) const  override {
 		queue q;
 
 		const int n_elements = weights.size();
@@ -74,11 +74,11 @@ public:
 
 		bf16* weights_device = malloc_shared<bf16>(weights.size(), q);
 		bf16* weightsT_device = malloc_shared<bf16>(weightsT.size(), q);
-		T* gradients_device = malloc_shared<T>(gradients.size(), q);
+		bf16* gradients_device = malloc_shared<bf16>(gradients.size(), q);
 
 		q.memcpy(weights_device, weights.data(), weights.size() * sizeof(bf16));
 		q.memcpy(weightsT_device, weightsT.data(), weightsT.size() * sizeof(bf16));
-		q.memcpy(gradients_device, gradients.data(), gradients.size() * sizeof(T));
+		q.memcpy(gradients_device, gradients.data(), gradients.size() * sizeof(bf16));
 		q.wait();
 
 		//std::cout << "grad " << gradients_device[0] << std::endl;
@@ -86,7 +86,7 @@ public:
 		//std::cout << "weightsT_device " << weightsT_device[0] << std::endl;
 
 		q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
-			sgd_step(idx, n_elements, loss_scale, learning_rate, l2_reg, weights_device, gradients_device);
+			sgd_step<T>(idx, n_elements, loss_scale, learning_rate, l2_reg, weights_device, gradients_device);
 			}).wait();
 
 		q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
@@ -103,7 +103,7 @@ public:
 private:
 
 
-	float m_learning_rate = 1.0f;
+	float m_learning_rate = 1e-3f;
 	float m_l2_reg = 1e-8f;
 };
 
