@@ -21,11 +21,11 @@ void L2_loss(id<1> idx,
 
 	const int target_idx = inter_idx * dims + intra_idx;
 
-	const float difference = (float)preds[idx] - targets[target_idx];
+	const float difference = (preds[idx] - targets[target_idx]);
 
 	values[idx] = difference * difference / N_total_elements;
 
-	grads[idx] = (T)(scale * 2 * difference / N_total_elements);
+	grads[idx] = (scale * 2 * (preds[idx] - targets[target_idx]) / N_total_elements);
 	
 }
 
@@ -53,6 +53,7 @@ public:
 
 		q.memcpy(preds_device, preds.data(), preds.size() * sizeof(T));
 		q.memcpy(targets_device, targets.data(), targets.size() * sizeof(T));
+		q.wait();
 
 		q.parallel_for<>(range<1>(n_elements),[=](id<1> idx){
 			L2_loss<T>(idx,
@@ -68,6 +69,7 @@ public:
 
 		q.memcpy(grads.data(), grads_device, grads.size() * sizeof(T));
 		q.memcpy(values.data(), values_device, values.size() * sizeof(T));
+		q.wait();
 
 	}
 };
