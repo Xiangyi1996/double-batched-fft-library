@@ -11,7 +11,7 @@ public:
 
 	std::vector<float> forward_pass(const std::vector<bf16>& input, std::vector<T>& output);
 
-	void backward_impl(
+	void backward_pass(
 		const std::vector<bf16>& input, std::vector<bf16>& grads, std::vector<T>& forward,std::vector<T>& act_fwd
 	);
 	void dgemm_last_layer_backward(std::vector<bf16>& grads, std::vector<T>& forward, std::vector<T>& act_fwd, std::vector<bf16>& loss, int batch_size);
