@@ -16,7 +16,7 @@ public:
 	void training_step(const std::vector<bf16>& input, std::vector<T>& output, std::vector<float>& dL_output, std::vector<T>& target, std::vector<bf16>& grads, std::vector<T>& losses, const float scale) {
 		auto forward = m_model.forward_pass(input, output);
 		m_loss.evaluate(WIDTH, WIDTH, scale, output, target, grads, losses);
-		std::vector<bf16> act_forward(128 * WIDTH * (1 + 2), 0.0f);
+		std::vector<bf16> act_forward(128 * WIDTH * (3 + 2), 0.0f);
 		const int input_size = input.size();
 
 		for (int i = 0; i < input_size; i++) {
@@ -30,12 +30,22 @@ public:
 		m_optim.step(scale, m_model.m_weights_matrices, m_model.m_weightsT_matrices, grads);
 		std::cout << " weigth after optim : " << m_model.m_weights_matrices[0] << std::endl;
 
-		/*for (int i = 0; i < 10; i++) {
+		for (int i = 0; i < 10; i++) {
+			std::cout << "grads : " << i << " : " << grads[i ] << std::endl;
+		}
 			for (int j = 0; j < 10; j++) {
-				std::cout << "m_weights_matrices : " << m_model.m_weights_matrices[64 * i + j] << std::endl;
-				std::cout << "m_weightsT_matrices : " << m_model.m_weightsT_matrices[64 * j + i] << std::endl;
+				std::cout << "forward : " << 3 << " : " << act_forward[128 * 64 * 1 + j] << std::endl;
 			}
-		}*/
+			for (int j = 64*64; j <64*64+ 10; j++) {
+				std::cout << "forward moitie : " << 3 << " : " << act_forward[128 * 64 * 1+ j] << std::endl;
+			}
+	
+
+		for (int i = 0; i < 3; i++) {
+			for (int j = 0; j < 10; j++) {
+				std::cout << "m_grads_matrices : " << i << " : " << m_model.m_grads_matrices[64 * 64 * i + j] << std::endl;
+			}
+		}
 
 	}
 
