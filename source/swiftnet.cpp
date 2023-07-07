@@ -130,7 +130,6 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, bf1
 	}
 }
 
-//Fix les index pour copier la memoire
 template <int WIDTH, int N_ITERS>
 void workgroup_load_input_static(nd_item<1> item, bf16* act_shmem, const bf16* input) {
 	int localId = item.get_local_id();
@@ -148,7 +147,6 @@ void workgroup_load_input_static(nd_item<1> item, bf16* act_shmem, const bf16* i
 		}
 	}
 }
-
 
 template <int WIDTH, int N_ITERS>
 void workgroup_write_output_static(nd_item<1> item, bf16* act_shmem, float* output_threadblock) {
@@ -169,7 +167,6 @@ void workgroup_write_output_static(nd_item<1> item, bf16* act_shmem, float* outp
 	}
 }
 
-
 template <int WIDTH, int N_ITERS, typename T, Activation activation>
 void kernel_swift_mlp(nd_item<1> item,
 	const Activation output_activation,
@@ -184,8 +181,6 @@ void kernel_swift_mlp(nd_item<1> item,
 	const uint32_t n_hidden_matmuls,
 	const layout input_layout,
 	const layout output_layout) {
-
-
 
 	// Handle first layer because it has different input
 
