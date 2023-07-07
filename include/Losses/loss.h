@@ -10,7 +10,6 @@
 #define TN 8
 #define SYCL_EXT_ONEAPI_MATRIX_V 4
 
-template<typename T>
 class Loss {
 public:
 	
@@ -18,10 +17,9 @@ public:
 		const int dims,
 		const int stride,
 		const float scale,
-		std::vector<T>& pred,
-		std::vector<T>& target,
+		std::vector<float>& pred,
+		std::vector<float>& target,
 		std::vector<bf16>& grads,
-		std::vector<T>& values
+		std::vector<float>& values
 		) const = 0;
 };
-
