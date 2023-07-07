@@ -2,75 +2,69 @@
 
 #include "loss.h"
 
-template<typename T>
-void cross_entropy_loss(nd_item<1> item,
+void cross_entropy_loss(id<1> idx,
 	const int n_elements,
 	const int dims,
 	const int stride,
 	const float scale,
-	const T* preds,
-	const float* targets,
-	T* grads,
+	float* preds,
+	float* targets,
+	bf16* grads,
 	float* values) {
-
-	// get the index of the element considered by the kernel
-	const int idx = item.get_global_linear_id();
 
 	const int intra_idx = idx % stride;
 	const int inter_idx = idx / stride;
 
 	const int N_total_elements = n_elements * dims / stride;
 
-	const int target_idx = inter_idx * dims + intra_odx;
+	const int target_idx = inter_idx * dims + intra_idx;
 
-	const float weight =  - targets[target_idx] / N_total_elements;
-	const float pred = (float)preds[i];
+	const float weight = -targets[target_idx] / N_total_elements;
+	const float pred = (float)preds[idx];
 
-	values[i] = weight*logf(pred);
+	values[idx] = weight * logf(pred);
 
-	grads[i] = (T)(loss_scale * weight / pred);
-
+	grads[idx] = bf16(scale * weight / pred);
 }
 
-template< typename T>
-class CrossEntropyLoss : public Loss<T> {
+class CrossEntropyLoss : public Loss {
 public:
 	void evaluate(
 		const int dims,
 		const int stride,
 		const float scale,
-		std::vector<T> preds,
-		std::vector<float> targets,
-		std::vector<T> grads,
-		std::vector<float> values
+		std::vector<float>& preds,
+		std::vector<float>& targets,
+		std::vector<bf16>& grads,
+		std::vector<float>& values
 	) const override {
-
 		queue q;
+
 		int n_elements = preds.size();
 
-		T* preds_device = malloc_shared<T>(preds.size(), q);
-		T* targets_device = malloc_shared<T>(targets.size(), q);
-		T* grads_device = malloc_shared<T>(grads.size(), q);
-		T* values_device = malloc_shared<T>(values.size(), q);
+		float* preds_device = malloc_shared<float>(preds.size(), q);
+		float* targets_device = malloc_shared<float>(targets.size(), q);
+		bf16* grads_device = malloc_shared<bf16>(grads.size(), q);
+		float* values_device = malloc_shared<float>(values.size(), q);
 
-		q.memcpy(preds_device, preds.data(), preds.size() * sizeof(T));
-		q.memcpy(targets_device, targets.data(), targets.size() * sizeof(T));
-		q.memcpy(grads_device, grads.data(), grads.size() * sizeof(T));
-		q.memcpy(values_device, values.data(), values.size() * sizeof(T));
+		q.memcpy(preds_device, preds.data(), preds.size() * sizeof(float));
+		q.memcpy(targets_device, targets.data(), targets.size() * sizeof(float));
+		q.wait();
 
+		q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
+			cross_entropy_loss(idx,
+			n_elements,
+			dims,
+			stride,
+			scale,
+			preds_device,
+			targets_device,
+			grads_device,
+			values_device);
+			}).wait();
 
-		q.submit([&](handler& h) {
-			h.parallel_for<>(nd_range<1>(128, 128), [=](nd_item<1> it) [[intel::reqd_sub_group_size(SG_SIZE)]] {
-				L2_loss<T>(it,
-					n_elements,
-					dims,
-					stride,
-					scale,
-					preds_device,
-					targets_device,
-					grads_device,
-					values_device);
-				});
-			});
+			q.memcpy(grads.data(), grads_device, grads.size() * sizeof(bf16));
+			q.memcpy(values.data(), values_device, values.size() * sizeof(float));
+			q.wait();
 	}
 };
