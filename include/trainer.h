@@ -32,6 +32,12 @@ public:
 		m_model.backward_pass(input, grads, forward, act_forward);
 		
 		m_optim.step(scale, m_model.m_weights_matrices, m_model.m_weightsT_matrices, grads);
+
+		for (int i = 0; i < 3; i++) {
+			for (int j = 0; j < 10; j++) {
+				std::cout << "grads : "<< i<< " : " << m_model.m_grads_matrices[64 * 64 * i + j] << std::endl;
+			}
+		}
 	}
 
 	void initialize_params() {
