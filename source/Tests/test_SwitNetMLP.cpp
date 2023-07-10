@@ -60,15 +60,15 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, bf1
 		joint_matrix_load(sg, act_matrix, a + TK * 3 + TM * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix3, result_matrix);
 
-		joint_matrix_store(sg, result_matrix, o + TM * sgId + TN * l * WIDTH, WIDTH, layout::row_major);
-
 		if (BACKWARD) {
 			matrix_activation_backward<float, bf16, bf16, SG_SIZE>(item, activation, o + TN * sgId + 8 * l * WIDTH, f + TN * sgId + l * 8 * WIDTH, out + TN * sgId + 8 * l * WIDTH, WIDTH);
 		}
 
 		else {
-			matrix_activation<bf16*>(item, activation, a + TK * sgId + TM * l * WIDTH, WIDTH, outs);
+			matrix_activation<float>(item, activation, o + TK * sgId + TM * l * WIDTH, WIDTH, outs);
 		}
+
+		joint_matrix_store(sg, result_matrix, o + TM * sgId + TN * l * WIDTH, WIDTH, layout::row_major);
 	
 		
 	}
@@ -356,10 +356,11 @@ void mlp_swift_forward(Activation output_activation,
 		q.memcpy(output.data(), output_device, output.size() * sizeof(float));
 		q.memcpy(intermediate_output.data(), intermediate_output_device, intermediate_output.size() * sizeof(float));
 
-		free(inputs_device, q);
+		/*free(inputs_device, q);
 		free(weights_layer_device, q);
 		free(intermediate_output_device, q);
-		free(act_shmem, q);
+		free(act_shmem, q);*/
+
 }
 
 template <int WIDTH, int N_ITERS, Activation ACTIVATION>
@@ -504,12 +505,12 @@ void mlp_swiftnet_backward(
 		q.memcpy(deltas.data(), deltas_device, deltas.size() * sizeof(bf16));
 		q.memcpy(grads_matrices.data(), grads_device, grads_matrices.size() * sizeof(bf16));
 		
-		free(weights_device, q);
+		/*free(weights_device, q);
 		free(deltas_device, q);
 		free(grads_device, q);
 		free(act_device, q);
 		free(out_inter, q);
-		free(fwd_device, q);
+		free(fwd_device, q);*/
 	}
 
 	catch (std::exception const& e)
@@ -624,7 +625,6 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(std::vector<bf16>& grads, std
 		for (int j = 0; j < m_net_width; j++) {
 			m_grads_matrices[m_inputs_width * m_net_width + (m_n_hidden_matrices -1) * m_net_width * m_net_width + i % m_net_width + j * m_net_width] += x * act_fwd[m_inputs_width * batch_size + (m_n_hidden_matrices - 1) * m_net_width * batch_size + j + (i / m_net_width) * m_net_width];
 		}
-
 	}
 
 	mkl_free(A);
