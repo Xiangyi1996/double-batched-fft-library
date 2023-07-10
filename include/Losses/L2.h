@@ -15,7 +15,7 @@ void L2_loss(id<1> idx,
 	const int intra_idx = idx % stride;
 	const int inter_idx = idx / stride;
 
-	const int N_total_elements = n_elements * dims / stride;
+	const int N_total_elements = n_elements * dims / stride ;
 
 	const int target_idx = inter_idx * dims + intra_idx;
 
@@ -23,7 +23,7 @@ void L2_loss(id<1> idx,
 
 	values[idx] = difference * difference / N_total_elements;
 
-	grads[idx] =bf16( scale * 2 * (preds[idx] - targets[target_idx]) / N_total_elements);
+	grads[idx] =bf16( scale * 2 * (preds[idx] - targets[target_idx]) );
 }
 
 class L2Loss : public Loss {
@@ -66,9 +66,9 @@ public:
 		q.memcpy(values.data(), values_device, values.size() * sizeof(float));
 		q.wait();
 
-		free(preds_device, q);
+		/*free(preds_device, q);
 		free(targets_device, q);
 		free(grads_device, q);
-		free(values_device, q);
+		free(values_device, q);*/
 	}
 };
