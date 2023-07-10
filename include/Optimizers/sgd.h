@@ -75,6 +75,11 @@ public:
 		q.memcpy(weights.data(), weights_device, weights.size() * sizeof(bf16));
 		q.memcpy(weightsT.data(), weightsT_device, weightsT.size() * sizeof(bf16));
 		q.wait();
+
+		free(weight_device, q);
+		free(weightsT_device, q);
+		free(gradients_device, q);
+
 	}
 
 	void set_learning_rate(const float learning_rate) {

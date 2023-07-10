@@ -65,5 +65,10 @@ public:
 		q.memcpy(grads.data(), grads_device, grads.size() * sizeof(bf16));
 		q.memcpy(values.data(), values_device, values.size() * sizeof(float));
 		q.wait();
+
+		free(preds_device, q);
+		free(targets_device, q);
+		free(grads_device, q);
+		free(values_device, q);
 	}
 };
