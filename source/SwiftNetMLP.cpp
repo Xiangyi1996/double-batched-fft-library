@@ -60,14 +60,6 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, bf1
 		joint_matrix_load(sg, act_matrix, a + TK * 3 + TM * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix3, result_matrix);
 
-		if (BACKWARD) {
-			matrix_activation_backward<float, bf16, bf16, SG_SIZE>(item, activation, o + TN * sgId + 8 * l * WIDTH, f + TN * sgId + l * 8 * WIDTH, out + TN * sgId + 8 * l * WIDTH, WIDTH);
-		}
-
-		else {
-			matrix_activation<float>(item, activation, o + TK * sgId + TM * l * WIDTH, WIDTH, outs);
-		}
-
 		joint_matrix_store(sg, result_matrix, o + TM * sgId + TN * l * WIDTH, WIDTH, layout::row_major);
 
 
@@ -77,6 +69,15 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, bf1
 			for (int k = 0; k < TM; k++) {
 				act_mem[TN * sgId + TM * i * WIDTH + j + k * WIDTH] = out_inter[TN * sgId + TM * i * WIDTH + j + k * WIDTH];
 			}
+		}
+	}
+	for (int i = 0; i < N_ITERS; i++) {
+		if (BACKWARD) {
+			matrix_activation_backward<float, bf16, bf16, SG_SIZE>(item, activation, o + TN * sgId + 8 * i * WIDTH, f + TN * sgId + i * 8 * WIDTH, out + TN * sgId + 8 * i * WIDTH, WIDTH);
+		}
+
+		else {
+			matrix_activation<bf16>(item, activation, a + TN * sgId + TM * i * WIDTH, WIDTH, outs);
 		}
 	}
 }
@@ -336,7 +337,7 @@ void mlp_swift_forward(Activation output_activation,
 				nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE),
 				[=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]]
 				{
-					kernel_swift_mlp<WIDTH, N_ITERS, Activation::None>(item,
+					kernel_swift_mlp<WIDTH, N_ITERS, activation>(item,
 						output_activation,
 						inputs_device,
 						weights_layer_device,
@@ -402,7 +403,7 @@ void kernel_swiftnet_backward(
 }
 
 template <int WIDTH, Activation ACTIVATION>
-void dgemm_multiply(bf16* grads_device, float* loss_gradients, std::vector<bf16>& fwd, int k, int batch_size, int m_n_hidden_matrices) {
+void dgemm_multiply(bf16* grads_device, float* loss_gradients, bf16* fwd, int k, int batch_size, int m_n_hidden_matrices) {
 	const int layer_length = WIDTH * batch_size;
 
 	double* A;
@@ -492,7 +493,7 @@ void mlp_swiftnet_backward(
 				//			}
 				//		}
 				//	}*/
-				dgemm_multiply<WIDTH>(grads_device, out_inter, fwd, k, batch_size, n_hidden_matmuls);
+				dgemm_multiply<WIDTH, ACTIVATION>(grads_device, out_inter, fwd_device, k, batch_size, n_hidden_matmuls);
 
 
 			}
@@ -545,24 +546,24 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::initialize_params() {
 	for (int i = 0; i < m_net_width * m_inputs_width; i++) {
-		m_weights_matrices[i] = bf16(1.0f);
-		m_weights_matrices_inferences[i] = bf16(1.0f);
-		m_weightsT_matrices[i] = bf16(1.0f);
+		m_weights_matrices[i] = bf16(1.0f / 32);
+		m_weights_matrices_inferences[i] = bf16(1.0f / 32);
+		m_weightsT_matrices[i] = bf16(1.0f / 32);
 	}
 
 	for (int i = 0; i < m_n_hidden_matrices; i++) {
 		for (int j = 0; j < m_net_width * m_net_width; j++) {
 
-			m_weights_matrices[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f);
-			m_weights_matrices_inferences[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f);
-			m_weightsT_matrices[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f);
+			m_weights_matrices[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f / 32);
+			m_weights_matrices_inferences[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f / 32);
+			m_weightsT_matrices[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f / 32);
 		}
 	}
 
 	for (int i = 0; i < m_net_width * m_output_width; i++) {
-		m_weights_matrices[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f);
-		m_weights_matrices_inferences[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f);
-		m_weightsT_matrices[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f);
+		m_weights_matrices[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 32);
+		m_weights_matrices_inferences[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 32);
+		m_weightsT_matrices[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 32);
 	}
 }
 
@@ -572,8 +573,8 @@ std::vector<bf16> SwiftNetMLP<WIDTH>::forward_pass(const std::vector<bf16>& inpu
 	const int input_size = input.size();
 	int output_stride = WIDTH;
 	int batch_size = input.size() / m_inputs_width;
-	std::vector<float> forward_f(batch_size(m_output_width + WIDTH * m_n_hidden_layers), 0.0f);
-	std::vector<bf16> forward(batch_size * (m_input_width + m_output_width + WIDTH * m_n_hidden_layers), bf16(0.0f));
+	std::vector<float> forward_f(batch_size * (m_output_width + WIDTH * m_n_hidden_layers), 0.0f);
+	std::vector<bf16> forward(batch_size * (m_inputs_width + m_output_width + WIDTH * m_n_hidden_layers), bf16(0.0f));
 
 
 	switch (m_activation) {
@@ -591,7 +592,7 @@ std::vector<bf16> SwiftNetMLP<WIDTH>::forward_pass(const std::vector<bf16>& inpu
 	for (int i = 0; i < input_size; i++) {
 		forward[i] = input[i];
 	}
-	for (int i = 0; i < forward.size(); i++) {
+	for (int i = 0; i < forward_f.size(); i++) {
 		forward[i + input_size] = bf16(forward_f[i]);
 	}
 
@@ -650,7 +651,7 @@ void SwiftNetMLP<WIDTH>::backward_pass(const std::vector<bf16>& input, std::vect
 		for (int j = 0; j < m_net_width; j++) {
 			int y;
 
-			m_grads_matrices[m_n_hidden_matrices * m_net_width * m_net_width + m_inputs_width * m_net_width + i % m_output_width + j * m_output_width] += x * elt_activation_ret<bf16>(m_activation, forwawrd[m_inputs_width * batch_size + m_n_hidden_matrices * m_net_width * batch_size + j + (i / m_output_width) * m_net_width]);
+			m_grads_matrices[m_n_hidden_matrices * m_net_width * m_net_width + m_inputs_width * m_net_width + i % m_output_width + j * m_output_width] += x * elt_activation_ret<bf16>(m_activation, forward[m_inputs_width * batch_size + m_n_hidden_matrices * m_net_width * batch_size + j + (i / m_output_width) * m_net_width]);
 		}
 	}
 
