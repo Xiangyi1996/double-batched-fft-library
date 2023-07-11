@@ -76,9 +76,9 @@ public:
 		q.memcpy(weightsT.data(), weightsT_device, weightsT.size() * sizeof(bf16));
 		q.wait();
 
-		free(weight_device, q);
+		/*free(weights_device, q);
 		free(weightsT_device, q);
-		free(gradients_device, q);
+		free(gradients_device, q);*/
 
 	}
 
@@ -88,6 +88,6 @@ public:
 
 private:
 
-	float m_learning_rate = 1e-1f;
+	float m_learning_rate = 1e-3f;
 	float m_l2_reg = 1e-8f;
 };
