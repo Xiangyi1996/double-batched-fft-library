@@ -19,25 +19,16 @@ public:
 		auto forward = m_model.forward_pass(input, output);
 
 		m_loss.evaluate(WIDTH, WIDTH, scale, output, target, grads, losses);
-
-		std::vector<bf16> act_forward(input_size  + forward.size(), 0.0f);
-
-		for (int i = 0; i < input_size; i++) {
-			act_forward[i] = input[i];
-		}
-		for (int i = 0; i < forward.size(); i++) {
-			act_forward[i + input_size] = forward[i];
-		}
 		
-		m_model.backward_pass(input, grads, forward, act_forward);
+		m_model.backward_pass(input, grads, forward);
 		
 		m_optim.step(scale, m_model.m_weights_matrices, m_model.m_weightsT_matrices, grads);
 
-		/*for (int i = 0; i < 3; i++) {
+		for (int i = 0; i < 3; i++) {
 			for (int j = 0; j < 10; j++) {
 				std::cout << "grads : "<< i<< " : " << m_model.m_grads_matrices[64 * 64 * i + j] << std::endl;
 			}
-		}*/
+		}
 	}
 
 	void initialize_params() {
