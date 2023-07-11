@@ -17,14 +17,14 @@ public:
 			return;
 		}
 		m_size = size;
-		m_data = malloc_device<T>(size, q);
+		m_data = malloc_shared<T>(size, q);
 	}
 	void allocate(int size) {
 		if (m_size != 0 || size <= 0) {
 			return;
 		}
 		m_size = size;
-		m_data = malloc_device<T>(size);
+		m_data = malloc_shared<T>(size);
 	}
 
 	void free_mem(queue q) {
@@ -52,6 +52,9 @@ public:
 		copy_to_host(data, m_size, q);
 	}
 	
+	void data() {
+		return m_data;
+	}
 	// Update for the future : use oneMKL RNG for weights intialization
 	void intialize_xavier_unif(int input_width, int output_width, queue q) {
 		double x = sqrt(6.0 / ((double)(input_width + output_width)));
