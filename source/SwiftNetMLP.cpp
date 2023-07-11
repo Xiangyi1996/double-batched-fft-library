@@ -574,10 +574,11 @@ void SwiftNetMLP<WIDTH>::initialize_params() {
 template <int WIDTH>
 std::vector<bf16> SwiftNetMLP<WIDTH>::forward_pass(const std::vector<bf16>& input, std::vector<float>& output) {
 
+	const int input_size = input.size();
 	int output_stride = WIDTH;
 	int batch_size = input.size() / m_inputs_width;
-	std::vector<float> forward_f(batch_size * WIDTH * (m_n_hidden_matrices + 2), 0.0f);
-	std::vector<bf16> forward(batch_size * WIDTH * (m_n_hidden_matrices + 2), 0.0f);
+	std::vector<float> forward_f(batch_size(m_output_width + WIDTH * m_n_hidden_layers), 0.0f);
+	std::vector<bf16> forward(batch_size * (m_input_width + m_output_width + WIDTH * m_n_hidden_layers ), bf16(0.0f));
 
 
 	switch (m_activation) {
@@ -592,8 +593,11 @@ std::vector<bf16> SwiftNetMLP<WIDTH>::forward_pass(const std::vector<bf16>& inpu
 	default: throw std::runtime_error{"Unsupported activation."};
 	}
 
+	for (int i = 0; i < input_size; i++) {
+		forward[i] = input[i];
+	}
 	for (int i = 0; i < forward.size(); i++) {
-		forward[i] = bf16(forward_f[i]);
+		forward[i + input_size] = bf16(forward_f[i]);
 	}
 
 	return forward;
