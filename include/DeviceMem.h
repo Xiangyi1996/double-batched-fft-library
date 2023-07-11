@@ -67,6 +67,14 @@ public:
 
 	}*/
 
+
+	//For test purposes
+	void initialize_constant(T constant, queue q) {
+		std::vector<T> data(m_size, constant);
+		copy_from_host(data, q);
+	}
+
+
 	void intitialize_he_normal(int intput_width,queue q) {	
 		double dev = sqrt(2.0 / width);
 		initialize_normal(q, dev);
@@ -78,7 +86,7 @@ public:
 		std::default_random_engine gen;
 		std::normal_distribution<double> distrib(0.0, dev);
 		for (int i = 0; i < m_size; i++) {
-			data[i] = distrib(gen);
+			data[i] = (T)distrib(gen);
 		}
 		copy_from_host(data, q);
 	}
@@ -88,7 +96,7 @@ public:
 		std::default_random_engine gen;
 		std::unfiorm_real_distribution<double> distrib(0.0, scale);
 		for (int i = 0; i < m_size; i++) {
-			data[i] = distrib(gen);
+			data[i] = (T)distrib(gen);
 		}
 		copy_from_host(data, q);
 	}
