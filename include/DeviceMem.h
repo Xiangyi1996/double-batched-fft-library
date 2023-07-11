@@ -56,52 +56,106 @@ public:
 		return m_data;
 	}
 	// Update for the future : use oneMKL RNG for weights intialization
-	void intialize_xavier_unif(int input_width, int output_width, queue q) {
-		double x = sqrt(6.0 / ((double)(input_width + output_width)));
-		initialize_uniform(q, x);
+	
+	//Initialziation
+	template<bool transpose>
+	void intialize_normal(queue q, double dev, DeviceMem<T>& transposed = nullptr, int input_width = 0, int width = 0, int output_width = 0,int n_hidden = 0 ) {
+		std::vector<T> data(m_size);
+		std::default_random_engine gen;
+		std::normal_distribution<double> distrib(0.0, dev);
+		if (!transpose) {
+			for (int i = 0; i < m_size; i++) {
+				data[i] = (T)distrib(gen);
+			}
+		}
+		if (transpose) {
+			std::vector<T> dataT(m_size);
+			for (int i = 0; i < input_width; i++) {
+				for (int j = 0; j < width; j++) {
+					data[i * width + j] = (T)distrib(gen);
+					dataT[j * width + i] = data[i * width + j];
+				}
+			}
+			for (int k = 0; k < n_hidden; k++) {
+				for (int i = 0; i < width; i++) {
+					for (int j = 0; j < width; j++) {
+						data[input_width * width + k * width * width + i * width + j] = (T)distrib(gen);
+						dataT[input_width * width + k * width * width + j * width + i] = data[input_width * width + k * width * width + i * width + j]  ;
+					}
+				}
+			}
+			for (int i = 0; i < width; i++) {
+				for (int j = 0; j < output_width; j++) {
+					data[input_width * width + n_hidden * width * width + i * width + j] = (T)distrib(gen);
+					dataT[input_width * width + n_hidden * width * width + j * width + i] = data[input_width * width + n_hidden * width * width + i * width + j]
+				}
+			}
+			transposed.copy_from_host(dataT, q);
+		}
+		copy_from_host(data, q);
+	}
+	template<bool transpose>
+	void initialize_uniform(queue q, double scale = 1.0, DeviceMem<T>& transposed = nullptr, int input_width = 0, int width = 0, int output_width = 0, int n_hidden = 0) {
+		std::vector<T> data(m_size);
+		std::default_random_engine gen;
+		std::unfiorm_real_distribution<double> distrib(0.0, scale);
+		if (!transpose) {
+			for (int i = 0; i < m_size; i++) {
+				data[i] = (T)distrib(gen);
+			}
+		}
+		if (transpose) {
+			std::vector<T> dataT(m_size);
+			for (int i = 0; i < input_width; i++) {
+				for (int j = 0; j < width; j++) {
+					data[i * width + j] = (T)distrib(gen);
+					dataT[j * width + i] = data[i * width + j];
+				}
+			}
+			for (int k = 0; k < n_hidden; k++) {
+				for (int i = 0; i < width; i++) {
+					for (int j = 0; j < width; j++) {
+						data[input_width * width + k * width * width + i * width + j] = (T)distrib(gen);
+						dataT[input_width * width + k * width * width + j * width + i] = data[input_width * width + k * width * width + i * width + j];
+					}
+				}
+			}
+			for (int i = 0; i < width; i++) {
+				for (int j = 0; j < output_width; j++) {
+					data[input_width * width + n_hidden * width * width + i * width + j] = (T)distrib(gen);
+					dataT[input_width * width + n_hidden * width * width + j * width + i] = data[input_width * width + n_hidden * width * width + i * width + j]
+				}
+			}
+			transposed.copy_from_host(dataT, q);
+		}
+		copy_from_host(data, q);
 	}
 	
-	void intitialize_xavier_normal(int input_width,int output_width,queue q) {
-		double dev = sqrt(2.0 / ((double)(input_width + output_width)));
-		intialize_normal(q, dev);
+	template<bool transpose>
+	void intialize_xavier_unif(int input_width, int output_width, queue q, DeviceMem<T>& transposed = nullptr, int input_width = 0, int width = 0, int output_width = 0, int n_hidden = 0) {
+		double x = sqrt(6.0 / ((double)(input_width + output_width)));
+		initialize_uniform<transpose>(q, x,transposed,input_width,width,output_width,n_hidden);
 	}
 
-	/*void intialize_he_unif() {
+	template<bool transpose>
+	void intitialize_xavier_normal(int input_width, int output_width, queue q, DeviceMem<T>& transposed = nullptr, int input_width = 0, int width = 0, int output_width = 0, int n_hidden = 0) {
+		double dev = sqrt(2.0 / ((double)(input_width + output_width)));
+		intialize_normal(q, dev,transposed, input_width, width, output_width, n_hidden);
+	}
 
-	}*/
-
-
-	//For test purposes
-	void initialize_constant(T constant, queue q) {
+	template<bool transpose>
+	void initialize_constant(T constant, queue q, DeviceMem<T>& transposed = nullptr, int input_width = 0, int width = 0, int output_width = 0, int n_hidden = 0) {
 		std::vector<T> data(m_size, constant);
 		copy_from_host(data, q);
 	}
 
-
-	void intitialize_he_normal(int intput_width,queue q) {	
+	template<bool transpose>
+	void intitialize_he_normal(int intput_width,queue q, DeviceMem<T>& transposed = nullptr, int input_width = 0, int width = 0, int output_width = 0, int n_hidden = 0) {
 		double dev = sqrt(2.0 / width);
-		initialize_normal(q, dev);
+		initialize_normal<transpose>(q, dev,transposed, input_width, width, output_width, n_hidden);
 
 	}
 
-	void intialize_normal(queue q, double dev) {
-		std::vector<T> data(m_size);
-		std::default_random_engine gen;
-		std::normal_distribution<double> distrib(0.0, dev);
-		for (int i = 0; i < m_size; i++) {
-			data[i] = (T)distrib(gen);
-		}
-		copy_from_host(data, q);
-	}
-
-	void initialize_uniform(queue q, double scale =1.0 ) {
-		std::vector<T> data(m_size);
-		std::default_random_engine gen;
-		std::unfiorm_real_distribution<double> distrib(0.0, scale);
-		for (int i = 0; i < m_size; i++) {
-			data[i] = (T)distrib(gen);
-		}
-		copy_from_host(data, q);
-	}
+	
 
 };
