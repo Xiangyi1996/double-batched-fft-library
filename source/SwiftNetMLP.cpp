@@ -72,10 +72,12 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, bf1
 
 
 	}
-	for (int i = 0; i < N_ITERS; i++) {
-		for (int j = 0; j < TN; j++) {
-			for (int k = 0; k < TM; k++) {
-				act_mem[TN * sgId + TM * i * WIDTH + j + k * WIDTH] = out_inter[TN * sgId + TM * i * WIDTH + j + k * WIDTH];
+	if (!BACKWARD) {
+		for (int i = 0; i < N_ITERS; i++) {
+			for (int j = 0; j < TN; j++) {
+				for (int k = 0; k < TM; k++) {
+					act_mem[TN * sgId + TM * i * WIDTH + j + k * WIDTH] = out_inter[TN * sgId + TM * i * WIDTH + j + k * WIDTH];
+				}
 			}
 		}
 	}
@@ -370,7 +372,6 @@ void kernel_swiftnet_backward(
 	bf16* grads,
 	bf16* weights,
 	bf16* forward,
-	bf16* act_device,
 	float* out_inter,
 	int batch_number,
 	uint32_t n_hidden_matmuls,
@@ -382,10 +383,10 @@ void kernel_swiftnet_backward(
 	int groupId = item.get_group(0);
 	int sgId = sg.get_group_id();
 	int idx = 8 * groupId * N_ITERS;
-	const int layer_lenght = WIDTH * WIDTH * batch_number;
+	const int layer_length = WIDTH * WIDTH * batch_number;
 
 
-	//On suppose qu'on a d�j� fait la backprop dans le dernier layer
+	//On suppose qu'on a déjà fait la backprop dans le dernier layer
 	// Hidden Layers
 	for (int k = 0; k < n_hidden_matmuls; k++) {
 		work_group_layer<WIDTH, N_ITERS, true>(
@@ -393,31 +394,31 @@ void kernel_swiftnet_backward(
 			ACTIVATION,
 			loss_gradients + groupId * WIDTH * WIDTH,
 			weights + WIDTH * WIDTH * (n_hidden_matmuls - k),
-			out_inter + groupId * WIDTH * WIDTH + (n_hidden_matmuls - k - 1) * layer_lenght,
+			out_inter + groupId * WIDTH * WIDTH + (n_hidden_matmuls - k - 1) * layer_length,
 			loss_gradients + groupId * WIDTH * WIDTH,
 			outs,
-			forward + WIDTH * WIDTH * batch_number * (n_hidden_matmuls - k - 1) + groupId * WIDTH * WIDTH
+			forward + WIDTH*WIDTH*batch_number + WIDTH * WIDTH * batch_number * (n_hidden_matmuls - k - 1) + groupId * WIDTH * WIDTH//Le premier WIDTH*WIDTH*batch_number correspond à l'input, à remplacer par batch_size * input_width
 		);
 		item.barrier();
 	}
 }
 
-template <int WIDTH>
-void dgemm_multiply(bf16* grads_device, float* loss_gradients, std::vector<bf16>& act_fwd, int k, int batch_size, int m_n_hidden_matrices) {
-	const int layer_lenght = WIDTH * batch_size;
+template <int WIDTH,Activation ACTIVATION>
+void dgemm_multiply(bf16* grads_device, float* loss_gradients, std::vector<bf16>& fwd, int k, int batch_size, int m_n_hidden_matrices) {
+	const int layer_length = WIDTH * batch_size;
 
 	double* A;
 	double* B;
 	double* C;
 	A = (double*)mkl_malloc(batch_size * WIDTH * sizeof(double), 64);
-	//B = (MKL_BF16*)mkl_malloc(grads.size() * sizeof(MKL_BF16), 64);
+	
 	B = (double*)mkl_malloc(batch_size * WIDTH * sizeof(double), 64);
-	C = (double*)mkl_malloc(WIDTH * batch_size * sizeof(double), 64);
+	C = (double*)mkl_malloc(WIDTH * WIDTH * sizeof(double), 64);
 	for (int i = 0; i < batch_size * WIDTH; i++) {
-		A[i] = (double)loss_gradients[i + (m_n_hidden_matrices - k - 1) * layer_lenght];
+		A[i] = (double)loss_gradients[i + (m_n_hidden_matrices - k - 1) * layer_length];
 	}
 	for (int i = 0; i < batch_size * WIDTH; i++) {
-		B[i] = (double)act_fwd[i + (m_n_hidden_matrices - k - 1) * layer_lenght];
+		B[i] = (double)elt_activation_ret<bf16>(ACTIVATION,fwd[i + (m_n_hidden_matrices - k - 1) * layer_length]);
 	}
 	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
 		WIDTH, WIDTH, batch_size, 1, A, batch_size, B, WIDTH, 0, C, WIDTH);
@@ -434,7 +435,6 @@ void dgemm_multiply(bf16* grads_device, float* loss_gradients, std::vector<bf16>
 
 template<int WIDTH, Activation ACTIVATION>
 void mlp_swiftnet_backward(
-	std::vector<bf16> act_fwd,
 	std::vector<bf16>& weights_transposed,
 	std::vector<bf16>& deltas,
 	std::vector<bf16>& grads_matrices,
@@ -463,9 +463,7 @@ void mlp_swiftnet_backward(
 		q.memcpy(grads_device, grads_matrices.data(), grads_matrices.size() * sizeof(bf16));
 		q.wait();
 
-		bf16* act_device = malloc_shared<bf16>(act_fwd.size(), q);
-		q.memcpy(act_device, act_fwd.data(), act_fwd.size() * sizeof(bf16));
-		q.wait();
+		
 
 		float* out_inter = malloc_shared<float>(batch_size * WIDTH * (n_hidden_matmuls + 2), q);
 
@@ -483,7 +481,7 @@ void mlp_swiftnet_backward(
 			stream outs(1024, 256, h);
 			h.parallel_for(nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE), [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
 
-				kernel_swiftnet_backward<WIDTH, N_ITERS, ACTIVATION>(item, deltas_device, grads_device, weights_device, fwd_device, act_device, out_inter, batch_number, n_hidden_matmuls, outs);
+				kernel_swiftnet_backward<WIDTH, N_ITERS, ACTIVATION>(item, deltas_device, grads_device, weights_device, fwd_device, out_inter, batch_number, n_hidden_matmuls, outs);
 
 				});
 			}).wait();
@@ -496,7 +494,7 @@ void mlp_swiftnet_backward(
 				//			}
 				//		}
 				//	}*/
-				dgemm_multiply<WIDTH>(grads_device, out_inter, act_fwd, k, batch_size, n_hidden_matmuls);
+				dgemm_multiply<WIDTH>(grads_device, out_inter, fwd, k, batch_size, n_hidden_matmuls);
 
 
 			}
@@ -578,7 +576,7 @@ std::vector<bf16> SwiftNetMLP<WIDTH>::forward_pass(const std::vector<bf16>& inpu
 	int output_stride = WIDTH;
 	int batch_size = input.size() / m_inputs_width;
 	std::vector<float> forward_f(batch_size(m_output_width + WIDTH * m_n_hidden_layers), 0.0f);
-	std::vector<bf16> forward(batch_size * (m_input_width + m_output_width + WIDTH * m_n_hidden_layers ), bf16(0.0f));
+	std::vector<bf16> forward(batch_size * (m_input_width + m_output_width + WIDTH * m_n_hidden_layers), bf16(0.0f));
 
 
 	switch (m_activation) {
@@ -649,23 +647,25 @@ void SwiftNetMLP<WIDTH>::backward_pass(const std::vector<bf16>& input, std::vect
 		elt_activation_bwd<bf16, float, bf16>(
 			m_output_activation,
 			grads[i],
-			forward[(m_n_hidden_matrices + 1) * batch_size * m_net_width + i],
+			forward[input.size()+(m_n_hidden_matrices + 1) * batch_size * m_net_width + i],
 			x);
 		loss[i] = x;
 		for (int j = 0; j < m_net_width; j++) {
-			m_grads_matrices[m_n_hidden_matrices * m_net_width * m_net_width + m_inputs_width * m_net_width + i % m_output_width + j * m_output_width] += x * act_fwd[m_inputs_width * batch_size + m_n_hidden_matrices * m_net_width * batch_size + j + (i / m_output_width) * m_net_width];
+			int y;
+
+			m_grads_matrices[m_n_hidden_matrices * m_net_width * m_net_width + m_inputs_width * m_net_width + i % m_output_width + j * m_output_width] += x * elt_activation_ret<bf16>(m_activation,forwawrd[m_inputs_width * batch_size + m_n_hidden_matrices * m_net_width * batch_size + j + (i / m_output_width) * m_net_width]);
 		}
 	}
 
 	/// Backpropagation through last layer
 	dgemm_last_layer_backward(grads, forward, act_fwd, loss, batch_size);
 	switch (m_activation) {
-	case Activation::None:        mlp_swiftnet_backward<WIDTH, Activation::None>(act_fwd, m_weightsT_matrices, loss, m_grads_matrices, forward, batch_size, m_n_hidden_matrices); break;
-	case Activation::ReLU:        mlp_swiftnet_backward<WIDTH, Activation::ReLU>(act_fwd, m_weightsT_matrices, loss, m_grads_matrices, forward, batch_size, m_n_hidden_matrices); break;
-	case Activation::LeakyReLU:   mlp_swiftnet_backward<WIDTH, Activation::LeakyReLU>(act_fwd, m_weightsT_matrices, loss, m_grads_matrices, forward, batch_size, m_n_hidden_matrices); break;
-	case Activation::Exponential: mlp_swiftnet_backward<WIDTH, Activation::Exponential>(act_fwd, m_weightsT_matrices, loss, m_grads_matrices, forward, batch_size, m_n_hidden_matrices); break;
-	case Activation::Sigmoid:     mlp_swiftnet_backward<WIDTH, Activation::Sigmoid>(act_fwd, m_weightsT_matrices, loss, m_grads_matrices, forward, batch_size, m_n_hidden_matrices); break;
-	case Activation::Tanh:        mlp_swiftnet_backward<WIDTH, Activation::Tanh>(act_fwd, m_weightsT_matrices, loss, m_grads_matrices, forward, batch_size, m_n_hidden_matrices); break;
+	case Activation::None:        mlp_swiftnet_backward<WIDTH, Activation::None>(m_weightsT_matrices, loss, m_grads_matrices, forward, batch_size, m_n_hidden_matrices); break;
+	case Activation::ReLU:        mlp_swiftnet_backward<WIDTH, Activation::ReLU>(m_weightsT_matrices, loss, m_grads_matrices, forward, batch_size, m_n_hidden_matrices); break;
+	case Activation::LeakyReLU:   mlp_swiftnet_backward<WIDTH, Activation::LeakyReLU>(m_weightsT_matrices, loss, m_grads_matrices, forward, batch_size, m_n_hidden_matrices); break;
+	case Activation::Exponential: mlp_swiftnet_backward<WIDTH, Activation::Exponential>(m_weightsT_matrices, loss, m_grads_matrices, forward, batch_size, m_n_hidden_matrices); break;
+	case Activation::Sigmoid:     mlp_swiftnet_backward<WIDTH, Activation::Sigmoid>(m_weightsT_matrices, loss, m_grads_matrices, forward, batch_size, m_n_hidden_matrices); break;
+	case Activation::Tanh:        mlp_swiftnet_backward<WIDTH, Activation::Tanh>(m_weightsT_matrices, loss, m_grads_matrices, forward, batch_size, m_n_hidden_matrices); break;
 
 	default: throw std::runtime_error{"Unsupported activation."};
 	}
