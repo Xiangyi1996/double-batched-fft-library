@@ -147,6 +147,9 @@ public:
 	void initialize_constant(T constant, queue q, DeviceMem<T>& transposed = nullptr, int input_width = 0, int width = 0, int output_width = 0, int n_hidden = 0) {
 		std::vector<T> data(m_size, constant);
 		copy_from_host(data, q);
+		if (transpose) {
+			transposed.copy_from_host(data, q);
+		}
 	}
 
 	template<bool transpose>
