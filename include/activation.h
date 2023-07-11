@@ -40,13 +40,13 @@ void elt_activation(Activation activation, T& elt) {
 
 		return;
 	case Activation::Sine:
-		
+
 		elt = (T)((elt)-floor(q) * 2 * PI);
 		elt = (T)sinf((float)elt);
-		
+
 		return;
 	case Activation::Sigmoid:
-		
+
 		elt = (T)(1.0f / (1.0f + expf((float)-elt)));
 		return;
 	case Activation::None:
@@ -57,8 +57,44 @@ void elt_activation(Activation activation, T& elt) {
 	default:
 		return;
 
-		}
 	}
+}
+template<typename T>
+T elt_activation_ret(Activation activation, T& elt) {
+	float q = ((float)elt / (2 * PI));
+	switch (activation) {
+	case Activation::ReLU:
+		if (elt < (T)0.0f) {
+			return (T)0.0f;
+		}
+		return elt;
+	case Activation::LeakyReLU:
+		if (elt >= 0) {
+			return (T)elt;
+		}
+		else {
+			return (T)0.01f * (float)elt;
+		}
+		
+	case Activation::Exponential:
+		return (T)exp((float)elt);
+
+	
+			
+	case Activation::Sigmoid:
+
+		return (T)(1.0f / (1.0f + expf((float)-elt)));
+		
+	case Activation::None:
+		return elt;
+	case Activation::Tanh:
+		return (T)(tanhf((float)elt));
+		
+	default:
+		return elt;
+
+	}
+}
 
 template<typename outT, typename fwdT>
 void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd) {
@@ -87,7 +123,7 @@ void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd) {
 		return;
 
 	case Activation::Sigmoid:
-		elt = elt * (outT)(fwd *  (1.0f - (float)fwd));
+		elt = elt * (outT)(fwd * (1.0f - (float)fwd));
 		return;
 
 	case Activation::None:
@@ -100,10 +136,10 @@ void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd) {
 	default:
 		return;
 
-		}
+	}
 }
-template<typename outT, typename fwdT,typename resT>
-void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd,resT& res) {
+template<typename outT, typename fwdT, typename resT>
+void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd, resT& res) {
 	switch (activation) {
 	case Activation::ReLU:
 		if (fwd < (fwdT)0.0f) {
@@ -120,7 +156,7 @@ void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd,resT& res) {
 		return;
 
 	case Activation::Exponential:
-		res =(resT)(elt * fwd);
+		res = (resT)(elt * fwd);
 		return;
 
 	case Activation::Sine:
@@ -136,7 +172,7 @@ void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd,resT& res) {
 		return;
 
 	case Activation::Tanh:
-		res =(resT) elt * (resT)(1.0f - ((float)fwd * (float)fwd));
+		res = (resT)elt * (resT)(1.0f - ((float)fwd * (float)fwd));
 		return;
 
 	default:
@@ -145,22 +181,22 @@ void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd,resT& res) {
 	}
 }
 template<typename T>
-void matrix_activation(nd_item<1> it, Activation activation, device_ptr<T> out,int stride,stream outs) {
+void matrix_activation(nd_item<1> it, Activation activation, device_ptr<T> out, int stride, stream outs) {
 	int id = it.get_local_id();
-	
+
 	for (int i = 0; i < 8; i++) {
 		elt_activation<T>(activation, out[i * stride + id]);
 	}
 	return;
 }
 
-template<typename outT, typename fwdT,typename resT,int SG_SZ>
-void matrix_activation_backward(nd_item<1> it, Activation activation, device_ptr<outT> out, device_ptr<fwdT> fwd,resT* res, int stride) {
-	int id = it.get_local_id()%SG_SZ;
+template<typename outT, typename fwdT, typename resT, int SG_SZ>
+void matrix_activation_backward(nd_item<1> it, Activation activation, device_ptr<outT> out, device_ptr<fwdT> fwd, resT* res, int stride) {
+	int id = it.get_local_id() % SG_SZ;
 
 	for (int i = 0; i < 8; i++) {
-		
+
 		elt_activation_bwd<outT, fwdT, resT>(activation, out[i * stride + id], fwd[i * stride + id], res[i * stride + id]);
-		
+
 	}
- }
+}
