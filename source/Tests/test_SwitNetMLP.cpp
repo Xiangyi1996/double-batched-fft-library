@@ -60,14 +60,6 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, bf1
 		joint_matrix_load(sg, act_matrix, a + TK * 3 + TM * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix3, result_matrix);
 
-		if (BACKWARD) {
-			matrix_activation_backward<float, bf16, bf16, SG_SIZE>(item, activation, o + TN * sgId + 8 * l * WIDTH, f + TN * sgId + l * 8 * WIDTH, out + TN * sgId + 8 * l * WIDTH, WIDTH);
-		}
-
-		else {
-			matrix_activation<float>(item, activation, o + TK * sgId + TM * l * WIDTH, WIDTH, outs);
-		}
-
 		joint_matrix_store(sg, result_matrix, o + TM * sgId + TN * l * WIDTH, WIDTH, layout::row_major);
 
 
@@ -77,6 +69,15 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, bf1
 			for (int k = 0; k < TM; k++) {
 				act_mem[TN * sgId + TM * i * WIDTH + j + k * WIDTH] = out_inter[TN * sgId + TM * i * WIDTH + j + k * WIDTH];
 			}
+		}
+	}
+	for (int i = 0; i < N_ITERS; i++){
+		if (BACKWARD) {
+			matrix_activation_backward<float, bf16, bf16, SG_SIZE>(item, activation, o + TN * sgId + 8 * i * WIDTH, f + TN * sgId + i * 8 * WIDTH, out + TN * sgId + 8 * i * WIDTH, WIDTH);
+		}
+
+		else {
+			matrix_activation<bf16>(item, activation, a + TN * sgId + TM * i * WIDTH, WIDTH, outs);
 		}
 	}
 }
@@ -336,7 +337,7 @@ void mlp_swift_forward(Activation output_activation,
 				nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE),
 				[=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]]
 				{
-					kernel_swift_mlp<WIDTH, N_ITERS, Activation::None>(item,
+					kernel_swift_mlp<WIDTH, N_ITERS, activation>(item,
 						output_activation,
 						inputs_device,
 						weights_layer_device,
@@ -545,24 +546,24 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::initialize_params() {
 	for (int i = 0; i < m_net_width * m_inputs_width; i++) {
-		m_weights_matrices[i] = bf16(1.0f);
-		m_weights_matrices_inferences[i] = bf16(1.0f);
-		m_weightsT_matrices[i] = bf16(1.0f);
+		m_weights_matrices[i] = bf16(1.0f/32);
+		m_weights_matrices_inferences[i] = bf16(1.0f / 32);
+		m_weightsT_matrices[i] = bf16(1.0f / 32);
 	}
 
 	for (int i = 0; i < m_n_hidden_matrices; i++) {
 		for (int j = 0; j < m_net_width * m_net_width; j++) {
 
-			m_weights_matrices[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f);
-			m_weights_matrices_inferences[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f);
-			m_weightsT_matrices[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f);
+			m_weights_matrices[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f / 32);
+			m_weights_matrices_inferences[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f / 32);
+			m_weightsT_matrices[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f / 32);
 		}
 	}
 
 	for (int i = 0; i < m_net_width * m_output_width; i++) {
-		m_weights_matrices[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f);
-		m_weights_matrices_inferences[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f);
-		m_weightsT_matrices[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f);
+		m_weights_matrices[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 32);
+		m_weights_matrices_inferences[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 32);
+		m_weightsT_matrices[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 32);
 	}
 }
 
@@ -680,9 +681,9 @@ void test1() {
 
 	const float scale = 1e-3f;
 
-	std::vector<bf16> inputs(batch_size * WIDTH, bf16(1.0f/64));
+	std::vector<bf16> inputs(batch_size * WIDTH, bf16(1.0f));
 	std::vector<float> output(batch_size * WIDTH, 0.0f);
-	std::vector<float> target(batch_size * WIDTH, 2.0f);
+	std::vector<float> target(batch_size * WIDTH, 0.0f);
 	std::vector<bf16> grads(batch_size * WIDTH, 0.0f);
 	std::vector<float> losses(batch_size * WIDTH, 0.0f);
 
