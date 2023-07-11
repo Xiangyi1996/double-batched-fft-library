@@ -602,7 +602,7 @@ std::vector<bf16> SwiftNetMLP<WIDTH>::forward_pass(const std::vector<bf16>& inpu
 }
 
 template <int WIDTH>
-void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(std::vector<bf16>& grads, std::vector<bf16>& forward, std::vector<bf16>& act_fwd, std::vector<bf16>& loss, int batch_size) {
+void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(std::vector<bf16>& grads, std::vector<bf16>& forward,  std::vector<bf16>& loss, int batch_size) {
 	double* A;
 	double* B;
 	double* C;
@@ -625,7 +625,7 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(std::vector<bf16>& grads, std
 		loss[i] = x;
 
 		for (int j = 0; j < m_net_width; j++) {
-			m_grads_matrices[m_inputs_width * m_net_width + (m_n_hidden_matrices - 1) * m_net_width * m_net_width + i % m_net_width + j * m_net_width] += x * act_fwd[m_inputs_width * batch_size + (m_n_hidden_matrices - 1) * m_net_width * batch_size + j + (i / m_net_width) * m_net_width];
+			m_grads_matrices[m_inputs_width * m_net_width + (m_n_hidden_matrices - 1) * m_net_width * m_net_width + i % m_net_width + j * m_net_width] += x * elt_activation_ret(m_activation,forward[m_inputs_width * batch_size + (m_n_hidden_matrices - 1) * m_net_width * batch_size + j + (i / m_net_width) * m_net_width]);
 		}
 	}
 
@@ -636,7 +636,7 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(std::vector<bf16>& grads, std
 }
 
 template <int WIDTH>
-void SwiftNetMLP<WIDTH>::backward_pass(const std::vector<bf16>& input, std::vector<bf16>& grads, std::vector<bf16>& forward, std::vector<bf16>& act_fwd) {
+void SwiftNetMLP<WIDTH>::backward_pass(const std::vector<bf16>& input, std::vector<bf16>& grads, std::vector<bf16>& forward) {
 	int batch_size = input.size() / m_inputs_width;
 
 	bf16 x;
@@ -658,7 +658,7 @@ void SwiftNetMLP<WIDTH>::backward_pass(const std::vector<bf16>& input, std::vect
 	}
 
 	/// Backpropagation through last layer
-	dgemm_last_layer_backward(grads, forward, act_fwd, loss, batch_size);
+	dgemm_last_layer_backward(grads, forward, loss, batch_size);
 	switch (m_activation) {
 	case Activation::None:        mlp_swiftnet_backward<WIDTH, Activation::None>(m_weightsT_matrices, loss, m_grads_matrices, forward, batch_size, m_n_hidden_matrices); break;
 	case Activation::ReLU:        mlp_swiftnet_backward<WIDTH, Activation::ReLU>(m_weightsT_matrices, loss, m_grads_matrices, forward, batch_size, m_n_hidden_matrices); break;
