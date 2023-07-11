@@ -1,5 +1,6 @@
 #pragma once
 //#include <cmath.h>
+#include "DeviceMem.h"
 
 #define SG_SIZE 8
 #define WG_SIZE 8*SG_SIZE
@@ -12,14 +13,16 @@
 
 class Loss {
 public:
-	
+
 	virtual void evaluate(
+		queue q,
 		const int dims,
 		const int stride,
 		const float scale,
-		std::vector<float>& pred,
-		std::vector<float>& target,
-		std::vector<bf16>& grads,
-		std::vector<float>& values
-		) const = 0;
+		DeviceMem<float>& pred,
+		DeviceMem<float>& target,
+		DeviceMem<bf16>& grads,
+		DeviceMem<float>& values
+	) const = 0;
 };
+

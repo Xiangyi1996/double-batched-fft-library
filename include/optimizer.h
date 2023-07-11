@@ -2,12 +2,15 @@
 
 #include <stdint.h>
 #include <json/json.hpp>
+#include "DeviceMem.h"
+
 using json = nlohmann::json;
 
 class Optimizer {
 public:
 	virtual ~Optimizer() {}
 
-	virtual void step(float loss_scale, std::vector<bf16>& weights, std::vector<bf16>& weightsT, std::vector<bf16>& gradients) const  = 0;
+	virtual void step(queue q, float loss_scale, DeviceMem<bf16>& weights, DeviceMem<bf16>& weightsT, DeviceMem<bf16>& gradients) const = 0;
 
 };
+

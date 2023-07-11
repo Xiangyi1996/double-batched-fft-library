@@ -1,27 +1,29 @@
 #pragma once
 
 #include "activation.h"
+#include "DeviceMem.h"
 
 using bf16 = sycl::ext::oneapi::bfloat16;
 
 template <int WIDTH>
 class SwiftNetMLP {
 public:
-	SwiftNetMLP(int input_width, int output_width, int n_hidden_layers, Activation activation, Activation output_activation);
+	SwiftNetMLP(queue q, int input_width, int output_width, int n_hidden_layers, Activation activation, Activation output_activation);
 
-	std::vector<bf16> forward_pass(const std::vector<bf16>& input, std::vector<float>& output);
+	DeviceMem<bf16> forward_pass(const DeviceMem<bf16>& input, DeviceMem<float>& output);
 
 	void backward_pass(
-		const std::vector<bf16>& input, std::vector<bf16>& grads, std::vector<bf16>& forward
+		const DeviceMem<bf16>& input, DeviceMem<bf16>& grads, DeviceMem<bf16>& forward
 	);
-	void dgemm_last_layer_backward(std::vector<bf16>& grads, std::vector<bf16>& forward, std::vector<bf16>& loss, int batch_size);
+	void dgemm_last_layer_backward(DeviceMem<bf16>& grads, DeviceMem<bf16>& forward, DeviceMem<bf16>& loss, int batch_size);
 	//void set_params(float* params, float* inference_params, float* gradients);
 
 	void initialize_params();
 
-	std::vector<bf16> m_grads_matrices;
-	std::vector<bf16> m_weights_matrices;
-	std::vector<bf16> m_weightsT_matrices;
+	DeviceMem<bf16> m_grads_matrices;
+	DeviceMem<bf16> m_weights_matrices;
+	DeviceMem<bf16> m_weightsT_matrices;
+	queue m_q;
 
 private:
 	int m_n_hidden_layers;
@@ -34,7 +36,7 @@ private:
 	Activation m_activation;
 	Activation m_output_activation;
 
-	std::vector<bf16> m_weights_matrices_inferences;
-	
+	DeviceMem<bf16> m_weights_matrices_inferences;
+
 	int m_total_n_params;
-}; 
+};

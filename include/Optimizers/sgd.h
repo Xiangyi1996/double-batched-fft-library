@@ -48,37 +48,21 @@ template <int WIDTH>
 class SGDOptimizer : public Optimizer {
 public:
 
-	void step(float loss_scale, std::vector<bf16>& weights, std::vector<bf16>& weightsT, std::vector<bf16>& gradients) const  override {
-		queue q;
+	void step(queue q, float loss_scale, DeviceMem<bf16>& weights, DeviceMem<bf16>& weightsT, DeviceMem<bf16>& gradients) const  override {
 
 		const int n_elements = weights.size();
 		float learning_rate = m_learning_rate;
 		float l2_reg = m_l2_reg;
 
-		bf16* weights_device = malloc_shared<bf16>(weights.size(), q);
-		bf16* weightsT_device = malloc_shared<bf16>(weightsT.size(), q);
-		bf16* gradients_device = malloc_shared<bf16>(gradients.size(), q);
-
-		q.memcpy(weights_device, weights.data(), weights.size() * sizeof(bf16));
-		q.memcpy(weightsT_device, weightsT.data(), weightsT.size() * sizeof(bf16));
-		q.memcpy(gradients_device, gradients.data(), gradients.size() * sizeof(bf16));
-		q.wait();
 
 		q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
-			sgd_step(idx, n_elements, loss_scale, learning_rate, l2_reg, weights_device, gradients_device);
+			sgd_step(idx, n_elements, loss_scale, learning_rate, l2_reg, weights.data(), gradients.data());
 			}).wait();
 
-		q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
-			sgd_stepT<WIDTH>(idx, n_elements, loss_scale, learning_rate, l2_reg, weightsT_device, gradients_device);
-			}).wait();
+			q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
+				sgd_stepT<WIDTH>(idx, n_elements, loss_scale, learning_rate, l2_reg, weightsT.data(), gradients.data());
+				}).wait();
 
-		q.memcpy(weights.data(), weights_device, weights.size() * sizeof(bf16));
-		q.memcpy(weightsT.data(), weightsT_device, weightsT.size() * sizeof(bf16));
-		q.wait();
-
-		/*free(weights_device, q);
-		free(weightsT_device, q);
-		free(gradients_device, q);*/
 
 	}
 
