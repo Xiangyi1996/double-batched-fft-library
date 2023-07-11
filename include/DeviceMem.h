@@ -12,15 +12,6 @@ private:
 	int m_size = 0;
 public:
 	DeviceMem() {}
-
-	DeviceMem(int size, queue q) {
-		if (m_size != 0 || size <= 0) {
-			return;
-		}
-		m_size = size;
-		m_data = malloc_shared<T>(size, q);
-	}
-
 	void allocate(int size, queue q) {
 		if (m_size != 0 || size <= 0) {
 			return;
@@ -61,11 +52,8 @@ public:
 		copy_to_host(data, m_size, q);
 	}
 
-	T* data() const {
+	void data() {
 		return m_data;
-	}
-	int size() const {
-		return m_size;
 	}
 	// Update for the future : use oneMKL RNG for weights intialization
 
@@ -157,13 +145,10 @@ public:
 
 	template<bool transpose>
 	void initialize_constant(T constant, queue q, DeviceMem<T>& transposed = nullptr, int input_width = 0, int width = 0, int output_width = 0, int n_hidden = 0) {
-		for (int i = 0; i < m_size; i++) {
-			m_data[i] = constant;
-		}
+		std::vector<T> data(m_size, constant);
+		copy_from_host(data, q);
 		if (transpose) {
-			for (int i = 0; i < m_size; i++) {
-				transposed.data()[i] = constant;
-			}
+			transposed.copy_from_host(data, q);
 		}
 	}
 
