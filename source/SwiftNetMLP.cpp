@@ -72,12 +72,10 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, bf1
 
 
 	}
-	if (!BACKWARD) {
-		for (int i = 0; i < N_ITERS; i++) {
-			for (int j = 0; j < TN; j++) {
-				for (int k = 0; k < TM; k++) {
-					act_mem[TN * sgId + TM * i * WIDTH + j + k * WIDTH] = out_inter[TN * sgId + TM * i * WIDTH + j + k * WIDTH];
-				}
+	for (int i = 0; i < N_ITERS; i++) {
+		for (int j = 0; j < TN; j++) {
+			for (int k = 0; k < TM; k++) {
+				act_mem[TN * sgId + TM * i * WIDTH + j + k * WIDTH] = out_inter[TN * sgId + TM * i * WIDTH + j + k * WIDTH];
 			}
 		}
 	}
@@ -229,6 +227,7 @@ void workgroup_last_layer_forward(nd_item<1> item,
 	}
 }
 
+
 template <int WIDTH, int N_ITERS, Activation activation>
 void kernel_swift_mlp(nd_item<1> item,
 	const Activation output_activation,
@@ -362,7 +361,6 @@ void mlp_swift_forward(Activation output_activation,
 		free(weights_layer_device, q);
 		free(intermediate_output_device, q);
 		free(act_shmem, q);*/
-
 }
 
 template <int WIDTH, int N_ITERS, Activation ACTIVATION>
@@ -518,6 +516,7 @@ void mlp_swiftnet_backward(
 	}
 }
 
+
 template <int WIDTH>
 SwiftNetMLP<WIDTH>::SwiftNetMLP(
 	int input_width,
@@ -549,8 +548,8 @@ void SwiftNetMLP<WIDTH>::initialize_params() {
 		m_weights_matrices[i] = bf16(1.0f);
 		m_weights_matrices_inferences[i] = bf16(1.0f);
 		m_weightsT_matrices[i] = bf16(1.0f);
-
 	}
+
 	for (int i = 0; i < m_n_hidden_matrices; i++) {
 		for (int j = 0; j < m_net_width * m_net_width; j++) {
 
@@ -558,15 +557,13 @@ void SwiftNetMLP<WIDTH>::initialize_params() {
 			m_weights_matrices_inferences[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f);
 			m_weightsT_matrices[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f);
 		}
-
 	}
+
 	for (int i = 0; i < m_net_width * m_output_width; i++) {
 		m_weights_matrices[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f);
 		m_weights_matrices_inferences[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f);
 		m_weightsT_matrices[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f);
 	}
-
-
 }
 
 template <int WIDTH>
