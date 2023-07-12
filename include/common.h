@@ -1,9 +1,8 @@
 #pragma once
+
 #include<iostream>
 #include<vector>
 #include <CL/sycl.hpp>
-
-
 
 int toPackedLayoutCoord(int idx, int cols, int rows) {
 	int i = idx / cols;
@@ -12,7 +11,7 @@ int toPackedLayoutCoord(int idx, int cols, int rows) {
 		return i * cols + 2 * j;
 	}
 	else {
-		return (i-1) * cols +2*j + 1
+		return (i - 1) * cols + 2 * j + 1;
 	}
 }
 // Row et cols correspondent au nombre de rows et cols de la matrice d'origine pas celle en packec layout ( qui est donc cols*2 rows/2)
@@ -25,4 +24,12 @@ int fromPackedLayoutCoord(int idx, int cols, int rows) {
 	else {
 		return (i * 2 + 1) * cols + (j - 1) / 2;
 	}
+}
+
+bool isequalstring(const std::string& str1, const std::string& str2) {
+	if (str1.length() != str2.length()) { return false; }
+	for (int i = 0; i, str1.length(); i++) {
+		if (std::tolower(str1[i]) != std::tolower(str2[i])) { return false;}
+	}
+	return true;
 }

@@ -9,7 +9,7 @@ template<int WIDTH>
 class Trainer {
 public:
 
-	Trainer(SwiftNetMLP<WIDTH>& network, Loss& loss, Optimizer& optim) :  {
+	Trainer(SwiftNetMLP<WIDTH>& network, Loss& loss, Optimizer& optim) {
 		m_network = &network;
 		m_loss = &loss;
 		m_optim = &optim;
@@ -20,11 +20,11 @@ public:
 
 		auto forward = m_network->forward_pass(input, output);
 
-		m_loss->evaluate(m_model.m_q, WIDTH, WIDTH, scale, output, target, grads, losses);
+		m_loss->evaluate(m_network->get_queue(), WIDTH, WIDTH, scale, output, target, grads, losses);
 
 		m_network->backward_pass(input, grads, forward);
 
-		m_optim->step(m_network.m_q, scale, m_network.m_weights_matrices, m_network.m_weightsT_matrices, grads);
+		m_optim->step(m_network->get_queue(), scale, m_network->m_weights_matrices, m_network->m_weightsT_matrices, grads);
 
 		for (int i = 0; i < 4; i++) {
 			for (int j = 0; j < 10; j++) {
@@ -34,10 +34,10 @@ public:
 
 		for (int i = 0; i < 3; i++) {
 			for (int j = 0; j < 10; j++) {
-				std::cout << "grads : " << i << " : " << m_network.m_grads_matrices.data()[64 * 64 * i + j] << std::endl;
+				std::cout << "grads : " << i << " : " << m_network->m_grads_matrices.data()[64 * 64 * i + j] << std::endl;
 			}
 		}
-		forward.free_mem(m_network.m_q);
+		forward.free_mem(m_network->get_queue());
 	}
 
 	void initialize_params() {
