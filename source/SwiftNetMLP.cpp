@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <vector>
 #include <CL/sycl.hpp>
 #include "activation.h"
@@ -518,7 +519,7 @@ void SwiftNetMLP<WIDTH>::initialize_params() {
 		m_weights_matrices_inferences.data()[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 32);
 		m_weightsT_matrices.data()[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 32);
 	}*/
-	m_weights_matrices.initialize_uniform(0.1,m_weightsT_matrices,m_inputs_width,m_net_width,m_output_width,m_n_hidden_matrices);
+	m_weights_matrices.initialize_uniform(0.1, m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices);
 }
 
 template <int WIDTH>
@@ -588,6 +589,41 @@ DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, D
 	return forward;
 }
 
+template<int WIDTH>
+void SwiftNetMLP<WIDTH>::save_to_file(std::string filename) {
+	std::ofstream file;
+	file.open(filename);
+	file << m_inputs_width << "\n";
+	file << m_net_width << "\n";
+	file << m_output_width << "\n";
+	file << m_n_hidden_layers << "\n";
+	file << m_n_hidden_matrices << "\n";
+	for (int i = 0; i < m_weights_matrices.size(); i++) {
+		file << m_weights_matrices.data()[i] << "\n";
+	}
+	file.close();
+	return;
+}
+
+template<int WIDTH>
+void SwiftNetMLP<WIDTH>::load_from_file(std::string filename) {
+	std::ifstream file;
+	std::string line;
+	file.open(filename);
+	file >> m_inputs_width;
+	file >> m_net_width;
+	file >> m_output_width;
+	file >> m_n_hidden_layers;
+	file >> m_n_hidden_matrices;
+	for (int i = 0; i < m_weights_matrices.size(); i++) {
+		float x;
+		file >> x;
+		m_weights_matrices.data()[i] = bf16(x);
+	}
+	file.close();
+	m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices);
+	return;
+}
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads, DeviceMem<bf16>& forward, DeviceMem<bf16>& loss, int batch_size) {
 	double* A;
