@@ -3,7 +3,7 @@
 #include <iostream>
 #include <vector>
 #include <random>
-
+#include "common.h"
 using namespace sycl;
 template<typename T>
 class DeviceMem {
@@ -81,26 +81,29 @@ public:
 		
 		std::default_random_engine gen;
 		std::normal_distribution<double> distrib(0.0, dev);
-		
+		T rnd;
 		
 			for (int i = 0; i < input_width; i++) {
 				for (int j = 0; j < width; j++) {
-					m_data[i * width + j] = (T)distrib(gen);
-					transposed.data()[j * width + i] = m_data[i * width + j];
+					rnd = (T)distrib(gen);
+					m_data[toPackedLayoutCoord(i * width + j,input_width,width)] = rnd;
+					transposed.data()[toPackedLayoutCoord(j*width+i,width,input_width)] = rnd;
 				}
 			}
 			for (int k = 0; k < n_hidden; k++) {
 				for (int i = 0; i < width; i++) {
 					for (int j = 0; j < width; j++) {
-						m_data[input_width * width + k * width * width + i * width + j] = (T)distrib(gen);
-						transposed.data()[input_width * width + k * width * width + j * width + i] = m_data[input_width * width + k * width * width + i * width + j];
+						rnd = (T)distrib(gen);
+						m_data[input_width * width + k * width * width + toPackedLayoutCoord(i * width + j, width, width)] = rnd;
+						transposed.data()[input_width * width + k * width * width + toPackedLayoutCoord(j * width + i, width, width)] = rnd;
 						}
 					}
 				}
 			for (int i = 0; i < width; i++) {
 				for (int j = 0; j < output_width; j++) {
-					m_data[input_width * width + n_hidden * width * width + i * width + j] = (T)distrib(gen);
-					transposed.data()[input_width * width + n_hidden * width * width + j * width + i] = m_data[input_width * width + n_hidden * width * width + i * width + j];
+					rnd = (T)distrib(gen);
+					m_data[input_width * width + n_hidden * width * width + toPackedLayoutCoord(i * width + j, width, output_width)] = rnd;
+					transposed.data()[input_width * width + n_hidden * width * width + toPackedLayoutCoord(j * width + i, output_width, width)] = rnd;
 				}
 			}
 
@@ -120,47 +123,55 @@ public:
 		std::uniform_real_distribution<double> distrib(0.0, scale);
 		
 		
-			for (int i = 0; i < input_width; i++) {
-				for (int j = 0; j < width; j++) {
-					m_data[i * width + j] = (T)distrib(gen);
-					transposed.data()[j * width + i] = m_data[i * width + j];
-					
-				}
+		T rnd;
+
+		for (int i = 0; i < input_width; i++) {
+			for (int j = 0; j < width; j++) {
+				rnd = (T)distrib(gen);
+				m_data[toPackedLayoutCoord(i * width + j, input_width, width)] = rnd;
+				transposed.data()[toPackedLayoutCoord(j * width + i, width, input_width)] = rnd;
 			}
-			for (int k = 0; k < n_hidden; k++) {
-				for (int i = 0; i < width; i++) {
-					for (int j = 0; j < width; j++) {
-						m_data[input_width * width + k * width * width + i * width + j] = (T)distrib(gen);
-						transposed.data()[input_width * width + k * width * width + j * width + i] = m_data[input_width * width + k * width * width + i * width + j];
-					}
-				}
-			}
+		}
+		for (int k = 0; k < n_hidden; k++) {
 			for (int i = 0; i < width; i++) {
-				for (int j = 0; j < output_width; j++) {
-					m_data[input_width * width + n_hidden * width * width + i * width + j] = (T)distrib(gen);
-					transposed.data()[input_width * width + n_hidden * width * width + j * width + i] = m_data[input_width * width + n_hidden * width * width + i * width + j];
+				for (int j = 0; j < width; j++) {
+					rnd = (T)distrib(gen);
+					m_data[input_width * width + k * width * width + toPackedLayoutCoord(i * width + j, width, width)] = rnd;
+					transposed.data()[input_width * width + k * width * width + toPackedLayoutCoord(j * width + i, width, width)] = rnd;
 				}
 			}
+		}
+		for (int i = 0; i < width; i++) {
+			for (int j = 0; j < output_width; j++) {
+				rnd = (T)distrib(gen);
+				m_data[input_width * width + n_hidden * width * width + toPackedLayoutCoord(i * width + j, width, output_width)] = rnd;
+				transposed.data()[input_width * width + n_hidden * width * width + toPackedLayoutCoord(j * width + i, output_width, width)] = rnd;
+			}
+		}
 		
 	}
 
 	void make_transposed(DeviceMem<T>& transposed,int input_width,int width,int output_width,int n_hidden) {
+		T x;
 		for (int i = 0; i < input_width; i++) {
 			for (int j = 0; j < width; j++) {
-				transposed.data()[j * width + i] = m_data[i * width + j];
+				x = m_data[toPackedLayoutCoord(i * width + j, input_width, width)];
+				transposed.data()[toPackedLayoutCoord(j * width + i, width, input_width)] = x;
 
 			}
 		}
 		for (int k = 0; k < n_hidden; k++) {
 			for (int i = 0; i < width; i++) {
 				for (int j = 0; j < width; j++) {
-					transposed.data()[input_width * width + k * width * width + j * width + i] = m_data[input_width * width + k * width * width + i * width + j];
+					x = m_data[input_width * width + k * width * width + toPackedLayoutCoord(i * width + j, width, width)];
+					transposed.data()[input_width * width + k * width * width + toPackedLayoutCoord(j * width + i, width, width)] = x;
 				}
 			}
 		}
 		for (int i = 0; i < width; i++) {
 			for (int j = 0; j < output_width; j++) {
-				transposed.data()[input_width * width + n_hidden * width * width + j * width + i] = m_data[input_width * width + n_hidden * width * width + i * width + j];
+				x = m_data[input_width * width + n_hidden * width * width + toPackedLayoutCoord(i * width + j, width, output_width)];
+				transposed.data()[input_width * width + n_hidden * width * width + toPackedLayoutCoord(j * width + i, output_width, width)] = x;
 			}
 		}
 	}
