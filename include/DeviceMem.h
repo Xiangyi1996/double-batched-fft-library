@@ -143,6 +143,28 @@ public:
 			}
 		
 	}
+
+	void make_transposed(DeviceMem<T>& transposed,int input_width,int width,int output_width,int n_hidden) {
+		for (int i = 0; i < input_width; i++) {
+			for (int j = 0; j < width; j++) {
+				transposed.data()[j * width + i] = m_data[i * width + j];
+
+			}
+		}
+		for (int k = 0; k < n_hidden; k++) {
+			for (int i = 0; i < width; i++) {
+				for (int j = 0; j < width; j++) {
+					transposed.data()[input_width * width + k * width * width + j * width + i] = m_data[input_width * width + k * width * width + i * width + j];
+				}
+			}
+		}
+		for (int i = 0; i < width; i++) {
+			for (int j = 0; j < output_width; j++) {
+				transposed.data()[input_width * width + n_hidden * width * width + j * width + i] = m_data[input_width * width + n_hidden * width * width + i * width + j];
+			}
+		}
+	}
+
 	void initialize_uniform(double scale = 1.0) {
 		std::default_random_engine gen;
 		std::uniform_real_distribution<double> distrib(0.0, scale);
