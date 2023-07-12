@@ -40,3 +40,5 @@ private:
 
 	int m_total_n_params;
 };
+
+SwiftNetMLP<WIDTH>* create_network(const json& network);

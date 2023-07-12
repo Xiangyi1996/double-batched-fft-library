@@ -661,3 +661,39 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 		m_grads_matrices.data()[i] /= batch_size;
 	}
 }
+
+Activation string_to_activation(const std::string& activation_name) {
+	if (equals_case_insensitive(activation_name, "None")) {
+		return Activation::None;
+	}
+	else if (equals_case_insensitive(activation_name, "ReLU")) {
+		return Activation::ReLU;
+	}
+	else if (equals_case_insensitive(activation_name, "Exponential")) {
+		return Activation::Exponential;
+	}
+	else if (equals_case_insensitive(activation_name, "Sigmoid")) {
+		return Activation::Sigmoid;
+	}
+	else if (equals_case_insensitive(activation_name, "Sine")) {
+		return Activation::Sine;
+	}
+	else if (equals_case_insensitive(activation_name, "Tanh")) {
+		return Activation::Tanh;
+	}
+
+	throw std::runtime_error{fmt::format("Invalid activation name: {}", activation_name)};
+}
+
+SwiftNetMLP<WIDTH>* create_network(queue q, const json& network) {
+
+
+	int n_neurons = network.value("n_neurons", 128u);
+	switch (n_neurons) {
+	case  16: return new SwiftNetMLP<16>{ q, network["n_input_dims"], network["n_output_dims"], network["n_hidden_layers"], string_to_activation(network.value("activation", "ReLU")),string_to_activation(network.value("output_activation", "None")) };
+	case  32: return new SwiftNetMLP<32>{ q, network["n_input_dims"], network["n_output_dims"], network["n_hidden_layers"], string_to_activation(network.value("activation", "ReLU")),string_to_activation(network.value("output_activation", "None")) };
+	case  64: return new SwiftNetMLP<64>{ q, network["n_input_dims"], network["n_output_dims"], network["n_hidden_layers"], string_to_activation(network.value("activation", "ReLU")),string_to_activation(network.value("output_activation", "None")) };
+	case 128: return new SwiftNetMLP<128>{ q, network["n_input_dims"], network["n_output_dims"], network["n_hidden_layers"], string_to_activation(network.value("activation", "ReLU")),string_to_activation(network.value("output_activation", "None")) };
+	default: throw std::runtime_error{fmt::format("SwiftNetMLP only supports 16, 32, 64, and 128 neurons, but got {}", n_neurons)};
+	}
+}

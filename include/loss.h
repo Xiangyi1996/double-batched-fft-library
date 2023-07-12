@@ -24,5 +24,8 @@ public:
 		DeviceMem<bf16>& grads,
 		DeviceMem<float>& values
 	) const = 0;
+
 };
+
+Loss* create_loss(const json& params);
 
