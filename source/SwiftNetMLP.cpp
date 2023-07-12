@@ -281,11 +281,13 @@ void kernel_swift_mlp(nd_item<1> item,
 	}
 
 	//// Handle output layer
-	work_group_layer<WIDTH, N_ITERS, false>(item, activation, act_shmem + elem_idx * WIDTH, weights_layer + first_weight_length + n_hidden_matmuls * hidden_weight_lenght, out_intermediate_layer + elem_idx * WIDTH + (n_hidden_matmuls + 1) * layer_lenght, nullptr, outs);
 
-	workgroup_write_output_static<WIDTH, N_ITERS>(item, act_shmem, out + elem_idx * WIDTH);
+	if (output_width > 16) {
+		//work_group_layer<WIDTH, N_ITERS, false>(item, activation, act_shmem + elem_idx * WIDTH, weights_layer + first_weight_length + n_hidden_matmuls * hidden_weight_lenght, out_intermediate_layer + elem_idx * WIDTH + (n_hidden_matmuls + 1) * layer_lenght, nullptr, outs);
 
-	if (false) {
+		//workgroup_write_output_static<WIDTH, N_ITERS>(item, act_shmem, out + elem_idx * WIDTH);
+	}
+	else if (out) {
 		workgroup_last_layer_forward<WIDTH, N_ITERS>(item,
 			output_activation,
 			act_shmem,
@@ -521,10 +523,13 @@ void SwiftNetMLP<WIDTH>::initialize_params() {
 template <int WIDTH>
 DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, DeviceMem<float>& output) {
 
+	static_assert(WIDTH % 16 == 0, "Width must be a multiply of 16.");
+
+	const int output_stride = WIDTH;
+	const int batch_size = input.size() / m_inputs_width;
 	const int input_size = input.size();
-	int output_stride = WIDTH;
-	int batch_size = input.size() / m_inputs_width;
-	DeviceMem<float> forward_f = DeviceMem<float>(batch_size * (m_output_width + WIDTH * m_n_hidden_layers), m_q);
+	const int intermediate_output_size = batch_size * WIDTH * m_n_hidden_layers;
+	DeviceMem<float> forward_f = DeviceMem<float>(intermediate_output_size, m_q);
 	DeviceMem<bf16> forward = DeviceMem<bf16>(batch_size * (m_inputs_width + m_output_width + WIDTH * m_n_hidden_layers), m_q);
 
 
@@ -540,12 +545,44 @@ DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, D
 	default: throw std::runtime_error{"Unsupported activation."};
 	}
 
+	if (m_output_width > 16) {
+		const int layer_length = WIDTH * batch_size;
+
+		double* A;
+		double* B;
+		double* C;
+		A = (double*)mkl_malloc(layer_length * sizeof(double), 64);
+
+		B = (double*)mkl_malloc(m_output_width * m_net_width * sizeof(double), 64);
+		C = (double*)mkl_malloc(m_output_width * batch_size * sizeof(double), 64);
+		for (int i = 0; i < layer_length; i++) {
+			A[i] = (double)forward_f.data()[i + m_n_hidden_matrices * layer_length];
+		}
+		for (int i = 0; i < m_output_width * m_net_width; i++) {
+			B[i] = (double)m_weights_matrices.data()[i + m_net_width * (m_inputs_width + m_n_hidden_matrices * m_net_width)];
+		}
+		cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+			batch_size, m_output_width, WIDTH, 1, A, WIDTH, B, m_output_width, 0, C, m_output_width);
+
+		for (int i = 0; i < m_output_width * batch_size; i++) {
+			output.data()[i] = C[i];
+		}
+
+		mkl_free(A);
+		mkl_free(B);
+		mkl_free(C);
+	}
+
 	for (int i = 0; i < input_size; i++) {
 		forward.data()[i] = input.data()[i];
 	}
 	for (int i = 0; i < forward_f.size(); i++) {
 		forward.data()[i + input_size] = bf16(forward_f.data()[i]);
 	}
+	for (int i = 0; i < output.size(); i++) {
+		forward.data()[i + intermediate_output_size + input_size] = output.data()[i];
+	}
+	forward_f.free_mem(m_q);
 
 	return forward;
 }
@@ -557,12 +594,12 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads, Devic
 	double* C;
 	A = (double*)mkl_malloc(grads.size() * sizeof(double), 64);
 	//B = (MKL_BF16*)mkl_malloc(grads.size() * sizeof(MKL_BF16), 64);
-	B = (double*)mkl_malloc(WIDTH * WIDTH * sizeof(double), 64);
+	B = (double*)mkl_malloc(m_output_width * WIDTH * sizeof(double), 64);
 	C = (double*)mkl_malloc(WIDTH * batch_size * sizeof(double), 64);
 	for (int i = 0; i < grads.size(); i++) {
 		A[i] = (double)loss.data()[i];
 	}
-	for (int i = 0; i < WIDTH * WIDTH; i++) {
+	for (int i = 0; i < m_output_width * WIDTH; i++) {
 		B[i] = (double)m_weightsT_matrices.data()[m_n_hidden_matrices * m_net_width * m_net_width + m_net_width * m_inputs_width + i];
 	}
 	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
@@ -589,7 +626,7 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 	int batch_size = input.size() / m_inputs_width;
 
 	bf16 x;
-	DeviceMem<bf16> loss(m_net_width * batch_size, m_q);
+	DeviceMem<bf16> loss(m_output_width * batch_size, m_q);
 	for (int i = 0; i < batch_size * m_output_width; i++) {
 		// On calcule les loss gradients du dernier layer
 
