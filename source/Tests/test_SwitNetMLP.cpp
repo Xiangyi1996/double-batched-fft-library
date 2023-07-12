@@ -287,6 +287,7 @@ void kernel_swift_mlp(nd_item<1> item,
 
 		//workgroup_write_output_static<WIDTH, N_ITERS>(item, act_shmem, out + elem_idx * WIDTH);
 	}
+
 	else if (out) {
 		workgroup_last_layer_forward<WIDTH, N_ITERS>(item,
 			output_activation,
@@ -295,7 +296,6 @@ void kernel_swift_mlp(nd_item<1> item,
 			out + elem_idx * WIDTH + (n_hidden_matmuls + 1) * layer_lenght,
 			output_stride,
 			outs);
-
 	}
 }
 
@@ -343,7 +343,6 @@ void mlp_swift_forward(queue q,
 						outs);
 				});
 		}).wait();
-
 }
 
 template <int WIDTH, int N_ITERS, Activation ACTIVATION>
@@ -394,17 +393,20 @@ void dgemm_multiply(bf16* grads_device, float* loss_gradients, bf16* fwd, int k,
 	A = (double*)mkl_malloc(batch_size * WIDTH * sizeof(double), 64);
 
 	B = (double*)mkl_malloc(batch_size * WIDTH * sizeof(double), 64);
+
 	C = (double*)mkl_malloc(WIDTH * WIDTH * sizeof(double), 64);
+
 	for (int i = 0; i < batch_size * WIDTH; i++) {
 		A[i] = (double)loss_gradients[i + (m_n_hidden_matrices - k - 1) * layer_length];
 	}
+
 	for (int i = 0; i < batch_size * WIDTH; i++) {
 		B[i] = (double)elt_activation_ret<bf16>(ACTIVATION, fwd[i + (m_n_hidden_matrices - k - 1) * layer_length]);
 	}
+
 	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
 		WIDTH, WIDTH, batch_size, 1, A, batch_size, B, WIDTH, 0, C, WIDTH);
 
-	bf16 x = 0;
 	for (int i = 0; i < WIDTH * WIDTH; i++) {
 		grads_device[(m_n_hidden_matrices - k - 1) * WIDTH * WIDTH + i] += C[i];
 	}
@@ -662,28 +664,28 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 }
 
 Activation string_to_activation(const std::string& activation_name) {
-	if (equals_case_insensitive(activation_name, "None")) {
+	if (isequalstring(activation_name, "None")) {
 		return Activation::None;
 	}
-	else if (equals_case_insensitive(activation_name, "ReLU")) {
+	else if (isequalstring(activation_name, "ReLU")) {
 		return Activation::ReLU;
 	}
-	else if (equals_case_insensitive(activation_name, "Exponential")) {
+	else if (isequalstring(activation_name, "Exponential")) {
 		return Activation::Exponential;
 	}
-	else if (equals_case_insensitive(activation_name, "Sigmoid")) {
+	else if (isequalstring(activation_name, "Sigmoid")) {
 		return Activation::Sigmoid;
 	}
-	else if (equals_case_insensitive(activation_name, "Sine")) {
+	else if (isequalstring(activation_name, "Sine")) {
 		return Activation::Sine;
 	}
-	else if (equals_case_insensitive(activation_name, "Tanh")) {
+	else if (isequalstring(activation_name, "Tanh")) {
 		return Activation::Tanh;
 	}
-
-	throw std::runtime_error{fmt::format("Invalid activation name: {}", activation_name)};
+	throw std::runtime_error{"Invalid activation name:}"};
 }
 
+template<int WIDTH>
 SwiftNetMLP<WIDTH>* create_network(queue q, const json& network) {
 
 
@@ -693,7 +695,7 @@ SwiftNetMLP<WIDTH>* create_network(queue q, const json& network) {
 	case  32: return new SwiftNetMLP<32>{ q, network["n_input_dims"], network["n_output_dims"], network["n_hidden_layers"], string_to_activation(network.value("activation", "ReLU")),string_to_activation(network.value("output_activation", "None")) };
 	case  64: return new SwiftNetMLP<64>{ q, network["n_input_dims"], network["n_output_dims"], network["n_hidden_layers"], string_to_activation(network.value("activation", "ReLU")),string_to_activation(network.value("output_activation", "None")) };
 	case 128: return new SwiftNetMLP<128>{ q, network["n_input_dims"], network["n_output_dims"], network["n_hidden_layers"], string_to_activation(network.value("activation", "ReLU")),string_to_activation(network.value("output_activation", "None")) };
-	default: throw std::runtime_error{fmt::format("SwiftNetMLP only supports 16, 32, 64, and 128 neurons, but got {}", n_neurons)};
+	default: throw std::runtime_error{"SwiftNetMLP only supports 16, 32, 64, and 128 neurons, but got ..."};
 	}
 }
 
@@ -735,7 +737,7 @@ void test1() {
 
 	L2Loss loss;
 	SGDOptimizer<64> optim;
-	SwiftNetMLP<64> network = SwiftNetMLP(q, 64, 128, 2, Activation::None, Activation::None);
+	SwiftNetMLP<64> network = SwiftNetMLP<64>(q, 64, 128, 2, Activation::None, Activation::None);
 	Trainer<64> train(network, loss, optim);
 
 	train.initialize_params();
