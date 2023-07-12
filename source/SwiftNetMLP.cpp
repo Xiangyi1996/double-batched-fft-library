@@ -6,6 +6,7 @@
 #include "SwiftNetMLP.h"
 #include "L2.h"
 #include "sgd.h"
+#include "common.h"
 #include "trainer.h"
 #include "mkl.h"
 
@@ -561,7 +562,7 @@ DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, D
 			A[i] = (double)forward_f.data()[i + m_n_hidden_matrices * layer_length];
 		}
 		for (int i = 0; i < m_output_width * m_net_width; i++) {
-			B[i] = (double)m_weights_matrices.data()[i + m_net_width * (m_inputs_width + m_n_hidden_matrices * m_net_width)];
+			B[i] = (double)m_weights_matrices.data()[toPackedLayoutCoord(i,m_net_wdith,m_output_width) + m_net_width * (m_inputs_width + m_n_hidden_matrices * m_net_width)];
 		}
 		cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
 			batch_size, m_output_width, WIDTH, 1, A, WIDTH, B, m_output_width, 0, C, m_output_width);
@@ -637,7 +638,7 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads, Devic
 		A[i] = (double)loss.data()[i];
 	}
 	for (int i = 0; i < m_output_width * WIDTH; i++) {
-		B[i] = (double)m_weightsT_matrices.data()[m_n_hidden_matrices * m_net_width * m_net_width + m_net_width * m_inputs_width + i];
+		B[i] = (double)m_weightsT_matrices.data()[m_n_hidden_matrices * m_net_width * m_net_width + m_net_width * m_inputs_width + toPackedLayoutCoord(i,m_output_width,m_net_width)];
 	}
 	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
 		batch_size, m_net_width, m_output_width, 1, A, m_output_width, B, m_net_width, 0, C, m_net_width);
