@@ -77,17 +77,12 @@ public:
 	// Update for the future : use oneMKL RNG for weights intialization
 	
 			//Initialziation
-	template<bool transpose>
-	void initialize_normal( double dev, DeviceMem<T>& transposed = nullptr, int input_width = 0, int width = 0, int output_width = 0, int n_hidden = 0) {
+	void initialize_normal( double dev, DeviceMem<T>& transposed , int input_width, int width , int output_width, int n_hidden ) {
 		
 		std::default_random_engine gen;
 		std::normal_distribution<double> distrib(0.0, dev);
-		if (!transpose) {
-			for (int i = 0; i < m_size; i++) {
-				m_data[i] = (T)distrib(gen);
-			}
-		}
-		if (transpose) {
+		
+		
 			for (int i = 0; i < input_width; i++) {
 				for (int j = 0; j < width; j++) {
 					m_data[i * width + j] = (T)distrib(gen);
@@ -106,24 +101,25 @@ public:
 				for (int j = 0; j < output_width; j++) {
 					m_data[input_width * width + n_hidden * width * width + i * width + j] = (T)distrib(gen);
 					transposed.data()[input_width * width + n_hidden * width * width + j * width + i] = m_data[input_width * width + n_hidden * width * width + i * width + j];
-					}
 				}
-
 			}
+
+			
 		}
 		
-	
-	template<bool transpose>
-	void initialize_uniform( double scale = 1.0, DeviceMem<T>&transposed = nullptr, int input_width = 0, int width = 0, int output_width = 0, int n_hidden = 0) {
+	void initialize_normal(double dev) {
+		std::default_random_engine gen;
+		std::normal_distribution<double> distrib(0.0, dev);
+		for (int i = 0; i < m_size; i++) {
+			m_data[i] = (T)distrib(gen);
+		}
+	}
+	void initialize_uniform( double scale , DeviceMem<T>&transposed , int input_width , int width , int output_width , int n_hidden) {
 		
 		std::default_random_engine gen;
 		std::uniform_real_distribution<double> distrib(0.0, scale);
-		if (!transpose) {
-			for (int i = 0; i < m_size; i++) {
-				m_data[i] = (T)distrib(gen);
-			}
-		}
-		if (transpose) {
+		
+		
 			for (int i = 0; i < input_width; i++) {
 				for (int j = 0; j < width; j++) {
 					m_data[i * width + j] = (T)distrib(gen);
@@ -145,35 +141,60 @@ public:
 					transposed.data()[input_width * width + n_hidden * width * width + j * width + i] = m_data[input_width * width + n_hidden * width * width + i * width + j];
 				}
 			}
+		
+	}
+	void initialize_uniform(double scale = 1.0) {
+		std::default_random_engine gen;
+		std::uniform_real_distribution<double> distrib(0.0, scale);
+		for (int i = 0; i < m_size; i++) {
+			m_data[i] = (T)distrib(gen);
 		}
 	}
-	template<bool transpose>
-	void initialize_xavier_unif( DeviceMem<T>&transposed = nullptr, int input_width = 0, int width = 0, int output_width = 0, int n_hidden = 0) {
+	
+	void initialize_xavier_unif( DeviceMem<T>&transposed , int input_width , int width , int output_width , int n_hidden) {
 		double x = sqrt(6.0 / ((double)(input_width + output_width)));
-		initialize_uniform<transpose>( x, transposed, input_width, width, output_width, n_hidden);
+		initialize_uniform( x, transposed, input_width, width, output_width, n_hidden);
 	}
 
-	template<bool transpose>
-	void inititialize_xavier_normal( DeviceMem<T>&transposed = nullptr, int input_width = 0, int width = 0, int output_width = 0, int n_hidden = 0) {
+	void initialize_xavier_unif(int input_width, int output_width) {
+		double x = sqrt(6.0 / ((double)(input_width + output_width)));
+		initialize_uniform(x);
+	}
+
+	
+	void inititialize_xavier_normal( DeviceMem<T>&transposed, int input_width , int width , int output_width , int n_hidden ) {
 		double dev = sqrt(2.0 / ((double)(input_width + output_width)));
-		initialize_normal<transpose>( dev, transposed, input_width, width, output_width, n_hidden);
+		initialize_normal( dev, transposed, input_width, width, output_width, n_hidden);
 	}
 
-	template<bool transpose>
-	void initialize_constant(T constant,  DeviceMem<T>& transposed = nullptr, int input_width = 0, int width = 0, int output_width = 0, int n_hidden = 0) {
+	void initialize_xavier_normal(int input_width, int output_width) {
+		double dev = sqrt(2.0 / ((double)(input_width + output_width)));
+		initialize_normal(dev);
+	}
+
+	void inititialize_constant(T constant, DeviceMem<T>& transposed) {
+		for (int i = 0; i < m_size; i++) {
+			transposed.data()[i] = constant;
+			m_data = constant;
+		}
+	}
+
+	void initialize_constant(T constant) {
 		for (int i = 0; i < m_size; i++) {
 			m_data[i] = constant;
 		}
-		if (transpose) {
-			for (int i = 0; i < m_size; i++) {
-				transposed.data()[i] = constant;
-			}
-		}
 	}
 
-	template<bool transpose>
-	void intitialize_he_normal(int intput_width,  DeviceMem<T>&transposed = nullptr, int input_width = 0, int width = 0, int output_width = 0, int n_hidden = 0) {
+	
+	void intitialize_he_normal( DeviceMem<T>&transposed , int input_width , int width , int output_width , int n_hidden ) {
 		double dev = sqrt(2.0 / width);
-		initialize_normal<transpose>( dev, transposed, input_width, width, output_width, n_hidden);
+		initialize_normal( dev, transposed, input_width, width, output_width, n_hidden);
 	}
+	void intitialize_he_normal(int input_width) {
+		double dev = sqrt(2.0 / input_width);
+		initialize_normal(dev);
+
+	}
+
+
 };
