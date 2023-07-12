@@ -34,23 +34,14 @@ public:
 		const int dims,
 		const int stride,
 		const float scale,
-		std::vector<float>& preds,
-		std::vector<float>& targets,
-		std::vector<bf16>& grads,
-		std::vector<float>& values
+		DeviceMem<float>& preds,
+		DeviceMem<float>& targets,
+		DeviceMem<bf16>& grads,
+		DeviceMem<float>& values
 	) const override {
 		queue q;
 
 		int n_elements = preds.size();
-
-		float* preds_device = malloc_shared<float>(preds.size(), q);
-		float* targets_device = malloc_shared<float>(targets.size(), q);
-		bf16* grads_device = malloc_shared<bf16>(grads.size(), q);
-		float* values_device = malloc_shared<float>(values.size(), q);
-
-		q.memcpy(preds_device, preds.data(), preds.size() * sizeof(float));
-		q.memcpy(targets_device, targets.data(), targets.size() * sizeof(float));
-		q.wait();
 
 		q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
 			Relative_L2_loss(idx,
@@ -58,14 +49,10 @@ public:
 			dims,
 			stride,
 			scale,
-			preds_device,
-			targets_device,
-			grads_device,
-			values_device);
+			preds.data(),
+			targets.data(),
+			grads.data(),
+			values.data());
 			}).wait();
-
-			q.memcpy(grads.data(), grads_device, grads.size() * sizeof(bf16));
-			q.memcpy(values.data(), values_device, values.size() * sizeof(float));
-			q.wait();
 	}
 };
