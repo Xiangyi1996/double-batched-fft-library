@@ -4,7 +4,7 @@
 #include "optimizer.h"
 #include "trainer.h"
 
-template<WIDTH>
+template<int WIDTH>
 struct TrainableModel {
 	queue m_q;
 	Loss* loss;
@@ -13,16 +13,16 @@ struct TrainableModel {
 	Trainer<WIDTH> trainer;
 };
 
-template<WIDTH>
-inline TrainableModel create_from_config(
+template<int WIDTH>
+TrainableModel<WIDTH> create_from_config(
 	queue q,
 	json config
 ) {
 
 	queue m_q{ q };
-	Loss* loss{create_loss<network_precision_t>(config.value("loss", json::object()))};
-	Optimizer* optimizer{create_optimizer<network_precision_t>(config.value("optimizer", json::object()))};
-	SwiftNetMLP<WIDTH>* network{create_network(queue q, const json& network)}
-	auto trainer = Trainer<WIDTH>(network, loss, optimizer);
-	return { loss, optimizer, trainer };
+	Loss* loss{create_loss(config.value("loss", json::object()))};
+	Optimizer* optimizer{create_optimizer(config.value("optimizer", json::object()))};
+	SwiftNetMLP<WIDTH>* network{create_network<WIDTH>(q, config.value("network", json::object()))};
+	auto trainer = Trainer<WIDTH>(*network, *loss, *optimizer);
+	return { m_q, loss, optimizer,network,  trainer };
 }

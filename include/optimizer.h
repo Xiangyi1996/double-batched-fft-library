@@ -5,6 +5,7 @@
 #include "DeviceMem.h"
 
 using json = nlohmann::json;
+using bf16 = sycl::ext::oneapi::bfloat16;
 
 class Optimizer {
 public:
