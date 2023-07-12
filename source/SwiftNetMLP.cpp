@@ -496,7 +496,7 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
 
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::initialize_params() {
-	for (int i = 0; i < m_net_width * m_inputs_width; i++) {
+	/*for (int i = 0; i < m_net_width * m_inputs_width; i++) {
 		m_weights_matrices.data()[i] = bf16(1.0f / 32);
 		m_weights_matrices_inferences.data()[i] = bf16(1.0f / 32);
 		m_weightsT_matrices.data()[i] = bf16(1.0f / 32);
@@ -515,7 +515,8 @@ void SwiftNetMLP<WIDTH>::initialize_params() {
 		m_weights_matrices.data()[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 32);
 		m_weights_matrices_inferences.data()[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 32);
 		m_weightsT_matrices.data()[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 32);
-	}
+	}*/
+	m_weights_matrices.initialize_uniform(0.1,m_weightsT_matrices,m_inputs_width,m_net_width,m_output_width,m_n_hidden_matrices);
 }
 
 template <int WIDTH>
