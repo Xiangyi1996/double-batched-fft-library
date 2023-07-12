@@ -1,13 +1,14 @@
 #include <iostream>
+#include <fstream>
 #include <vector>
 #include <CL/sycl.hpp>
 #include "activation.h"
 #include "SwiftNetMLP.h"
 #include "L2.h"
 #include "sgd.h"
+#include "common.h"
 #include "trainer.h"
 #include "mkl.h"
-#include "common.h"
 
 using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;
@@ -288,7 +289,6 @@ void kernel_swift_mlp(nd_item<1> item,
 
 		//workgroup_write_output_static<WIDTH, N_ITERS>(item, act_shmem, out + elem_idx * WIDTH);
 	}
-
 	else if (out) {
 		workgroup_last_layer_forward<WIDTH, N_ITERS>(item,
 			output_activation,
@@ -297,6 +297,7 @@ void kernel_swift_mlp(nd_item<1> item,
 			out + elem_idx * WIDTH + (n_hidden_matmuls + 1) * layer_lenght,
 			output_stride,
 			outs);
+
 	}
 }
 
@@ -344,6 +345,7 @@ void mlp_swift_forward(queue q,
 						outs);
 				});
 		}).wait();
+
 }
 
 template <int WIDTH, int N_ITERS, Activation ACTIVATION>
@@ -394,20 +396,17 @@ void dgemm_multiply(bf16* grads_device, float* loss_gradients, bf16* fwd, int k,
 	A = (double*)mkl_malloc(batch_size * WIDTH * sizeof(double), 64);
 
 	B = (double*)mkl_malloc(batch_size * WIDTH * sizeof(double), 64);
-
 	C = (double*)mkl_malloc(WIDTH * WIDTH * sizeof(double), 64);
-
 	for (int i = 0; i < batch_size * WIDTH; i++) {
 		A[i] = (double)loss_gradients[i + (m_n_hidden_matrices - k - 1) * layer_length];
 	}
-
 	for (int i = 0; i < batch_size * WIDTH; i++) {
 		B[i] = (double)elt_activation_ret<bf16>(ACTIVATION, fwd[i + (m_n_hidden_matrices - k - 1) * layer_length]);
 	}
-
 	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
 		WIDTH, WIDTH, batch_size, 1, A, batch_size, B, WIDTH, 0, C, WIDTH);
 
+	bf16 x = 0;
 	for (int i = 0; i < WIDTH * WIDTH; i++) {
 		grads_device[(m_n_hidden_matrices - k - 1) * WIDTH * WIDTH + i] += C[i];
 	}
@@ -501,7 +500,7 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
 
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::initialize_params() {
-	for (int i = 0; i < m_net_width * m_inputs_width; i++) {
+	/*for (int i = 0; i < m_net_width * m_inputs_width; i++) {
 		m_weights_matrices.data()[i] = bf16(1.0f / 32);
 		m_weights_matrices_inferences.data()[i] = bf16(1.0f / 32);
 		m_weightsT_matrices.data()[i] = bf16(1.0f / 32);
@@ -520,7 +519,8 @@ void SwiftNetMLP<WIDTH>::initialize_params() {
 		m_weights_matrices.data()[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 32);
 		m_weights_matrices_inferences.data()[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 32);
 		m_weightsT_matrices.data()[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 32);
-	}
+	}*/
+	m_weights_matrices.initialize_uniform(0.1, m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices);
 }
 
 template <int WIDTH>
@@ -562,7 +562,7 @@ DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, D
 			A[i] = (double)forward_f.data()[i + m_n_hidden_matrices * layer_length];
 		}
 		for (int i = 0; i < m_output_width * m_net_width; i++) {
-			B[i] = (double)m_weights_matrices.data()[i + m_net_width * (m_inputs_width + m_n_hidden_matrices * m_net_width)];
+			B[i] = (double)m_weights_matrices.data()[toPackedLayoutCoord(i, m_net_wdith, m_output_width) + m_net_width * (m_inputs_width + m_n_hidden_matrices * m_net_width)];
 		}
 		cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
 			batch_size, m_output_width, WIDTH, 1, A, WIDTH, B, m_output_width, 0, C, m_output_width);
@@ -590,6 +590,41 @@ DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, D
 	return forward;
 }
 
+template<int WIDTH>
+void SwiftNetMLP<WIDTH>::save_to_file(std::string filename) {
+	std::ofstream file;
+	file.open(filename);
+	file << m_inputs_width << "\n";
+	file << m_net_width << "\n";
+	file << m_output_width << "\n";
+	file << m_n_hidden_layers << "\n";
+	file << m_n_hidden_matrices << "\n";
+	for (int i = 0; i < m_weights_matrices.size(); i++) {
+		file << m_weights_matrices.data()[i] << "\n";
+	}
+	file.close();
+	return;
+}
+
+template<int WIDTH>
+void SwiftNetMLP<WIDTH>::load_from_file(std::string filename) {
+	std::ifstream file;
+	std::string line;
+	file.open(filename);
+	file >> m_inputs_width;
+	file >> m_net_width;
+	file >> m_output_width;
+	file >> m_n_hidden_layers;
+	file >> m_n_hidden_matrices;
+	for (int i = 0; i < m_weights_matrices.size(); i++) {
+		float x;
+		file >> x;
+		m_weights_matrices.data()[i] = bf16(x);
+	}
+	file.close();
+	m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices);
+	return;
+}
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads, DeviceMem<bf16>& forward, DeviceMem<bf16>& loss, int batch_size) {
 	double* A;
@@ -603,7 +638,7 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads, Devic
 		A[i] = (double)loss.data()[i];
 	}
 	for (int i = 0; i < m_output_width * WIDTH; i++) {
-		B[i] = (double)m_weightsT_matrices.data()[m_n_hidden_matrices * m_net_width * m_net_width + m_net_width * m_inputs_width + i];
+		B[i] = (double)m_weightsT_matrices.data()[m_n_hidden_matrices * m_net_width * m_net_width + m_net_width * m_inputs_width + toPackedLayoutCoord(i, m_output_width, m_net_width)];
 	}
 	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
 		batch_size, m_net_width, m_output_width, 1, A, m_output_width, B, m_net_width, 0, C, m_net_width);
@@ -665,28 +700,28 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 }
 
 Activation string_to_activation(const std::string& activation_name) {
-	if (isequalstring(activation_name, "None")) {
+	if (equals_case_insensitive(activation_name, "None")) {
 		return Activation::None;
 	}
-	else if (isequalstring(activation_name, "ReLU")) {
+	else if (equals_case_insensitive(activation_name, "ReLU")) {
 		return Activation::ReLU;
 	}
-	else if (isequalstring(activation_name, "Exponential")) {
+	else if (equals_case_insensitive(activation_name, "Exponential")) {
 		return Activation::Exponential;
 	}
-	else if (isequalstring(activation_name, "Sigmoid")) {
+	else if (equals_case_insensitive(activation_name, "Sigmoid")) {
 		return Activation::Sigmoid;
 	}
-	else if (isequalstring(activation_name, "Sine")) {
+	else if (equals_case_insensitive(activation_name, "Sine")) {
 		return Activation::Sine;
 	}
-	else if (isequalstring(activation_name, "Tanh")) {
+	else if (equals_case_insensitive(activation_name, "Tanh")) {
 		return Activation::Tanh;
 	}
-	throw std::runtime_error{"Invalid activation name:}"};
+
+	throw std::runtime_error{fmt::format("Invalid activation name: {}", activation_name)};
 }
 
-template<int WIDTH>
 SwiftNetMLP<WIDTH>* create_network(queue q, const json& network) {
 
 
@@ -696,7 +731,6 @@ SwiftNetMLP<WIDTH>* create_network(queue q, const json& network) {
 	case  32: return new SwiftNetMLP<32>{ q, network["n_input_dims"], network["n_output_dims"], network["n_hidden_layers"], string_to_activation(network.value("activation", "ReLU")),string_to_activation(network.value("output_activation", "None")) };
 	case  64: return new SwiftNetMLP<64>{ q, network["n_input_dims"], network["n_output_dims"], network["n_hidden_layers"], string_to_activation(network.value("activation", "ReLU")),string_to_activation(network.value("output_activation", "None")) };
 	case 128: return new SwiftNetMLP<128>{ q, network["n_input_dims"], network["n_output_dims"], network["n_hidden_layers"], string_to_activation(network.value("activation", "ReLU")),string_to_activation(network.value("output_activation", "None")) };
-	default: throw std::runtime_error{"SwiftNetMLP only supports 16, 32, 64, and 128 neurons, but got ..."};
+	default: throw std::runtime_error{fmt::format("SwiftNetMLP only supports 16, 32, 64, and 128 neurons, but got {}", n_neurons)};
 	}
 }
-
