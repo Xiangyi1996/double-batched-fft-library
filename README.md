@@ -20,7 +20,7 @@ const float scale = 1e-3f;
 
 queue q = queue();
 
-DeviceMem<bf16> inputs = DeviceMem<bf16>((batch_size * WIDTH, q);
+DeviceMem<bf16> inputs = DeviceMem<bf16>(batch_size * WIDTH, q);
 DeviceMem<float> output = DeviceMem<float>(batch_size * output_width, q);
 DeviceMem<float> target = DeviceMem<float>(batch_size * output_width, q);
 DeviceMem<bf16> grads = DeviceMem<bf16>(batch_size * output_width, q);
