@@ -26,14 +26,14 @@ void sgd_step(id<1> idx,
 	}
 
 	const int packed_idx = matrices_number * WIDTH * WIDTH + packed_idx_matrices;
-	const bf16 weight = weights[idx];
-	float gradient = gradients[packed_idx] / loss_scale;
+	const bf16 weight = weights[packed_idx];
+	float gradient = gradients[idx] / loss_scale;
 
 	gradient += l2_reg * weight;
 
 	const bf16 new_weight = weight - learning_rate * gradient;
 
-	weights[idx] = new_weight;
+	weights[packed_idx] = new_weight;
 }
 
 template<int WIDTH>
