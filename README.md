@@ -43,14 +43,6 @@ nlohmann::json config = {
 		{"learning_rate", 1e-3},
 		{"l2_reg", 1e-8f}
 	}},
-	{"encoding", {
-		{"otype", "HashGrid"},
-		{"n_levels", 16},
-		{"n_features_per_level", 2},
-		{"log2_hashmap_size", 19},
-		{"base_resolution", 16},
-		{"per_level_scale", 2.0},
-	}},
 	{"network", {
 		{"otype", "SwiftNetMLP"},
 		{"activation", "ReLU"},
