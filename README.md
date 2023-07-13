@@ -1,5 +1,5 @@
 ## Introduction
-The goal of this repository is to implements an GPU-accelerated tiny neural network framework using Intel hardware. The implementation uses Intel DPC++ compiler and rely on both SYCL language and Intel level0 API.
+The goal of this repository is to implements an GPU-accelerated tiny neural network framework using Intel hardware. The implementation uses Intel DPC++ compiler and rely on both SYCL language and Intel Level-Zero API.
 
 Because this network is tight, we are able to load both the activation matrices and the weights matrices into the GPU L1 memory ( shared memory and registers ) that corresponds to the GPU's fast memory. This framework is based on this technical paper (https://github.com/DariusDabert/tiny-nn/blob/Swifnet-feature/data/fully-fused-mlp-diagram.png)
 
