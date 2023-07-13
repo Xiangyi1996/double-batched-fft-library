@@ -2,7 +2,7 @@
 
 #include "activation.h"
 #include "DeviceMem.h"
-#include "json.hpp"
+#include <json/json.hpp>
 
 using bf16 = sycl::ext::oneapi::bfloat16;
 using json = nlohmann::json;

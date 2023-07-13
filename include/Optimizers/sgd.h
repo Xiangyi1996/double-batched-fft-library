@@ -19,10 +19,10 @@ void sgd_step(id<1> idx,
 	int packed_idx_matrices = 0;
 
 	if (matrices_number < n_hidden_layers) {
-		packed_idx_matrices = toPackedLayoutCoord(idx, WIDTH, WIDTH);
+		packed_idx_matrices = toPackedLayoutCoord(matrices_offset, WIDTH, WIDTH);
 	}
 	else {
-		packed_idx_matrices = toPackedLayoutCoord(idx, WIDTH, output_width);
+		packed_idx_matrices = toPackedLayoutCoord(matrices_offset, WIDTH, output_width);
 	}
 
 	const int packed_idx = matrices_number * WIDTH * WIDTH + packed_idx_matrices;
@@ -57,21 +57,21 @@ void sgd_stepT(id<1> idx,
 	int packed_idx_matrices = 0;
 
 	if (matrices_number < n_hidden_layers) {
-		int packed_idx_matrices = toPackedLayoutCoord(idx, WIDTH, WIDTH);
+		int packed_idx_matrices = toPackedLayoutCoord(matrices_offset, WIDTH, WIDTH);
 	}
 	else {
-		int packed_idx_matrices = toPackedLayoutCoord(idx, WIDTH, output_width);
+		int packed_idx_matrices = toPackedLayoutCoord(matrices_offset, output_width, WIDTH);
 	}
 
 	const int packed_idx = matrices_number * WIDTH * WIDTH + packed_idx_matrices;
-	const bf16 weightT = weightsT[idx];
-	float gradient = gradients[packed_idx] / loss_scale;
+	const bf16 weightT = weightsT[packed_idx];
+	float gradient = gradients[idx] / loss_scale;
 
 	gradient += l2_reg * weightT;
 
 	const bf16 new_weightT = weightT - learning_rate * gradient;
 
-	weightsT[idx] = new_weightT;
+	weightsT[packed_idx] = new_weightT;
 }
 
 template <int WIDTH>
