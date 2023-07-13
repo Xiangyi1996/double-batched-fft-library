@@ -500,27 +500,27 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
 
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::initialize_params() {
-	/*for (int i = 0; i < m_net_width * m_inputs_width; i++) {
-		m_weights_matrices.data()[i] = bf16(1.0f / 32);
-		m_weights_matrices_inferences.data()[i] = bf16(1.0f / 32);
-		m_weightsT_matrices.data()[i] = bf16(1.0f / 32);
+	for (int i = 0; i < m_net_width * m_inputs_width; i++) {
+		m_weights_matrices.data()[i] = bf16(1.0f / 64);
+		m_weights_matrices_inferences.data()[i] = bf16(1.0f / 64);
+		m_weightsT_matrices.data()[i] = bf16(1.0f / 64);
 	}
 
 	for (int i = 0; i < m_n_hidden_matrices; i++) {
 		for (int j = 0; j < m_net_width * m_net_width; j++) {
 
-			m_weights_matrices.data()[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f / 32);
-			m_weights_matrices_inferences.data()[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f / 32);
-			m_weightsT_matrices.data()[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f / 32);
+			m_weights_matrices.data()[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f / 64);
+			m_weights_matrices_inferences.data()[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f / 64);
+			m_weightsT_matrices.data()[i * m_net_width * m_net_width + m_net_width * m_inputs_width + j] = bf16(1.0f / 64);
 		}
 	}
 
 	for (int i = 0; i < m_net_width * m_output_width; i++) {
-		m_weights_matrices.data()[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 32);
-		m_weights_matrices_inferences.data()[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 32);
-		m_weightsT_matrices.data()[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 32);
-	}*/
-	m_weights_matrices.initialize_uniform(0.1, m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices);
+		m_weights_matrices.data()[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 64);
+		m_weights_matrices_inferences.data()[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 64);
+		m_weightsT_matrices.data()[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 64);
+	}
+	//m_weights_matrices.initialize_uniform(0.1, m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices);
 }
 
 template <int WIDTH>
@@ -700,31 +700,25 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 }
 
 
-
 void test1() {
 
 	const int batch_size = 256;
+	const int output_width = 128;
 	const int WIDTH = 64;
 
 	const float scale = 1e-3f;
 
 	queue q = queue();
 
-	DeviceMem<bf16> inputs = DeviceMem<bf16>();
-	DeviceMem<float> output = DeviceMem<float>();
-	DeviceMem<float> target = DeviceMem<float>();
-	DeviceMem<bf16> grads = DeviceMem<bf16>();
-	DeviceMem<float> losses = DeviceMem<float>();
-
-	inputs.allocate(batch_size * WIDTH, q);
-	output.allocate(batch_size * 128, q);
-	target.allocate(batch_size * 128, q);
-	grads.allocate(batch_size * 128, q);
-	losses.allocate(batch_size * 128, q);
+	DeviceMem<bf16> inputs = DeviceMem<bf16>(batch_size * WIDTH, q);
+	DeviceMem<float> output = DeviceMem<float>(batch_size * output_width, q);
+	DeviceMem<float> target = DeviceMem<float>(batch_size * output_width, q);
+	DeviceMem<bf16> grads = DeviceMem<bf16>(batch_size * output_width, q);
+	DeviceMem<float> losses = DeviceMem<float>(batch_size * output_width, q);
 
 	inputs.initialize_constant(bf16(1.0f));
 	output.initialize_constant(0.0f);
-	target.initialize_constant(0.0f);
+	target.initialize_constant(8.0f);
 	grads.initialize_constant(bf16(0.0f));
 	losses.initialize_constant(0.0f);
 
@@ -763,7 +757,7 @@ void test1() {
 	}},
 	};
 
-	auto model = create_from_config<64>(q, config);
+	//auto model = create_from_config<64>(q, config);
 
 	L2Loss loss;
 	SGDOptimizer<64> optim = SGDOptimizer<64>(128, 2, 1e-3f, 1e-8f);
