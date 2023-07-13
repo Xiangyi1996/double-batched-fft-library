@@ -9,7 +9,14 @@ The computation of the product of matrices is realised thanks to an Intel extens
 Not optimized yet !
 
 ## Usage 
+```cpp
+#include <config.h>
 
+
+json config = create_config(); // <- you decide on the config ( Loss, Optimizers, WIDTH, hidden layers )
+queue q = queue(); // Follow DPC++ documentation on how to choose the driver and hardware
+TrainableModel<64> model = create_from_config(q,config);
+```
 ## Required Hardware and Framework
 XMX hardware on GPU or AMX on CPU.
 DPC++ with level zero.
