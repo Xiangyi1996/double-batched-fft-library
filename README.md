@@ -12,10 +12,62 @@ Not optimized yet !
 ```cpp
 #include <config.h>
 
+const int batch_size = 256;
+const int output_width = 128;
+const int n_iterations = 10;
+const int WIDTH = 64;
+const float scale = 1e-3f;
 
-json config = create_config(); // <- you decide on the config ( Loss, Optimizers, WIDTH, hidden layers )
-queue q = queue(); // Follow DPC++ documentation on how to choose the driver and hardware
-TrainableModel<64> model = create_from_config(q,config);
+queue q = queue();
+
+DeviceMem<bf16> inputs = DeviceMem<bf16>((batch_size * WIDTH, q);
+DeviceMem<float> output = DeviceMem<float>(batch_size * output_width, q);
+DeviceMem<float> target = DeviceMem<float>(batch_size * output_width, q);
+DeviceMem<bf16> grads = DeviceMem<bf16>(batch_size * output_width, q);
+DeviceMem<float> losses = DeviceMem<float>(batch_size * output_width, q);
+
+inputs.initialize_constant(bf16(1.0f));
+output.initialize_constant(0.0f);
+target.initialize_constant(0.0f);
+grads.initialize_constant(bf16(0.0f));
+losses.initialize_constant(0.0f);
+
+nlohmann::json config = {
+	{"loss", {
+		{"otype", "L2"}
+	}},
+	{"optimizer", {
+		{"otype", "sgd"},
+		{"output_width", 128},
+		{"n_hidden_layers", 2},
+		{"learning_rate", 1e-3},
+		{"l2_reg", 1e-8f}
+	}},
+	{"encoding", {
+		{"otype", "HashGrid"},
+		{"n_levels", 16},
+		{"n_features_per_level", 2},
+		{"log2_hashmap_size", 19},
+		{"base_resolution", 16},
+		{"per_level_scale", 2.0},
+	}},
+	{"network", {
+		{"otype", "SwiftNetMLP"},
+		{"activation", "ReLU"},
+		{"output_activation", "None"},
+		{"n_neurons", 64},
+		{"n_hidden_layers", 2},
+	}},
+	};
+
+auto model = create_from_config<64>(q, config);
+
+model.trainer.initialize_params();
+
+for (int i =0; i< n_iterations; i++){
+	model.train.training_step(inputs, output, target, grads, losses, scale);
+}
+
 ```
 ## Required Hardware and Framework
 XMX hardware on GPU or AMX on CPU.
