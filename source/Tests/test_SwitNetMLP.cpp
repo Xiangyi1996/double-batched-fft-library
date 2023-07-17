@@ -6,6 +6,7 @@
 #include "L2.h"
 #include "sgd.h"
 #include "trainer.h"
+#include "loss.h"
 #include "mkl.h"
 #include "common.h"
 #include "config.h"
@@ -16,10 +17,10 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 
 #define TM 8
 #define TK 16
-#define TN 8
+#define TN 16
 
-#define SG_SIZE 8
-#define WG_SIZE 8*SG_SIZE
+#define SG_SIZE 16
+#define WG_SIZE 4*SG_SIZE
 #define BATCH_CHUNK 64
 
 
@@ -62,7 +63,7 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, bf1
 		joint_matrix_load(sg, act_matrix, a + TK * 3 + TM * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix3, result_matrix);
 
-		joint_matrix_store(sg, result_matrix, o + TM * sgId + TN * l * WIDTH, WIDTH, layout::row_major);
+		joint_matrix_store(sg, result_matrix, o + TN * sgId + TM * l * WIDTH, WIDTH, layout::row_major);
 
 
 	}
@@ -75,7 +76,7 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, bf1
 	}
 	for (int i = 0; i < N_ITERS; i++) {
 		if (BACKWARD) {
-			matrix_activation_backward<float, bf16, bf16, SG_SIZE>(item, activation, o + TN * sgId + 8 * i * WIDTH, f + TN * sgId + i * 8 * WIDTH, out + TN * sgId + 8 * i * WIDTH, WIDTH);
+			matrix_activation_backward<float, bf16, bf16, SG_SIZE>(item, activation, o + TN * sgId + TM * i * WIDTH, f + TN * sgId + i * TM * WIDTH, out + TN * sgId + TM * i * WIDTH, WIDTH);
 		}
 
 		else {
@@ -206,26 +207,26 @@ void workgroup_last_layer_forward(nd_item<1> item,
 
 	weights_shmem[weights_row + weights_col * WIDTH] = weights_layer[weights_row + weights_col * WIDTH];
 
-	joint_matrix_load(sg, weight_matrix0, w + 16 * 2 * sgId + 8 * 0 * WIDTH * 2, WIDTH * 2);
-	joint_matrix_load(sg, weight_matrix1, w + 16 * 2 * sgId + 8 * 1 * WIDTH * 2, WIDTH * 2);
-	joint_matrix_load(sg, weight_matrix2, w + 16 * 2 * sgId + 8 * 2 * WIDTH * 2, WIDTH * 2);
-	joint_matrix_load(sg, weight_matrix3, w + 16 * 2 * sgId + 8 * 3 * WIDTH * 2, WIDTH * 2);
+	joint_matrix_load(sg, weight_matrix0, w + TN * 2 * sgId + TK / 2 * 0 * WIDTH * 2, WIDTH * 2);
+	joint_matrix_load(sg, weight_matrix1, w + TN * 2 * sgId + TK / 2 * 1 * WIDTH * 2, WIDTH * 2);
+	joint_matrix_load(sg, weight_matrix2, w + TN * 2 * sgId + TK / 2 * 2 * WIDTH * 2, WIDTH * 2);
+	joint_matrix_load(sg, weight_matrix3, w + TN * 2 * sgId + TK / 2 * 3 * WIDTH * 2, WIDTH * 2);
+
 
 	for (int l = 0; l < N_ITERS; l++) {
 		joint_matrix_fill(sg, result_matrix, 0.0f);
 
-		joint_matrix_load(sg, act_matrix, a + 16 * 0 + 8 * l * WIDTH, WIDTH);
+		joint_matrix_load(sg, act_matrix, a + TK * 0 + TM * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix0, result_matrix);
-		joint_matrix_load(sg, act_matrix, a + 16 * 1 + 8 * l * WIDTH, WIDTH);
+		joint_matrix_load(sg, act_matrix, a + TK * 1 + TM * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix1, result_matrix);
-		joint_matrix_load(sg, act_matrix, a + 16 * 2 + 8 * l * WIDTH, WIDTH);
+		joint_matrix_load(sg, act_matrix, a + TK * 2 + TM * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix2, result_matrix);
-		joint_matrix_load(sg, act_matrix, a + 16 * 3 + 8 * l * WIDTH, WIDTH);
+		joint_matrix_load(sg, act_matrix, a + TK * 3 + TM * l * WIDTH, WIDTH);
 		result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix3, result_matrix);
 
-		matrix_activation<float>(item, activation, o + TK * sgId + TM * l * WIDTH, WIDTH, outs);
+		joint_matrix_store(sg, result_matrix, o + TM * sgId + TN * l * WIDTH, WIDTH, layout::row_major);
 
-		joint_matrix_store(sg, result_matrix, o + 16 * sgId + 8 * l * WIDTH, WIDTH, layout::row_major);
 
 	}
 }
@@ -397,15 +398,22 @@ void dgemm_multiply(bf16* grads_device, float* loss_gradients, bf16* fwd, int k,
 
 	B = (double*)mkl_malloc(batch_size * WIDTH * sizeof(double), 64);
 	C = (double*)mkl_malloc(WIDTH * WIDTH * sizeof(double), 64);
-	for (int i = 0; i < batch_size * WIDTH; i++) {
-		A[i] = (double)loss_gradients[i + (m_n_hidden_matrices - k - 1) * layer_length];
+	for (int i = 0; i < WIDTH; i++) {
+		for (int j = 0; j < batch_size; j++) {
+			A[i * batch_size +j] = (double)elt_activation_ret<bf16>(ACTIVATION, fwd[i +j * WIDTH + (m_n_hidden_matrices - k - 1) * layer_length]);
+		}
 	}
-	for (int i = 0; i < batch_size * WIDTH; i++) {
-		B[i] = (double)elt_activation_ret<bf16>(ACTIVATION, fwd[i + (m_n_hidden_matrices - k - 1) * layer_length]);
+	for (int i = 0; i < WIDTH * batch_size; i++) {
+		B[i] = (double)loss_gradients[i+ (m_n_hidden_matrices - k - 1) * layer_length];
 	}
 	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
 		WIDTH, WIDTH, batch_size, 1, A, batch_size, B, WIDTH, 0, C, WIDTH);
-
+	//for (int i = 0; i < 64; i++) {
+	//	std::cout << "B : " << B[64*i] << std::endl;
+	//}
+	//for (int i = 0; i < 64; i++) {
+	//	std::cout << "loss_gradients : " << loss_gradients[ i] << std::endl;
+	//}
 	bf16 x = 0;
 	for (int i = 0; i < WIDTH * WIDTH; i++) {
 		grads_device[(m_n_hidden_matrices - k - 1) * WIDTH * WIDTH + i] += C[i];
@@ -439,26 +447,14 @@ void mlp_swiftnet_backward(
 		q.wait();
 		q.submit([&](handler& h) {
 			//Transfer data to device memory
-
 			stream outs(1024, 256, h);
 			h.parallel_for(nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE), [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
-
 				kernel_swiftnet_backward<WIDTH, N_ITERS, ACTIVATION>(item, deltas.data(), grads_matrices.data(), weights_transposed.data(), forward.data(), out_inter, batch_number, n_hidden_matmuls, outs);
-
 				});
 			}).wait();
 
 			for (int k = 0; k < n_hidden_matmuls; k++) {
-				//	/*for (int i = 0; i < WIDTH; i++) {
-				//		for (int j = 0; j < WIDTH; j++) {
-				//			for (int a = 0; a < batch_size; a++) {
-				//				grads_device[WIDTH * WIDTH * (n_hidden_matmuls - k - 1) + i * WIDTH + j] += out_inter[j + a * WIDTH + (n_hidden_matmuls - k -1) * layer_lenght] * act_device[WIDTH * WIDTH * batch_number * (n_hidden_matmuls - k - 1)  + i + a * WIDTH];
-				//			}
-				//		}
-				//	}*/
 				dgemm_multiply<WIDTH, ACTIVATION>(grads_matrices.data(), out_inter, forward.data(), k, batch_size, n_hidden_matmuls);
-
-
 			}
 			q.wait();
 	}
@@ -487,14 +483,12 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
 	m_n_hidden_layers{ n_hidden_layers },
 	m_activation{ activation },
 	m_output_activation{ output_activation }
-{
+{	
 	m_n_hidden_matrices = m_n_hidden_layers - 1;
 	m_weightsT_matrices.allocate(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width, m_q);
 	m_weights_matrices.allocate(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width, m_q);
 	m_weights_matrices_inferences.allocate(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width, m_q);
 	m_grads_matrices.allocate(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width, m_q);
-
-
 
 }
 
@@ -526,14 +520,16 @@ void SwiftNetMLP<WIDTH>::initialize_params() {
 template <int WIDTH>
 DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, DeviceMem<float>& output) {
 
-	static_assert(WIDTH % 16 == 0, "Width must be a multiply of 16.");
-
 	const int output_stride = WIDTH;
 	const int batch_size = input.size() / m_inputs_width;
 	const int input_size = input.size();
 	const int intermediate_output_size = batch_size * WIDTH * m_n_hidden_layers;
 	DeviceMem<float> forward_f = DeviceMem<float>(intermediate_output_size, m_q);
 	DeviceMem<bf16> forward = DeviceMem<bf16>(batch_size * (m_inputs_width + m_output_width + WIDTH * m_n_hidden_layers), m_q);
+
+	static_assert(WIDTH % 16 == 0, "Width must be a multiply of 16.");
+	assert(batch_size % 64 == 0);
+
 
 
 	switch (m_activation) {
@@ -568,7 +564,7 @@ DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, D
 			batch_size, m_output_width, WIDTH, 1, A, WIDTH, B, m_output_width, 0, C, m_output_width);
 
 		for (int i = 0; i < m_output_width * batch_size; i++) {
-			output.data()[i] = C[i];
+			output.data()[i] = (float) C[i];
 		}
 
 		mkl_free(A);
@@ -630,8 +626,8 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads, Devic
 	double* A;
 	double* B;
 	double* C;
+	double* D;
 	A = (double*)mkl_malloc(grads.size() * sizeof(double), 64);
-	//B = (MKL_BF16*)mkl_malloc(grads.size() * sizeof(MKL_BF16), 64);
 	B = (double*)mkl_malloc(m_output_width * WIDTH * sizeof(double), 64);
 	C = (double*)mkl_malloc(WIDTH * batch_size * sizeof(double), 64);
 	for (int i = 0; i < grads.size(); i++) {
@@ -643,19 +639,35 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads, Devic
 	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
 		batch_size, m_net_width, m_output_width, 1, A, m_output_width, B, m_net_width, 0, C, m_net_width);
 
-	bf16 x = 0;
-	for (int i = 0; i < m_net_width * batch_size; i++) {
-		elt_activation_bwd<double, float, bf16>(m_activation, C[i], forward.data()[m_inputs_width + (m_n_hidden_matrices - 1) * batch_size * m_net_width + i], x);
-		loss.data()[i] = x;
 
-		for (int j = 0; j < m_net_width; j++) {
-			m_grads_matrices.data()[m_inputs_width * m_net_width + (m_n_hidden_matrices - 1) * m_net_width * m_net_width + i % m_net_width + j * m_net_width] += x * elt_activation_ret(m_activation, forward.data()[m_inputs_width * batch_size + (m_n_hidden_matrices - 1) * m_net_width * batch_size + j + (i / m_net_width) * m_net_width]);
+	mkl_free(A);
+	mkl_free(B);;
+
+	A = (double*)mkl_malloc(m_net_width * batch_size * sizeof(double), 64);
+	B = (double*)mkl_malloc(batch_size * m_net_width * sizeof(double), 64);
+	D = (double*)mkl_malloc(m_net_width * m_net_width * sizeof(double), 64);
+	for (int i = 0; i < m_net_width; i++) {
+		for (int j = 0; j < batch_size; j++) {
+			A[i * batch_size + j] = (double)elt_activation_ret<bf16>(m_activation, forward.data()[m_inputs_width + (m_n_hidden_matrices - 1) * batch_size * m_net_width + j * m_net_width + i]);
 		}
+	}
+	for (int i = 0; i < m_net_width * batch_size; i++) {
+		elt_activation_bwd<double, double, double>(m_activation, C[i], forward.data()[m_inputs_width + (m_n_hidden_matrices - 1) * batch_size * m_net_width + i], B[i]);
+		loss.data()[i] = (bf16)B[i];
+	}
+
+	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+		m_net_width, m_net_width, batch_size, 1, A, batch_size, B, m_net_width, 0, D, m_net_width);
+
+	for (int i = 0; i < m_net_width * m_net_width; i++) {
+		m_grads_matrices.data()[m_inputs_width * m_net_width + (m_n_hidden_matrices - 1) * m_net_width * m_net_width + i] = D[i];
 	}
 
 	mkl_free(A);
 	mkl_free(B);
 	mkl_free(C);
+	mkl_free(D);
+
 
 }
 
@@ -665,21 +677,37 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 
 	bf16 x;
 	DeviceMem<bf16> loss(m_output_width * batch_size, m_q);
-	for (int i = 0; i < batch_size * m_output_width; i++) {
-		// On calcule les loss gradients du dernier layer
 
-		elt_activation_bwd<bf16, float, bf16>(
+	double* A;
+	double* B;
+	double* C;
+	A = (double*)mkl_malloc(m_net_width * batch_size * sizeof(double), 64);
+	B = (double*)mkl_malloc(batch_size * m_output_width * sizeof(double), 64);
+	C = (double*)mkl_malloc(m_net_width * m_output_width * sizeof(double), 64);
+	for (int i = 0; i < m_net_width; i++) {
+		for (int j = 0; j < batch_size; j++) {
+			A[i * batch_size + j] = (double)elt_activation_ret<bf16>(m_activation, forward.data()[m_inputs_width * batch_size + m_n_hidden_matrices * m_net_width * batch_size + j * m_net_width + i]);
+		}
+	}
+	for (int i = 0; i < batch_size * m_output_width; i++) {
+		elt_activation_bwd<bf16, double, double>(
 			m_output_activation,
 			grads.data()[i],
 			forward.data()[input.size() + (m_n_hidden_matrices + 1) * batch_size * m_net_width + i],
-			x);
-		loss.data()[i] = x;
-		for (int j = 0; j < m_net_width; j++) {
-			int y;
-
-			m_grads_matrices.data()[m_n_hidden_matrices * m_net_width * m_net_width + m_inputs_width * m_net_width + i % m_output_width + j * m_output_width] += x * elt_activation_ret<bf16>(m_activation, forward.data()[m_inputs_width * batch_size + m_n_hidden_matrices * m_net_width * batch_size + j + (i / m_output_width) * m_net_width]);
-		}
+			B[i]);
+		loss.data()[i] = (bf16)B[i];
 	}
+	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+		m_net_width, m_output_width, batch_size, 1, A, batch_size, B, m_output_width, 0, C, m_output_width);
+
+	for (int i = 0; i < m_net_width * m_output_width; i++) {
+		m_grads_matrices.data()[m_n_hidden_matrices * m_net_width * m_net_width + m_inputs_width * m_net_width + i ] = C[i];
+	}
+
+	mkl_free(A);
+	mkl_free(B);
+	mkl_free(C);
+
 
 	/// Backpropagation through last layer
 	dgemm_last_layer_backward(grads, forward, loss, batch_size);
@@ -702,7 +730,7 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 
 void test1() {
 
-	const int batch_size = 256;
+	const int batch_size =std::pow(2,20);
 	const int output_width = 128;
 	const int WIDTH = 64;
 
@@ -722,13 +750,9 @@ void test1() {
 	grads.initialize_constant(bf16(0.0f));
 	losses.initialize_constant(0.0f);
 
-	/*for (int i = 0; i < 128; i++) {
-		for (int j = 0; j < 64; j++) {
-			inputs[64 * i + j] = bf16((64*i+j) * 1.0f / 100);
-			target[64 * i + j] = bf16(2 * j * 1.0f / 100);
-		}
-	}*/
-
+	for (int i = 0; i < batch_size * WIDTH; i++) {
+		inputs.data()[i] = (i / WIDTH) ;
+	}
 	nlohmann::json config = {
 	{"loss", {
 		{"otype", "L2"}
@@ -757,7 +781,7 @@ void test1() {
 	}},
 	};
 
-	//auto model = create_from_config<64>(q, config);
+	auto model = create_from_config<64>(q, config);
 
 	L2Loss loss;
 	SGDOptimizer<64> optim = SGDOptimizer<64>(128, 2, 1e-3f, 1e-8f);
@@ -776,7 +800,7 @@ void test1() {
 		std::cout << "grads : " << grads.data()[i] << std::endl;
 		std::cout << "output : " << output.data()[i] << std::endl;
 	}
-
+	
 	std::cout << "1 step \n";
 	for (int i = 0; i < 1; i++) {
 		train.training_step(inputs, output, target, grads, losses, scale);
@@ -796,13 +820,8 @@ void test1() {
 	losses.free_mem(q);
 }
 
-
-
-
-
 int main() {
 
 	test1();
-
 	return 0;
 }
