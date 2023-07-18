@@ -26,7 +26,7 @@ public:
 
 		m_optim->step(m_network->get_queue(), scale, m_network->m_weights_matrices, m_network->m_weightsT_matrices, m_network->m_grads_matrices);
 
-		for (int i = 0; i < 3; i++) {
+		/*for (int i = 0; i < 3; i++) {
 			for (int j = 0; j < 10; j++) {
 				std::cout << "forward : " << i << " : " << forward.data()[64 * 64 * i + 64*j] << std::endl;
 			}
@@ -44,7 +44,7 @@ public:
 			for (int j = 0; j < 10; j++) {
 				std::cout << "weight : " << i << " : " << m_network->m_weights_matrices.data()[64 * 64 * i + j] << std::endl;
 			}
-		}
+		}*/
 		forward.free_mem(m_network->get_queue());
 	}
 

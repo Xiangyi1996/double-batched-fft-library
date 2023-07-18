@@ -2,7 +2,8 @@
 #include "optimizer.h"
 #include <vector>
 
-void adam_step(<id>1 idx,
+template<int WIDTH>
+void adam_step(id<1> idx,
 	const int n_elements,
 	const float relative_weight_decay,
 	const float absolute_weight_decay,
@@ -34,8 +35,7 @@ void adam_step(<id>1 idx,
 
 	const float effective_learning_rate = fminf(fmaxf(learning_rate / (sqrtf(second_moment) + epsilon), lower_lr_bound), upper_lr_bound);
 
-	const float decayed_weight = weight_decay(relative_weight_decay * learning_rate, absolute_weight_decay * learning_rate, weight_fp);
-	float new_weight = decayed_weight - effective_learning_rate * first_moment;
+	float new_weight = effective_learning_rate * first_moment;
 
 	if (weight_clipping_magnitude != 0.0f) {
 		new_weight = clamp(new_weight, -weight_clipping_magnitude, weight_clipping_magnitude);
@@ -44,7 +44,8 @@ void adam_step(<id>1 idx,
 	weights[idx] = (bf16)new_weight;
 }
 
-void adam_stepT(< id>1 idx,
+template<int WIDTH>
+void adam_stepT(id<1> idx,
 	const int n_elements,
 	const float relative_weight_decay,
 	const float absolute_weight_decay,
@@ -80,8 +81,7 @@ void adam_stepT(< id>1 idx,
 
 	const float effective_learning_rate = fminf(fmaxf(learning_rate / (sqrtf(second_moment) + epsilon), lower_lr_bound), upper_lr_bound);
 
-	const float decayed_weight = weight_decay(relative_weight_decay * learning_rate, absolute_weight_decay * learning_rate, weight_fp);
-	float new_weight = decayed_weight - effective_learning_rate * first_moment;
+	float new_weight = effective_learning_rate * first_moment;
 
 	if (weight_clipping_magnitude != 0.0f) {
 		new_weight = clamp(new_weight, -weight_clipping_magnitude, weight_clipping_magnitude);
@@ -95,66 +95,65 @@ template <int WIDTH>
 class AdamOptimizer : public Optimizer {
 public:
 
-	void step(queue q, const int n_elements,
-		const float relative_weight_decay,
-		const float absolute_weight_decay,
-		const float weight_clipping_magnitude,
-		const float loss_scale,
-		const float non_matrix_learning_rate_factor,
-		const float beta1,
-		const float beta2,
-		const float epsilon,
-		const float lower_lr_bound,
-		const float upper_lr_bound,
-		DeviceMem<bf16>& weights,
-		DeviceMem<bf16>& weightsT, 
-		DeviceMem<bf16>& gradients) const  override {
+	void step(queue q, float loss_scale, DeviceMem<bf16>& weights, DeviceMem<bf16>& weightsT, DeviceMem<bf16>& gradients) const  override {
 
 		const int n_elements = weights.size();
 		float learning_rate = m_learning_rate;
 		float l2_reg = m_l2_reg;
+		const float relative_weight_decay = 0.01f;
+		const float absolute_weight_decay = 0.01f;
+		const float weight_clipping_magnitude = 0.01f;
+		const float non_matrix_learning_rate_factor = 0.01f;
+		const float beta1 = 0.9f;
+		const float beta2 = 0.99f;
+		const float epsilon = 0.01f;
+		const float lower_lr_bound = 0.0001f;
+		const float upper_lr_bound = 0.1f;
+
+		auto first_moment = m_first_moments.data();
+		auto second_moment = m_second_moments.data();
 
 
 		q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
-			adam_step(idx, 
+			adam_step<WIDTH>(idx, 
 			n_elements,
 			relative_weight_decay,
 			absolute_weight_decay,
 			weight_clipping_magnitude,
 			loss_scale,
-			m_learning_rate,
+			learning_rate,
 			non_matrix_learning_rate_factor,
 			beta1,
 			beta2,
 			epsilon,
 			lower_lr_bound,
 			upper_lr_bound,
-			m_l2_reg,
+			l2_reg,
 			weights.data(),
 			gradients.data(),
-			m_first_moments.data(),
-			m_second_moments.data());
+			first_moment,
+			second_moment);
 			}).wait();
 
-		q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
-			adam_stepT<WIDTH>((idx,
-			n_elements,
-			relative_weight_decay,
-			absolute_weight_decay,
-			weight_clipping_magnitude,
-			loss_scale,
-			m_learning_rate,
-			non_matrix_learning_rate_factor,
-			beta1,
-			beta2,
-			epsilon,
-			lower_lr_bound,
-			upper_lr_bound,
-			m_l2_reg,
-			weightsT.data(),
-			gradients.data(),
-			m_first_moments.data(),
-			m_second_moments.data());
+			q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
+				adam_stepT<WIDTH>(idx,
+				n_elements,
+				relative_weight_decay,
+				absolute_weight_decay,
+				weight_clipping_magnitude,
+				loss_scale,
+				learning_rate,
+				non_matrix_learning_rate_factor,
+				beta1,
+				beta2,
+				epsilon,
+				lower_lr_bound,
+				upper_lr_bound,
+				l2_reg,
+				weightsT.data(),
+				gradients.data(),
+				first_moment,
+				second_moment);
 			}).wait();
 	}
 

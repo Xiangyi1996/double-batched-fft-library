@@ -4,6 +4,7 @@
 #include <vector>
 #include <random>
 #include "common.h"
+
 using namespace sycl;
 template<typename T>
 class DeviceMem {

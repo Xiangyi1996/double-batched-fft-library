@@ -29,6 +29,7 @@ void L1_loss(id<1> idx,
 class L1Loss : public Loss {
 public:
 	void evaluate(
+		queue q, 
 		const int dims,
 		const int stride,
 		const float scale,
@@ -37,7 +38,6 @@ public:
 		DeviceMem<bf16>& grads,
 		DeviceMem<float>& values
 	) const override {
-		queue q;
 
 		int n_elements = preds.size();
 
