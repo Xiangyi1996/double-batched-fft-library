@@ -6,8 +6,8 @@
 #include "L2.h"
 #include "sgd.h"
 #include "trainer.h"
-#include "loss.h"
 #include "mkl.h"
+#include "mkl_omp_offload.h"
 #include "common.h"
 #include "config.h"
 
@@ -17,10 +17,10 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 
 #define TM 8
 #define TK 16
-#define TN 16
+#define TN 8
 
-#define SG_SIZE 16
-#define WG_SIZE 4*SG_SIZE
+#define SG_SIZE 8
+#define WG_SIZE 8*SG_SIZE
 #define BATCH_CHUNK 64
 
 
@@ -572,7 +572,20 @@ DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, D
 		mkl_free(C);
 	}
 
-	for (int i = 0; i < input_size; i++) {
+	m_q.parallel_for<>(range<1>(forward.size()), [=](id<1> idx) {
+		if (idx < input.size()) {
+			forward.data()[idx] = (bf16)input.data()[idx];
+		}
+		else if (idx < forward_f.size() + input.size()) {
+			forward.data()[idx] = (bf16)(forward_f.data()[idx - input.size()]);
+		}
+		else {
+			forward.data()[idx] = (bf16)output.data()[idx - intermediate_output_size - input_size];
+		}
+		}).wait();
+
+
+	/*for (int i = 0; i < input_size; i++) {
 		forward.data()[i] = input.data()[i];
 	}
 	for (int i = 0; i < forward_f.size(); i++) {
@@ -580,7 +593,7 @@ DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, D
 	}
 	for (int i = 0; i < output.size(); i++) {
 		forward.data()[i + intermediate_output_size + input_size] = output.data()[i];
-	}
+	}*/
 	forward_f.free_mem(m_q);
 
 	return forward;
@@ -674,6 +687,9 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads, Devic
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<bf16>& grads, DeviceMem<bf16>& forward) {
 	int batch_size = input.size() / m_inputs_width;
+	auto p = m_grads_matrices.data();
+	int s = m_grads_matrices.size();
+	int offset_grad = m_n_hidden_matrices * m_net_width * m_net_width + m_inputs_width * m_net_width;
 
 	bf16 x;
 	DeviceMem<bf16> loss(m_output_width * batch_size, m_q);
@@ -701,7 +717,7 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 		m_net_width, m_output_width, batch_size, 1, A, batch_size, B, m_output_width, 0, C, m_output_width);
 
 	for (int i = 0; i < m_net_width * m_output_width; i++) {
-		m_grads_matrices.data()[m_n_hidden_matrices * m_net_width * m_net_width + m_inputs_width * m_net_width + i ] = C[i];
+		m_grads_matrices.data()[m_n_hidden_matrices * m_net_width * m_net_width + m_inputs_width * m_net_width + i] = C[i];
 	}
 
 	mkl_free(A);
@@ -722,8 +738,44 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 	default: throw std::runtime_error{"Unsupported activation."};
 	}
 
-	for (int i = 0; i < m_grads_matrices.size(); i++) {
-		m_grads_matrices.data()[i] /= batch_size;
+	m_q.parallel_for<>(range<1>(s), [=](id<1> idx) {
+		p[idx] /= batch_size;
+		}).wait();
+}
+
+Activation string_to_activation(const std::string& activation_name) {
+	if (isequalstring(activation_name, "None")) {
+		return Activation::None;
+	}
+	else if (isequalstring(activation_name, "ReLU")) {
+		return Activation::ReLU;
+	}
+	else if (isequalstring(activation_name, "Exponential")) {
+		return Activation::Exponential;
+	}
+	else if (isequalstring(activation_name, "Sigmoid")) {
+		return Activation::Sigmoid;
+	}
+	else if (isequalstring(activation_name, "Sine")) {
+		return Activation::Sine;
+	}
+	else if (isequalstring(activation_name, "Tanh")) {
+		return Activation::Tanh;
+	}
+	throw std::runtime_error{"Invalid activation name:}"};
+}
+
+template<int WIDTH>
+SwiftNetMLP<WIDTH>* create_network(queue q, const json& network) {
+
+
+	int n_neurons = network.value("n_neurons", 128u);
+	switch (n_neurons) {
+	case  16: return new SwiftNetMLP<16>{ q, network["n_input_dims"], network["n_output_dims"], network["n_hidden_layers"], string_to_activation(network.value("activation", "ReLU")),string_to_activation(network.value("output_activation", "None")) };
+	case  32: return new SwiftNetMLP<32>{ q, network["n_input_dims"], network["n_output_dims"], network["n_hidden_layers"], string_to_activation(network.value("activation", "ReLU")),string_to_activation(network.value("output_activation", "None")) };
+	case  64: return new SwiftNetMLP<64>{ q, network["n_input_dims"], network["n_output_dims"], network["n_hidden_layers"], string_to_activation(network.value("activation", "ReLU")),string_to_activation(network.value("output_activation", "None")) };
+	case 128: return new SwiftNetMLP<128>{ q, network["n_input_dims"], network["n_output_dims"], network["n_hidden_layers"], string_to_activation(network.value("activation", "ReLU")),string_to_activation(network.value("output_activation", "None")) };
+	default: throw std::runtime_error{"SwiftNetMLP only supports 16, 32, 64, and 128 neurons, but got ..."};
 	}
 }
 
@@ -751,7 +803,7 @@ void test1() {
 	losses.initialize_constant(0.0f);
 
 	for (int i = 0; i < batch_size * WIDTH; i++) {
-		inputs.data()[i] = (i / WIDTH) ;
+		inputs.data()[i] = (i / WIDTH)%16 ;
 	}
 	nlohmann::json config = {
 	{"loss", {
@@ -781,7 +833,7 @@ void test1() {
 	}},
 	};
 
-	auto model = create_from_config<64>(q, config);
+	//auto model = create_from_config<64>(q, config);
 
 	L2Loss loss;
 	SGDOptimizer<64> optim = SGDOptimizer<64>(128, 2, 1e-3f, 1e-8f);

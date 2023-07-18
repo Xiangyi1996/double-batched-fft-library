@@ -1,8 +1,8 @@
 #include "optimizer.h"
 
 #include "adam.h"
-//#include "average.h"
-//#include "lookahead.h"
+#include "average.h"
+#include "lookahead.h"
 #include "sgd.h"
 
 using bf16 = sycl::ext::oneapi::bfloat16;

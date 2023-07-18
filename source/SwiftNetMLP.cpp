@@ -7,6 +7,7 @@
 #include "sgd.h"
 #include "trainer.h"
 #include "mkl.h"
+#include "mkl_omp_offload.h"
 #include "common.h"
 #include "config.h"
 
@@ -16,10 +17,10 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 
 #define TM 8
 #define TK 16
-#define TN 16
+#define TN 8
 
-#define SG_SIZE 16
-#define WG_SIZE 4*SG_SIZE
+#define SG_SIZE 8
+#define WG_SIZE 8*SG_SIZE
 #define BATCH_CHUNK 64
 
 
@@ -489,8 +490,6 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
 	m_weights_matrices_inferences.allocate(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width, m_q);
 	m_grads_matrices.allocate(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width, m_q);
 
-
-
 }
 
 template <int WIDTH>
@@ -521,14 +520,16 @@ void SwiftNetMLP<WIDTH>::initialize_params() {
 template <int WIDTH>
 DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, DeviceMem<float>& output) {
 
-	static_assert(WIDTH % 16 == 0, "Width must be a multiply of 16.");
-
 	const int output_stride = WIDTH;
 	const int batch_size = input.size() / m_inputs_width;
 	const int input_size = input.size();
 	const int intermediate_output_size = batch_size * WIDTH * m_n_hidden_layers;
 	DeviceMem<float> forward_f = DeviceMem<float>(intermediate_output_size, m_q);
 	DeviceMem<bf16> forward = DeviceMem<bf16>(batch_size * (m_inputs_width + m_output_width + WIDTH * m_n_hidden_layers), m_q);
+
+	static_assert(WIDTH % 16 == 0, "Width must be a multiply of 16.");
+	assert(batch_size % 64 == 0);
+
 
 
 	switch (m_activation) {
@@ -571,18 +572,31 @@ DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, D
 		mkl_free(C);
 	}
 
-	for (int i = 0; i < input_size; i++) {
-		forward.data()[i] = input.data()[i];
-	}
-	for (int i = 0; i < forward_f.size(); i++) {
-		forward.data()[i + input_size] = bf16(forward_f.data()[i]);
-	}
-	for (int i = 0; i < output.size(); i++) {
-		forward.data()[i + intermediate_output_size + input_size] = output.data()[i];
-	}
-	forward_f.free_mem(m_q);
+	m_q.parallel_for<>(range<1>(forward.size()), [=](id<1> idx) {
+		if (idx < input.size()) {
+			forward.data()[idx] = (bf16)input.data()[idx];
+		}
+		else if (idx < forward_f.size() + input.size()) {
+			forward.data()[idx] = (bf16)(forward_f.data()[idx - input.size()]);
+		}
+		else {
+			forward.data()[idx] = (bf16)output.data()[idx - intermediate_output_size - input_size];
+		}
+		}).wait();
 
-	return forward;
+
+		/*for (int i = 0; i < input_size; i++) {
+			forward.data()[i] = input.data()[i];
+		}
+		for (int i = 0; i < forward_f.size(); i++) {
+			forward.data()[i + input_size] = bf16(forward_f.data()[i]);
+		}
+		for (int i = 0; i < output.size(); i++) {
+			forward.data()[i + intermediate_output_size + input_size] = output.data()[i];
+		}*/
+		forward_f.free_mem(m_q);
+
+		return forward;
 }
 
 template<int WIDTH>
@@ -627,7 +641,6 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads, Devic
 	double* C;
 	double* D;
 	A = (double*)mkl_malloc(grads.size() * sizeof(double), 64);
-	//B = (MKL_BF16*)mkl_malloc(grads.size() * sizeof(MKL_BF16), 64);
 	B = (double*)mkl_malloc(m_output_width * WIDTH * sizeof(double), 64);
 	C = (double*)mkl_malloc(WIDTH * batch_size * sizeof(double), 64);
 	for (int i = 0; i < grads.size(); i++) {
@@ -639,15 +652,6 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads, Devic
 	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
 		batch_size, m_net_width, m_output_width, 1, A, m_output_width, B, m_net_width, 0, C, m_net_width);
 
-	/*bf16 x = 0;
-	for (int i = 0; i < m_net_width * batch_size; i++) {
-		elt_activation_bwd<double, float, bf16>(m_activation, C[i], forward.data()[m_inputs_width + (m_n_hidden_matrices - 1) * batch_size * m_net_width + i], x);
-		loss.data()[i] = x;
-
-		for (int j = 0; j < m_net_width; j++) {
-			m_grads_matrices.data()[m_inputs_width * m_net_width + (m_n_hidden_matrices - 1) * m_net_width * m_net_width + i % m_net_width + j * m_net_width] += x * elt_activation_ret(m_activation, forward.data()[m_inputs_width * batch_size + (m_n_hidden_matrices - 1) * m_net_width * batch_size + j + (i / m_net_width) * m_net_width]);
-		}
-	}*/
 
 	mkl_free(A);
 	mkl_free(B);;
@@ -683,24 +687,12 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads, Devic
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<bf16>& grads, DeviceMem<bf16>& forward) {
 	int batch_size = input.size() / m_inputs_width;
+	auto p = m_grads_matrices.data();
+	int s = m_grads_matrices.size();
+	int offset_grad = m_n_hidden_matrices * m_net_width * m_net_width + m_inputs_width * m_net_width;
 
 	bf16 x;
 	DeviceMem<bf16> loss(m_output_width * batch_size, m_q);
-	//for (int i = 0; i < batch_size * m_output_width; i++) {
-	//	// On calcule les loss gradients du dernier layer
-
-	//	elt_activation_bwd<bf16, float, bf16>(
-	//		m_output_activation,
-	//		grads.data()[i],
-	//		forward.data()[input.size() + (m_n_hidden_matrices + 1) * batch_size * m_net_width + i],
-	//		x);
-	//	loss.data()[i] = x;
-	//	for (int j = 0; j < m_net_width; j++) {
-	//		int y;
-
-	//		m_grads_matrices.data()[m_n_hidden_matrices * m_net_width * m_net_width + m_inputs_width * m_net_width + i % m_output_width + j * m_output_width] += x * elt_activation_ret<bf16>(m_activation, forward.data()[m_inputs_width * batch_size + m_n_hidden_matrices * m_net_width * batch_size + j + (i / m_output_width) * m_net_width]);
-	//	}
-	//}
 
 	double* A;
 	double* B;
@@ -746,11 +738,10 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 	default: throw std::runtime_error{"Unsupported activation."};
 	}
 
-	for (int i = 0; i < m_grads_matrices.size(); i++) {
-		m_grads_matrices.data()[i] /= batch_size;
-	}
+	m_q.parallel_for<>(range<1>(s), [=](id<1> idx) {
+		p[idx] /= batch_size;
+		}).wait();
 }
-
 
 Activation string_to_activation(const std::string& activation_name) {
 	if (isequalstring(activation_name, "None")) {
@@ -786,5 +777,97 @@ SwiftNetMLP<WIDTH>* create_network(queue q, const json& network) {
 	case 128: return new SwiftNetMLP<128>{ q, network["n_input_dims"], network["n_output_dims"], network["n_hidden_layers"], string_to_activation(network.value("activation", "ReLU")),string_to_activation(network.value("output_activation", "None")) };
 	default: throw std::runtime_error{"SwiftNetMLP only supports 16, 32, 64, and 128 neurons, but got ..."};
 	}
-}}
+}
+
+
+void test1() {
+
+	const int batch_size = std::pow(2, 20);
+	const int output_width = 128;
+	const int WIDTH = 64;
+
+	const float scale = 1e-3f;
+
+	queue q = queue();
+
+	DeviceMem<bf16> inputs = DeviceMem<bf16>(batch_size * WIDTH, q);
+	DeviceMem<float> output = DeviceMem<float>(batch_size * output_width, q);
+	DeviceMem<float> target = DeviceMem<float>(batch_size * output_width, q);
+	DeviceMem<bf16> grads = DeviceMem<bf16>(batch_size * output_width, q);
+	DeviceMem<float> losses = DeviceMem<float>(batch_size * output_width, q);
+
+	inputs.initialize_constant(bf16(1.0f));
+	output.initialize_constant(0.0f);
+	target.initialize_constant(8.0f);
+	grads.initialize_constant(bf16(0.0f));
+	losses.initialize_constant(0.0f);
+
+	for (int i = 0; i < batch_size * WIDTH; i++) {
+		inputs.data()[i] = (i / WIDTH) % 16;
+	}
+	nlohmann::json config = {
+	{"loss", {
+		{"otype", "L2"}
+	}},
+	{"optimizer", {
+		{"otype", "sgd"},
+		{"output_width", 128},
+		{"n_hidden_layers", 2},
+		{"learning_rate", 1e-3},
+		{"l2_reg", 1e-8f}
+	}},
+	{"encoding", {
+		{"otype", "HashGrid"},
+		{"n_levels", 16},
+		{"n_features_per_level", 2},
+		{"log2_hashmap_size", 19},
+		{"base_resolution", 16},
+		{"per_level_scale", 2.0},
+	}},
+	{"network", {
+		{"otype", "SwiftNetMLP"},
+		{"activation", "ReLU"},
+		{"output_activation", "None"},
+		{"n_neurons", 64},
+		{"n_hidden_layers", 2},
+	}},
+	};
+
+	//auto model = create_from_config<64>(q, config);
+
+	L2Loss loss;
+	SGDOptimizer<64> optim = SGDOptimizer<64>(128, 2, 1e-3f, 1e-8f);
+	SwiftNetMLP<64> network = SwiftNetMLP<64>(q, 64, 128, 2, Activation::None, Activation::None);
+	Trainer<64> train(network, loss, optim);
+
+	train.initialize_params();
+
+	std::cout << "first step \n";
+
+	train.training_step(inputs, output, target, grads, losses, scale);
+
+	for (int i = 0; i < 1; i++) {
+
+		std::cout << "losses : " << losses.data()[i] << std::endl;
+		std::cout << "grads : " << grads.data()[i] << std::endl;
+		std::cout << "output : " << output.data()[i] << std::endl;
+	}
+
+	std::cout << "1 step \n";
+	for (int i = 0; i < 1; i++) {
+		train.training_step(inputs, output, target, grads, losses, scale);
+	}
+
+	for (int i = 0; i < 1; i++) {
+
+		std::cout << "losses : " << losses.data()[i] << std::endl;
+		std::cout << "grads : " << grads.data()[i] << std::endl;
+		std::cout << "output : " << output.data()[i] << std::endl;
+	}
+
+	inputs.free_mem(q);
+	output.free_mem(q);
+	target.free_mem(q);
+	grads.free_mem(q);
+	losses.free_mem(q);
 }
