@@ -9,6 +9,7 @@
 #include "mkl.h"
 #include "mkl_omp_offload.h"
 #include "common.h"
+#include "oneapi/mkl.hpp"
 #include "config.h"
 
 using namespace sycl;
@@ -320,7 +321,8 @@ void mlp_swift_forward(queue q,
 
 	int shmem_size = batch_size * WIDTH;
 
-	DeviceMem<bf16> act(shmem_size, q);
+	const size_t alignment = 4096;
+	auto act = sycl::aligned_alloc_shared<bf16>(alignment, shmem_size, q);
 
 	q.submit([&](handler& cgh)
 		{
@@ -334,7 +336,7 @@ void mlp_swift_forward(queue q,
 						inputs.data(),
 						weights.data(),
 						intermediate_output.data(),
-						act.data(),
+						act,
 						output.data(),
 						batch_size,
 						output_stride,
@@ -388,40 +390,37 @@ void kernel_swiftnet_backward(
 }
 
 template <int WIDTH, Activation ACTIVATION>
-void dgemm_multiply(bf16* grads_device, float* loss_gradients, bf16* fwd, int k, int batch_size, int m_n_hidden_matrices) {
+void dgemm_multiply(queue q, bf16* grads_device, float* loss_gradients, bf16* fwd, int k, int batch_size, int m_n_hidden_matrices) {
 	const int layer_length = WIDTH * batch_size;
+	const int n_hidden_matrices = m_n_hidden_matrices;
+	int i = 0;
+	int j = 0;
 
-	double* A;
-	double* B;
-	double* C;
-	A = (double*)mkl_malloc(batch_size * WIDTH * sizeof(double), 64);
+	const size_t alignment = 4096;
+	auto A = sycl::aligned_alloc_shared<float>(alignment, batch_size * WIDTH, q);
+	auto B = sycl::aligned_alloc_shared<float>(alignment, batch_size * WIDTH, q);
+	auto C = sycl::aligned_alloc_shared<float>(alignment, WIDTH * WIDTH, q);
 
-	B = (double*)mkl_malloc(batch_size * WIDTH * sizeof(double), 64);
-	C = (double*)mkl_malloc(WIDTH * WIDTH * sizeof(double), 64);
-	for (int i = 0; i < WIDTH; i++) {
-		for (int j = 0; j < batch_size; j++) {
-			A[i * batch_size +j] = (double)elt_activation_ret<bf16>(ACTIVATION, fwd[i +j * WIDTH + (m_n_hidden_matrices - k - 1) * layer_length]);
-		}
-	}
-	for (int i = 0; i < WIDTH * batch_size; i++) {
-		B[i] = (double)loss_gradients[i+ (m_n_hidden_matrices - k - 1) * layer_length];
-	}
-	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+	queue q1 = queue();
+	queue q2 = queue();
+
+	q1.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
+		int i = idx / batch_size;
+		int j = idx % batch_size;
+		A[i * batch_size + j] = (float)elt_activation_ret<bf16>(ACTIVATION, fwd[i + j * WIDTH + (n_hidden_matrices - k - 1) * layer_length]);
+		}).wait();
+
+	q2.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
+		B[idx] = (float)loss_gradients[idx + (n_hidden_matrices - k - 1) * layer_length];
+		}).wait();
+
+	oneapi::mkl::blas::row_major::gemm(q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
 		WIDTH, WIDTH, batch_size, 1, A, batch_size, B, WIDTH, 0, C, WIDTH);
-	//for (int i = 0; i < 64; i++) {
-	//	std::cout << "B : " << B[64*i] << std::endl;
-	//}
-	//for (int i = 0; i < 64; i++) {
-	//	std::cout << "loss_gradients : " << loss_gradients[ i] << std::endl;
-	//}
-	bf16 x = 0;
-	for (int i = 0; i < WIDTH * WIDTH; i++) {
-		grads_device[(m_n_hidden_matrices - k - 1) * WIDTH * WIDTH + i] += C[i];
-	}
 
-	mkl_free(A);
-	mkl_free(B);
-	mkl_free(C);
+	q.parallel_for<>(range<1>(WIDTH * WIDTH), [=](id<1> idx) {
+		grads_device[(m_n_hidden_matrices - k - 1) * WIDTH * WIDTH + idx] += C[idx];
+		}).wait();
+
 }
 
 template<int WIDTH, Activation ACTIVATION>
@@ -454,7 +453,7 @@ void mlp_swiftnet_backward(
 			}).wait();
 
 			for (int k = 0; k < n_hidden_matmuls; k++) {
-				dgemm_multiply<WIDTH, ACTIVATION>(grads_matrices.data(), out_inter, forward.data(), k, batch_size, n_hidden_matmuls);
+				dgemm_multiply<WIDTH, ACTIVATION>(q, grads_matrices.data(), out_inter, forward.data(), k, batch_size, n_hidden_matmuls);
 			}
 			q.wait();
 	}
@@ -546,30 +545,38 @@ DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, D
 
 	if (m_output_width > 16) {
 		const int layer_length = WIDTH * batch_size;
+		const int n_hidden_matrices = m_n_hidden_matrices;
+		const int net_width = m_net_width;
+		const int inputs_width = m_inputs_width;
+		const int output_width = m_output_width;
+		auto p = m_weights_matrices.data();
 
-		double* A;
-		double* B;
-		double* C;
-		A = (double*)mkl_malloc(layer_length * sizeof(double), 64);
+		const size_t alignment = 4096;
+		auto A = sycl::aligned_alloc_shared<float>(alignment, layer_length, m_q);
+		auto B = sycl::aligned_alloc_shared<float>(alignment, m_output_width * m_net_width, m_q);
+		auto C = sycl::aligned_alloc_shared<float>(alignment, m_output_width * batch_size, m_q);
 
-		B = (double*)mkl_malloc(m_output_width * m_net_width * sizeof(double), 64);
-		C = (double*)mkl_malloc(m_output_width * batch_size * sizeof(double), 64);
-		for (int i = 0; i < layer_length; i++) {
-			A[i] = (double)forward_f.data()[i + m_n_hidden_matrices * layer_length];
-		}
-		for (int i = 0; i < m_output_width * m_net_width; i++) {
-			B[i] = (double)m_weights_matrices.data()[toPackedLayoutCoord(i, m_net_width, m_output_width) + m_net_width * (m_inputs_width + m_n_hidden_matrices * m_net_width)];
-		}
-		cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+		queue q1 = queue();
+		queue q2 = queue();
+
+		q1.parallel_for<>(range<1>(layer_length), [=](id<1> idx) {
+			A[idx] = (float)forward_f.data()[idx + n_hidden_matrices * layer_length];
+			}).wait();
+
+		q2.parallel_for<>(range<1>(m_output_width * m_net_width), [=](id<1> idx) {
+			B[idx] = (float)p[toPackedLayoutCoord(idx, net_width, output_width) + net_width * (inputs_width + n_hidden_matrices * net_width)];
+			}).wait();
+
+		oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
 			batch_size, m_output_width, WIDTH, 1, A, WIDTH, B, m_output_width, 0, C, m_output_width);
 
-		for (int i = 0; i < m_output_width * batch_size; i++) {
-			output.data()[i] = (float) C[i];
-		}
+		m_q.parallel_for<>(range<1>(m_output_width * batch_size), [=](id<1> idx) {
+			output.data()[idx] = (float)C[idx];
+			}).wait();
 
-		mkl_free(A);
-		mkl_free(B);
-		mkl_free(C);
+		free(A, m_q);
+		free(B, m_q);
+		free(C, m_q);
 	}
 
 	m_q.parallel_for<>(range<1>(forward.size()), [=](id<1> idx) {
@@ -584,16 +591,6 @@ DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, D
 		}
 		}).wait();
 
-
-	/*for (int i = 0; i < input_size; i++) {
-		forward.data()[i] = input.data()[i];
-	}
-	for (int i = 0; i < forward_f.size(); i++) {
-		forward.data()[i + input_size] = bf16(forward_f.data()[i]);
-	}
-	for (int i = 0; i < output.size(); i++) {
-		forward.data()[i + intermediate_output_size + input_size] = output.data()[i];
-	}*/
 	forward_f.free_mem(m_q);
 
 	return forward;
@@ -636,50 +633,69 @@ void SwiftNetMLP<WIDTH>::load_from_file(std::string filename) {
 }
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads, DeviceMem<bf16>& forward, DeviceMem<bf16>& loss, int batch_size) {
-	double* A;
-	double* B;
-	double* C;
-	double* D;
-	A = (double*)mkl_malloc(grads.size() * sizeof(double), 64);
-	B = (double*)mkl_malloc(m_output_width * WIDTH * sizeof(double), 64);
-	C = (double*)mkl_malloc(WIDTH * batch_size * sizeof(double), 64);
-	for (int i = 0; i < grads.size(); i++) {
-		A[i] = (double)loss.data()[i];
-	}
-	for (int i = 0; i < m_output_width * WIDTH; i++) {
-		B[i] = (double)m_weightsT_matrices.data()[m_n_hidden_matrices * m_net_width * m_net_width + m_net_width * m_inputs_width + toPackedLayoutCoord(i, m_output_width, m_net_width)];
-	}
-	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+
+	auto p_w = m_weightsT_matrices.data();
+	auto p_g = m_grads_matrices.data();
+	const int offset_w = m_n_hidden_matrices * m_net_width * m_net_width + m_net_width * m_inputs_width;
+	const int offset_g = m_inputs_width * m_net_width + (m_n_hidden_matrices - 1) * m_net_width * m_net_width;
+	const int offset_f = (m_inputs_width + (m_n_hidden_matrices - 1) * batch_size) * m_net_width;
+	const int output_width = m_output_width;
+	const int net_width = m_net_width;
+
+	int i = 0;
+	int j = 0;
+
+	auto activation = m_activation;
+
+	const size_t alignment = 4096;
+	auto A = sycl::aligned_alloc_shared<float>(alignment, grads.size(), m_q);
+	auto B = sycl::aligned_alloc_shared<float>(alignment, m_output_width * WIDTH, m_q);
+	auto C = sycl::aligned_alloc_shared<float>(alignment, WIDTH * batch_size, m_q);
+
+	queue q1 = queue();
+	queue q2 = queue();
+
+	q1.parallel_for<>(range<1>(grads.size()), [=](id<1> idx) {
+		A[idx] = (float)loss.data()[idx];
+		}).wait();
+
+	q2.parallel_for<>(range<1>(m_output_width * WIDTH), [=](id<1> idx) {
+		B[idx] = (float)p_w[offset_w + toPackedLayoutCoord(idx, output_width, net_width)];
+		}).wait();
+
+	oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
 		batch_size, m_net_width, m_output_width, 1, A, m_output_width, B, m_net_width, 0, C, m_net_width);
 
+	
+	A = sycl::aligned_alloc_shared<float>(alignment, m_net_width * batch_size, m_q);
+	B = sycl::aligned_alloc_shared<float>(alignment, batch_size * m_net_width, m_q);
+	auto D = sycl::aligned_alloc_shared<float>(alignment, m_net_width * m_net_width, m_q);
 
-	mkl_free(A);
-	mkl_free(B);;
+	q1.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
+		int i = idx / batch_size;
+		int j = idx % batch_size;
+		A[i * batch_size + j] = (float)elt_activation_ret<bf16>(activation, forward.data()[offset_f + j * net_width + i]);
+		}).wait();
 
-	A = (double*)mkl_malloc(m_net_width * batch_size * sizeof(double), 64);
-	B = (double*)mkl_malloc(batch_size * m_net_width * sizeof(double), 64);
-	D = (double*)mkl_malloc(m_net_width * m_net_width * sizeof(double), 64);
-	for (int i = 0; i < m_net_width; i++) {
-		for (int j = 0; j < batch_size; j++) {
-			A[i * batch_size + j] = (double)elt_activation_ret<bf16>(m_activation, forward.data()[m_inputs_width + (m_n_hidden_matrices - 1) * batch_size * m_net_width + j * m_net_width + i]);
-		}
-	}
-	for (int i = 0; i < m_net_width * batch_size; i++) {
-		elt_activation_bwd<double, double, double>(m_activation, C[i], forward.data()[m_inputs_width + (m_n_hidden_matrices - 1) * batch_size * m_net_width + i], B[i]);
-		loss.data()[i] = (bf16)B[i];
-	}
+	q2.parallel_for<>(range<1>(m_net_width * batch_size), [=](id<1> idx) {
+		elt_activation_bwd<float, float, float>(activation, C[idx], forward.data()[offset_f + idx], B[idx]);
+		loss.data()[idx] = (bf16)B[idx];
+		}).wait();
 
-	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+
+	oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
 		m_net_width, m_net_width, batch_size, 1, A, batch_size, B, m_net_width, 0, D, m_net_width);
 
-	for (int i = 0; i < m_net_width * m_net_width; i++) {
-		m_grads_matrices.data()[m_inputs_width * m_net_width + (m_n_hidden_matrices - 1) * m_net_width * m_net_width + i] = D[i];
-	}
+	m_q.parallel_for<>(range<1>(m_net_width * m_net_width), [=](id<1> idx) {
+		p_g[idx + offset_g] = (float)D[idx];
+		}).wait();
 
-	mkl_free(A);
-	mkl_free(B);
-	mkl_free(C);
-	mkl_free(D);
+	//free(p_g);
+	//free(p_w);
+	//free(A, m_q);
+	//free(B, m_q);
+	//free(C, m_q);
+	//free(D, m_q);
 
 
 }
@@ -689,40 +705,45 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 	int batch_size = input.size() / m_inputs_width;
 	auto p = m_grads_matrices.data();
 	int s = m_grads_matrices.size();
-	int offset_grad = m_n_hidden_matrices * m_net_width * m_net_width + m_inputs_width * m_net_width;
-
+	auto activation = m_activation;
+	auto output_activation = m_output_activation;
+	const int offset_grad = m_n_hidden_matrices * m_net_width * m_net_width + m_inputs_width * m_net_width;
+	const int offset_f = m_inputs_width * batch_size + m_n_hidden_matrices * m_net_width * batch_size;
 	bf16 x;
 	DeviceMem<bf16> loss(m_output_width * batch_size, m_q);
 
-	double* A;
-	double* B;
-	double* C;
-	A = (double*)mkl_malloc(m_net_width * batch_size * sizeof(double), 64);
-	B = (double*)mkl_malloc(batch_size * m_output_width * sizeof(double), 64);
-	C = (double*)mkl_malloc(m_net_width * m_output_width * sizeof(double), 64);
-	for (int i = 0; i < m_net_width; i++) {
-		for (int j = 0; j < batch_size; j++) {
-			A[i * batch_size + j] = (double)elt_activation_ret<bf16>(m_activation, forward.data()[m_inputs_width * batch_size + m_n_hidden_matrices * m_net_width * batch_size + j * m_net_width + i]);
-		}
-	}
-	for (int i = 0; i < batch_size * m_output_width; i++) {
-		elt_activation_bwd<bf16, double, double>(
-			m_output_activation,
-			grads.data()[i],
-			forward.data()[input.size() + (m_n_hidden_matrices + 1) * batch_size * m_net_width + i],
-			B[i]);
-		loss.data()[i] = (bf16)B[i];
-	}
-	cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+	const size_t alignment = 4096;
+	auto A = sycl::aligned_alloc_shared<float>(alignment, m_net_width * batch_size, m_q);
+	auto B = sycl::aligned_alloc_shared<float>(alignment, batch_size * m_output_width, m_q);
+	auto C = sycl::aligned_alloc_shared<float>(alignment, m_net_width * m_output_width, m_q);
+
+
+	queue q1 = queue();
+	queue q2 = queue();
+
+	q1.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
+		int i = idx / batch_size;
+		int j = idx % batch_size;
+		A[i * batch_size + j] = (float)elt_activation_ret<bf16>(activation, forward.data()[offset_f + j * WIDTH + i]);
+		}).wait();
+
+	q2.parallel_for<>(range<1>(batch_size * m_output_width), [=](id<1> idx) {
+		elt_activation_bwd<bf16, float, float>(output_activation, grads.data()[idx], forward.data()[offset_f + batch_size * WIDTH + idx], B[idx]);
+		loss.data()[idx] = (bf16)B[idx];
+		}).wait();
+
+	oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
 		m_net_width, m_output_width, batch_size, 1, A, batch_size, B, m_output_width, 0, C, m_output_width);
 
-	for (int i = 0; i < m_net_width * m_output_width; i++) {
-		m_grads_matrices.data()[m_n_hidden_matrices * m_net_width * m_net_width + m_inputs_width * m_net_width + i] = C[i];
-	}
 
-	mkl_free(A);
-	mkl_free(B);
-	mkl_free(C);
+	m_q.parallel_for<>(range<1>(m_net_width * m_output_width), [=](id<1> idx) {
+		p[idx + offset_grad] = (float)C[idx];
+		}).wait();
+
+
+	free(A, m_q);
+	free(B, m_q);
+	free(C, m_q);
 
 
 	/// Backpropagation through last layer
@@ -782,7 +803,7 @@ SwiftNetMLP<WIDTH>* create_network(queue q, const json& network) {
 
 void test1() {
 
-	const int batch_size =std::pow(2,20);
+	const int batch_size =std::pow(2,19);
 	const int output_width = 128;
 	const int WIDTH = 64;
 
