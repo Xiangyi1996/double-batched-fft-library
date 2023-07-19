@@ -254,7 +254,7 @@ void kernel_swift_mlp(nd_item<1> item,
 
 	auto wg = item.get_group();
 	const int wg_idx = wg.get_group_id();
-	const int elem_idx = WIDTH * wg_idx;
+	const int elem_idx = BATCH_CHUNK * wg_idx;
 
 	if (input_width == WIDTH) {
 
@@ -317,12 +317,15 @@ void mlp_swift_forward(queue q,
 	const int output_width)
 {
 	const int N_BLOCKS = WIDTH / TK;
-	const int N_ITERS = WIDTH / TM;
+	const int N_ITERS = BATCH_CHUNK / TM;
 
 	int shmem_size = batch_size * WIDTH;
 
 	const size_t alignment = 4096;
 	auto act = sycl::aligned_alloc_shared<bf16>(alignment, shmem_size, q);
+	auto weight = sycl::aligned_alloc_shared<bf16>(alignment, weights.size(), q);
+
+	q.memcpy(weight, weights.data(), weights.size() * sizeof(bf16));
 
 	q.submit([&](handler& cgh)
 		{
@@ -334,7 +337,7 @@ void mlp_swift_forward(queue q,
 					kernel_swift_mlp<WIDTH, N_ITERS, activation>(item,
 						output_activation,
 						inputs.data(),
-						weights.data(),
+						weight,
 						intermediate_output.data(),
 						act,
 						output.data(),
@@ -348,6 +351,8 @@ void mlp_swift_forward(queue q,
 						outs);
 				});
 		}).wait();
+		free(act, q);
+		free(weight, q);
 
 }
 
@@ -401,16 +406,13 @@ void dgemm_multiply(queue q, bf16* grads_device, float* loss_gradients, bf16* fw
 	auto B = sycl::aligned_alloc_shared<float>(alignment, batch_size * WIDTH, q);
 	auto C = sycl::aligned_alloc_shared<float>(alignment, WIDTH * WIDTH, q);
 
-	queue q1 = queue();
-	queue q2 = queue();
-
-	q1.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
+	q.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
 		int i = idx / batch_size;
 		int j = idx % batch_size;
 		A[i * batch_size + j] = (float)elt_activation_ret<bf16>(ACTIVATION, fwd[i + j * WIDTH + (n_hidden_matrices - k - 1) * layer_length]);
 		}).wait();
 
-		q2.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
+		q.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
 			B[idx] = (float)loss_gradients[idx + (n_hidden_matrices - k - 1) * layer_length];
 			}).wait();
 
@@ -420,6 +422,12 @@ void dgemm_multiply(queue q, bf16* grads_device, float* loss_gradients, bf16* fw
 			q.parallel_for<>(range<1>(WIDTH * WIDTH), [=](id<1> idx) {
 				grads_device[(m_n_hidden_matrices - k - 1) * WIDTH * WIDTH + idx] += C[idx];
 				}).wait();
+
+				free(A, q);
+				q.wait();
+				free(B, q);
+				q.wait();
+				free(C, q);
 
 }
 
@@ -437,8 +445,8 @@ void mlp_swiftnet_backward(
 	// in deltas, the last layer has already been calculated
 
 	const int layer_lenght = WIDTH * batch_size;
-	const int N_ITERS = 8;
-	int batch_number = batch_size / 64;
+	const int N_ITERS = BATCH_CHUNK / TM;
+	int batch_number = batch_size / BATCH_CHUNK;
 	try {
 
 		float* out_inter = malloc_shared<float>(batch_size * WIDTH * (n_hidden_matmuls + 2), q);
@@ -456,6 +464,8 @@ void mlp_swiftnet_backward(
 				dgemm_multiply<WIDTH, ACTIVATION>(q, grads_matrices.data(), out_inter, forward.data(), k, batch_size, n_hidden_matmuls);
 			}
 			q.wait();
+
+			free(out_inter, q);
 	}
 
 	catch (std::exception const& e)
@@ -475,7 +485,6 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
 	Activation activation,
 	Activation output_activation
 ) :
-	m_q{ q },
 	m_inputs_width{ input_width },
 	m_net_width{ WIDTH },
 	m_output_width{ output_width },
@@ -483,6 +492,7 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
 	m_activation{ activation },
 	m_output_activation{ output_activation }
 {
+	m_q = q;
 	m_n_hidden_matrices = m_n_hidden_layers - 1;
 	m_weightsT_matrices.allocate(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width, m_q);
 	m_weights_matrices.allocate(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width, m_q);
@@ -514,7 +524,7 @@ void SwiftNetMLP<WIDTH>::initialize_params() {
 		m_weightsT_matrices.data()[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 64);
 	}
 	//m_weights_matrices.initialize_uniform(0.1, m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices);
-}
+};
 
 template <int WIDTH>
 DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, DeviceMem<float>& output) {
@@ -556,14 +566,11 @@ DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, D
 		auto B = sycl::aligned_alloc_shared<float>(alignment, m_output_width * m_net_width, m_q);
 		auto C = sycl::aligned_alloc_shared<float>(alignment, m_output_width * batch_size, m_q);
 
-		queue q1 = queue();
-		queue q2 = queue();
-
-		q1.parallel_for<>(range<1>(layer_length), [=](id<1> idx) {
+		m_q.parallel_for<>(range<1>(layer_length), [=](id<1> idx) {
 			A[idx] = (float)forward_f.data()[idx + n_hidden_matrices * layer_length];
 			}).wait();
 
-			q2.parallel_for<>(range<1>(m_output_width * m_net_width), [=](id<1> idx) {
+			m_q.parallel_for<>(range<1>(m_output_width * m_net_width), [=](id<1> idx) {
 				B[idx] = (float)p[toPackedLayoutCoord(idx, net_width, output_width) + net_width * (inputs_width + n_hidden_matrices * net_width)];
 				}).wait();
 
@@ -575,7 +582,9 @@ DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, D
 					}).wait();
 
 					free(A, m_q);
+					m_q.wait();
 					free(B, m_q);
+					m_q.wait();
 					free(C, m_q);
 	}
 
@@ -652,32 +661,34 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads, Devic
 	auto B = sycl::aligned_alloc_shared<float>(alignment, m_output_width * WIDTH, m_q);
 	auto C = sycl::aligned_alloc_shared<float>(alignment, WIDTH * batch_size, m_q);
 
-	queue q1 = queue();
-	queue q2 = queue();
-
-	q1.parallel_for<>(range<1>(grads.size()), [=](id<1> idx) {
+	m_q.parallel_for<>(range<1>(grads.size()), [=](id<1> idx) {
 		A[idx] = (float)loss.data()[idx];
 		}).wait();
 
-		q2.parallel_for<>(range<1>(m_output_width * WIDTH), [=](id<1> idx) {
+		m_q.parallel_for<>(range<1>(m_output_width * WIDTH), [=](id<1> idx) {
 			B[idx] = (float)p_w[offset_w + toPackedLayoutCoord(idx, output_width, net_width)];
 			}).wait();
 
 			oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
 				batch_size, m_net_width, m_output_width, 1, A, m_output_width, B, m_net_width, 0, C, m_net_width);
 
+			m_q.wait();
+			free(A, m_q);
+			m_q.wait();
+			free(B, m_q);
+			m_q.wait();
 
 			A = sycl::aligned_alloc_shared<float>(alignment, m_net_width * batch_size, m_q);
 			B = sycl::aligned_alloc_shared<float>(alignment, batch_size * m_net_width, m_q);
 			auto D = sycl::aligned_alloc_shared<float>(alignment, m_net_width * m_net_width, m_q);
 
-			q1.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
+			m_q.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
 				int i = idx / batch_size;
 				int j = idx % batch_size;
 				A[i * batch_size + j] = (float)elt_activation_ret<bf16>(activation, forward.data()[offset_f + j * net_width + i]);
 				}).wait();
 
-				q2.parallel_for<>(range<1>(m_net_width * batch_size), [=](id<1> idx) {
+				m_q.parallel_for<>(range<1>(m_net_width * batch_size), [=](id<1> idx) {
 					elt_activation_bwd<float, float, float>(activation, C[idx], forward.data()[offset_f + idx], B[idx]);
 					loss.data()[idx] = (bf16)B[idx];
 					}).wait();
@@ -690,12 +701,15 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads, Devic
 						p_g[idx + offset_g] = (float)D[idx];
 						}).wait();
 
-						//free(p_g);
-						//free(p_w);
-						//free(A, m_q);
-						//free(B, m_q);
-						//free(C, m_q);
-						//free(D, m_q);
+						/*free(p_g);
+						free(p_w);*/
+						free(A, m_q);
+						m_q.wait();
+						free(B, m_q);
+						m_q.wait();
+						free(C, m_q);
+						m_q.wait();
+						free(D, m_q);
 
 
 }
@@ -718,16 +732,13 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 	auto C = sycl::aligned_alloc_shared<float>(alignment, m_net_width * m_output_width, m_q);
 
 
-	queue q1 = queue();
-	queue q2 = queue();
-
-	q1.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
+	m_q.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
 		int i = idx / batch_size;
 		int j = idx % batch_size;
 		A[i * batch_size + j] = (float)elt_activation_ret<bf16>(activation, forward.data()[offset_f + j * WIDTH + i]);
 		}).wait();
 
-		q2.parallel_for<>(range<1>(batch_size * m_output_width), [=](id<1> idx) {
+		m_q.parallel_for<>(range<1>(batch_size * m_output_width), [=](id<1> idx) {
 			elt_activation_bwd<bf16, float, float>(output_activation, grads.data()[idx], forward.data()[offset_f + batch_size * WIDTH + idx], B[idx]);
 			loss.data()[idx] = (bf16)B[idx];
 			}).wait();
@@ -742,9 +753,12 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 
 
 				free(A, m_q);
+				m_q.wait();
 				free(B, m_q);
+				m_q.wait();
 				free(C, m_q);
-
+				m_q.wait();
+				loss.free_mem(m_q);
 
 				/// Backpropagation through last layer
 				dgemm_last_layer_backward(grads, forward, loss, batch_size);
@@ -762,40 +776,4 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 				m_q.parallel_for<>(range<1>(s), [=](id<1> idx) {
 					p[idx] /= batch_size;
 					}).wait();
-}
-
-Activation string_to_activation(const std::string& activation_name) {
-	if (isequalstring(activation_name, "None")) {
-		return Activation::None;
-	}
-	else if (isequalstring(activation_name, "ReLU")) {
-		return Activation::ReLU;
-	}
-	else if (isequalstring(activation_name, "Exponential")) {
-		return Activation::Exponential;
-	}
-	else if (isequalstring(activation_name, "Sigmoid")) {
-		return Activation::Sigmoid;
-	}
-	else if (isequalstring(activation_name, "Sine")) {
-		return Activation::Sine;
-	}
-	else if (isequalstring(activation_name, "Tanh")) {
-		return Activation::Tanh;
-	}
-	throw std::runtime_error{"Invalid activation name:}"};
-}
-
-template<int WIDTH>
-SwiftNetMLP<WIDTH>* create_network(queue q, const json& network) {
-
-
-	int n_neurons = network.value("n_neurons", 128u);
-	switch (n_neurons) {
-	case  16: return new SwiftNetMLP<16>{ q, network["n_input_dims"], network["n_output_dims"], network["n_hidden_layers"], string_to_activation(network.value("activation", "ReLU")),string_to_activation(network.value("output_activation", "None")) };
-	case  32: return new SwiftNetMLP<32>{ q, network["n_input_dims"], network["n_output_dims"], network["n_hidden_layers"], string_to_activation(network.value("activation", "ReLU")),string_to_activation(network.value("output_activation", "None")) };
-	case  64: return new SwiftNetMLP<64>{ q, network["n_input_dims"], network["n_output_dims"], network["n_hidden_layers"], string_to_activation(network.value("activation", "ReLU")),string_to_activation(network.value("output_activation", "None")) };
-	case 128: return new SwiftNetMLP<128>{ q, network["n_input_dims"], network["n_output_dims"], network["n_hidden_layers"], string_to_activation(network.value("activation", "ReLU")),string_to_activation(network.value("output_activation", "None")) };
-	default: throw std::runtime_error{"SwiftNetMLP only supports 16, 32, 64, and 128 neurons, but got ..."};
-	}
 }
