@@ -1,6 +1,7 @@
 #pragma once
 
 #include "activation.h"
+#include"Network.h"
 #include "DeviceMem.h"
 #include <json/json.hpp>
 
@@ -8,24 +9,26 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 using json = nlohmann::json;
 
 template <int WIDTH>
-class SwiftNetMLP {
+class SwiftNetMLP : public Network {
 public:
     SwiftNetMLP(queue q, int input_width, int output_width, int n_hidden_layers, Activation activation, Activation output_activation);
 
-    DeviceMem<bf16> forward_pass(const DeviceMem<bf16>& input, DeviceMem<float>& output);
+    DeviceMem<bf16> forward_pass(const DeviceMem<bf16>& input, DeviceMem<float>& output) override;
 
     void backward_pass(
         const DeviceMem<bf16>& input, DeviceMem<bf16>& grads, DeviceMem<bf16>& forward
-    );
+    ) override;
+
     void dgemm_last_layer_backward(DeviceMem<bf16>& grads, DeviceMem<bf16>& forward, DeviceMem<bf16>& loss, int batch_size);
     //void set_params(float* params, float* inference_params, float* gradients);
     void save_to_file(std::string filename);
     void load_from_file(std::string filename);
-    void initialize_params();
+    void initialize_params()  override;
 
-    queue get_queue() {
-        return m_q;
+    ~SwiftNetMLP() {
+        m_weights_matrices_inferences.free_mem(m_q);
     }
+
 
     DeviceMem<bf16>* grads_matrices() {
         return &m_grads_matrices;
@@ -38,10 +41,6 @@ public:
     DeviceMem<bf16>* weightsT_matrices() {
         return &m_weightsT_matrices;
     }
-
-    DeviceMem<bf16> m_grads_matrices;
-    DeviceMem<bf16> m_weights_matrices;
-    DeviceMem<bf16> m_weightsT_matrices;
 
 private:
     int m_n_hidden_layers;
@@ -56,8 +55,6 @@ private:
 
 
     DeviceMem<bf16> m_weights_matrices_inferences;
-
-    queue m_q;
 
     int m_total_n_params;
 };

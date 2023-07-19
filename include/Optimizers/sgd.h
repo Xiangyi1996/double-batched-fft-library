@@ -3,7 +3,6 @@
 #include <vector>
 #include "common.h"
 
-template<int WIDTH>
 void sgd_step(id<1> idx,
 	const int n_elements,
 	int output_width,
@@ -12,7 +11,8 @@ void sgd_step(id<1> idx,
 	const float learning_rate,
 	const float l2_reg,
 	bf16* weights,
-	bf16* gradients
+	bf16* gradients,
+	int WIDTH
 ) {
 	const int matrices_number = idx / (WIDTH * WIDTH);
 	const int matrices_offset = idx % (WIDTH * WIDTH);
@@ -36,7 +36,6 @@ void sgd_step(id<1> idx,
 	weights[packed_idx] = new_weight;
 }
 
-template<int WIDTH>
 void sgd_stepT(id<1> idx,
 	const int n_elements,
 	int output_width,
@@ -45,7 +44,8 @@ void sgd_stepT(id<1> idx,
 	const float learning_rate,
 	const float l2_reg,
 	bf16* weightsT,
-	bf16* gradients
+	bf16* gradients,
+	int WIDTH
 ) {
 	const int i = idx / WIDTH;
 	const int j = idx % WIDTH;
@@ -74,7 +74,6 @@ void sgd_stepT(id<1> idx,
 	weightsT[packed_idx] = new_weightT;
 }
 
-template <int WIDTH>
 class SGDOptimizer : public Optimizer {
 public:
 
@@ -85,7 +84,7 @@ public:
 		m_l2_reg= l2_reg;
 	}
 
-	void step(queue q, float loss_scale, DeviceMem<bf16>& weights, DeviceMem<bf16>& weightsT, DeviceMem<bf16>& gradients) const  override {
+	void step(queue q, float loss_scale, DeviceMem<bf16>& weights, DeviceMem<bf16>& weightsT, DeviceMem<bf16>& gradients, int WIDTH) const  override {
 
 		const int n_elements = weights.size();
 		float learning_rate = m_learning_rate;
@@ -94,11 +93,11 @@ public:
 		const int n_hidden_layers = m_n_hidden_layers;
 
 		q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
-			sgd_step<WIDTH>(idx, n_elements, output_rows, n_hidden_layers, loss_scale, learning_rate, l2_reg, weights.data(), gradients.data());
+			sgd_step(idx, n_elements, output_rows, n_hidden_layers, loss_scale, learning_rate, l2_reg, weights.data(), gradients.data(), WIDTH);
 			}).wait();
 
 		q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
-			sgd_stepT<WIDTH>(idx, n_elements, output_rows, n_hidden_layers, loss_scale, learning_rate, l2_reg, weightsT.data(), gradients.data());
+			sgd_stepT(idx, n_elements, output_rows, n_hidden_layers, loss_scale, learning_rate, l2_reg, weightsT.data(), gradients.data(), WIDTH);
 			}).wait();
 
 

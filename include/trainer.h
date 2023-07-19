@@ -3,19 +3,19 @@
 #include "SwiftNetMLP.h"
 #include "L2.h"
 #include "DeviceMem.h"
-//#include "optimizer.h"
+#include "optimizer.h"
+#include "Network.h"
 
-template<int WIDTH>
 class Trainer {
 public:
 
-	Trainer(SwiftNetMLP<WIDTH>& network, Loss& loss, Optimizer& optim) {
+	Trainer(Network& network, Loss& loss, Optimizer& optim) {
 		m_network = &network;
 		m_loss = &loss;
 		m_optim = &optim;
 	}
 
-	void training_step(DeviceMem<bf16>& input, DeviceMem<float>& output, DeviceMem<float>& target, DeviceMem<bf16>& grads, DeviceMem<float>& losses, const float scale) {
+	void training_step(DeviceMem<bf16>& input, DeviceMem<float>& output, DeviceMem<float>& target, DeviceMem<bf16>& grads, DeviceMem<float>& losses, const float scale, const int WIDTH) {
 		const int input_size = input.size();
 		const int batch_size = std::pow(2, 19);
 		auto forward = m_network->forward_pass(input, output);
@@ -24,28 +24,28 @@ public:
 
 		m_network->backward_pass(input, grads, forward);
 
-		m_optim->step(m_network->get_queue(), scale, m_network->m_weights_matrices, m_network->m_weightsT_matrices, m_network->m_grads_matrices);
+		m_optim->step(m_network->get_queue(), scale, m_network->m_weights_matrices, m_network->m_weightsT_matrices, m_network->m_grads_matrices, WIDTH);
 
-		for (int i = 0; i < 3; i++) {
-			for (int j = 64; j < 74 ; j++) {
-				std::cout << "forward : " << i << " : " << forward.data()[64 * batch_size * i + 64*j] << std::endl;
-			}
-		}
-		for (int j = 0; j < 64; j++) {
-			std::cout << "forward : " << 3 << " : " << forward.data()[64 * batch_size * 3 + 128 * j] << std::endl;
-		}
-		
-		
-		for (int i = 0; i < 3; i++) {
-			for (int j = 0; j < 10; j++) {
-				std::cout << "grads : " << i << " : " << m_network->m_grads_matrices.data()[64 * 64 * i + 64*j] << std::endl;
-			}
-		}
-		for (int i = 0; i < 3; i++) {
-			for (int j = 0; j < 10; j++) {
-				std::cout << "weight : " << i << " : " << m_network->m_weights_matrices.data()[64 * 64 * i + 64*j] << std::endl;
-			}
-		}
+		//for (int i = 0; i < 3; i++) {
+		//	for (int j = 64; j < 74 ; j++) {
+		//		std::cout << "forward : " << i << " : " << forward.data()[64 * batch_size * i + 64*j] << std::endl;
+		//	}
+		//}
+		//for (int j = 0; j < 64; j++) {
+		//	std::cout << "forward : " << 3 << " : " << forward.data()[64 * batch_size * 3 + 128 * j] << std::endl;
+		//}
+		//
+		//
+		//for (int i = 0; i < 3; i++) {
+		//	for (int j = 0; j < 10; j++) {
+		//		std::cout << "grads : " << i << " : " << m_network->m_grads_matrices.data()[64 * 64 * i + 64*j] << std::endl;
+		//	}
+		//}
+		//for (int i = 0; i < 3; i++) {
+		//	for (int j = 0; j < 10; j++) {
+		//		std::cout << "weight : " << i << " : " << m_network->m_weights_matrices.data()[64 * 64 * i + 64*j] << std::endl;
+		//	}
+		//}
 		forward.free_mem(m_network->get_queue());
 	}
 
@@ -55,7 +55,7 @@ public:
 
 private:
 
-	SwiftNetMLP<WIDTH>* m_network;
+	Network* m_network;
 	Loss* m_loss;
 	Optimizer* m_optim;
 };
