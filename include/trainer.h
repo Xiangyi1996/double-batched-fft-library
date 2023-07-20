@@ -26,26 +26,26 @@ public:
 
 		m_optim->step(m_network->get_queue(), scale, m_network->m_weights_matrices, m_network->m_weightsT_matrices, m_network->m_grads_matrices, WIDTH);
 
-		//for (int i = 0; i < 3; i++) {
-		//	for (int j = 64; j < 74 ; j++) {
-		//		std::cout << "forward : " << i << " : " << forward.data()[64 * batch_size * i + 64*j] << std::endl;
-		//	}
-		//}
-		//for (int j = 0; j < 64; j++) {
-		//	std::cout << "forward : " << 3 << " : " << forward.data()[64 * batch_size * 3 + 128 * j] << std::endl;
-		//}
-		//
-		//
-		//for (int i = 0; i < 3; i++) {
-		//	for (int j = 0; j < 10; j++) {
-		//		std::cout << "grads : " << i << " : " << m_network->m_grads_matrices.data()[64 * 64 * i + 64*j] << std::endl;
-		//	}
-		//}
-		//for (int i = 0; i < 3; i++) {
-		//	for (int j = 0; j < 10; j++) {
-		//		std::cout << "weight : " << i << " : " << m_network->m_weights_matrices.data()[64 * 64 * i + 64*j] << std::endl;
-		//	}
-		//}
+		/*for (int i = 0; i < 5; i++) {
+			for (int j = 64; j < 74 ; j++) {
+				std::cout << "forward : " << i << " : " << forward.data()[64 * batch_size * i + 64*j] << std::endl;
+			}
+		}
+		for (int j = 0; j < 64; j++) {
+			std::cout << "forward : " << 5 << " : " << forward.data()[64 * batch_size * 5 + 128 * j] << std::endl;
+		}
+		
+		
+		for (int i = 0; i < 5; i++) {
+			for (int j = 0; j < 10; j++) {
+				std::cout << "grads : " << i << " : " << m_network->m_grads_matrices.data()[64 * 64 * i + j] << std::endl;
+			}
+		}
+		for (int i = 0; i < 5; i++) {
+			for (int j = 0; j < 10; j++) {
+				std::cout << "weight : " << i << " : " << m_network->m_weights_matrices.data()[64 * 64 * i + 64*j] << std::endl;
+			}
+		}*/
 		forward.free_mem(m_network->get_queue());
 	}
 
