@@ -319,7 +319,7 @@ void mlp_swift_forward(queue q,
 	const int N_BLOCKS = WIDTH / TK;
 	const int N_ITERS = BATCH_CHUNK / TM;
 
-	int shmem_size = batch_size * WIDTH;
+	int shmem_size = batch_size * WIDTH * n_hidden_layers;
 
 	const size_t alignment = 4096;
 	auto act = sycl::aligned_alloc_shared<bf16>(alignment, shmem_size, q);
@@ -329,8 +329,12 @@ void mlp_swift_forward(queue q,
 
 	q.submit([&](handler& cgh)
 		{
+			/*sycl::accessor < bf16, 1, sycl::access::mode::read_write,
+			sycl::access::local_accessor >
+			act_mem(shmem_size, cgh);*/
+
 			stream outs(1024, 256, cgh);
-			cgh.parallel_for<>(
+			cgh.parallel_for(
 				nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE),
 				[=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]]
 				{
@@ -672,6 +676,7 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads, Devic
 	oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
 		batch_size, m_net_width, m_output_width, 1, A, m_output_width, B, m_net_width, 0, C, m_net_width);
 
+
 	m_q.wait();
 	free(A, m_q);
 	m_q.wait();
@@ -743,9 +748,9 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 		loss.data()[idx] = (bf16)B[idx];
 		}).wait();
 
+
 	oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
 		m_net_width, m_output_width, batch_size, 1, A, batch_size, B, m_output_width, 0, C, m_output_width);
-
 
 	m_q.parallel_for<>(range<1>(m_net_width * m_output_width), [=](id<1> idx) {
 		p[idx + offset_grad] = (float)C[idx];
@@ -758,7 +763,6 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 	m_q.wait();
 	free(C, m_q);
 	m_q.wait();
-	loss.free_mem(m_q);
 
 	/// Backpropagation through last layer
 	dgemm_last_layer_backward(grads, forward, loss, batch_size);
@@ -776,6 +780,8 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 	m_q.parallel_for<>(range<1>(s), [=](id<1> idx) {
 		p[idx] /= batch_size;
 		}).wait();
+
+	loss.free_mem(m_q);
 }
 
 //Activation string_to_activation(const std::string& activation_name) {
@@ -819,7 +825,7 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 
 void test1() {
 
-	const int batch_size =std::pow(2,8);
+	const int batch_size =std::pow(2,19);
 	const int output_width = 128;
 	const int WIDTH = 64;
 
@@ -890,8 +896,8 @@ void test1() {
 		std::cout << "output : " << output.data()[i] << std::endl;
 	}
 	
-	std::cout << "30 step \n";
-	for (int i = 0; i < 2; i++) {
+	std::cout << "10 step \n";
+	for (int i = 0; i < 10; i++) {
 		std::cout << "iter : " << i << std::endl;
 		train.training_step(inputs, output, target, grads, losses, scale, 64);
 	}
