@@ -188,7 +188,7 @@ void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd, resT& res) {
 }
 
 template<typename T>
-void matrix_activation(nd_item<1> it, Activation activation, device_ptr<T> out, int stride, stream outs) {
+void matrix_activation(nd_item<1> it, Activation activation, device_ptr<T> out, int stride) {
 
 	for (int j = 0; j < 8; j++) {
 		for (int k = 0; k < 8; k++) {
