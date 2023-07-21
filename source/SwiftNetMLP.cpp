@@ -26,7 +26,7 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 
 
 template <int WIDTH, int N_ITERS, bool BACKWARD = false>
-void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, bf16* weights_layer, float* out_inter, bf16* out, stream outs, bf16* forward_act = nullptr) {
+void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, bf16* weights_layer, float* out_inter, bf16* out, bf16* forward_act = nullptr) {
 
 	auto sg = item.get_sub_group();
 	int sgId = sg.get_group_id();
@@ -81,7 +81,7 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, bf1
 		}
 
 		else {
-			matrix_activation<bf16>(item, activation, a + TN * sgId + TM * i * WIDTH, WIDTH, outs);
+			matrix_activation<bf16>(item, activation, a + TN * sgId + TM * i * WIDTH, WIDTH);
 		}
 	}
 }
@@ -125,8 +125,7 @@ void workgroup_input_layer_forward_dynamic(nd_item<1> item,
 	bf16* weights_layer,
 	float* out_intermediate_layer,
 	const int input_width,
-	const int batch_size,
-	stream outs)
+	const int batch_size)
 {
 	auto sg = item.get_sub_group();
 	int sgId = sg.get_group_id();
@@ -168,7 +167,7 @@ void workgroup_input_layer_forward_dynamic(nd_item<1> item,
 
 			result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix, result_matrix);
 
-			matrix_activation<float>(item, activation, o + TK * sgId + TM * l * WIDTH, WIDTH, outs);
+			matrix_activation<float>(item, activation, o + TK * sgId + TM * l * WIDTH, WIDTH);
 
 			joint_matrix_store(sg, result_matrix, o + TN * sgId + TM * l * WIDTH, WIDTH, layout::row_major);
 		}
@@ -182,8 +181,7 @@ void workgroup_last_layer_forward(nd_item<1> item,
 	bf16* act_mem,
 	bf16* weights_layer,
 	float* out,
-	const int output_stride,
-	stream outs) {
+	const int output_stride) {
 
 	auto sg = item.get_sub_group();
 	int sgId = sg.get_group_id();
@@ -247,8 +245,7 @@ void kernel_swift_mlp(nd_item<1> item,
 	const uint32_t output_width,
 	const uint32_t n_hidden_matmuls,
 	const layout input_layout,
-	const layout output_layout,
-	stream outs) {
+	const layout output_layout) {
 
 	// Handle first layer because it has different input
 
@@ -259,7 +256,7 @@ void kernel_swift_mlp(nd_item<1> item,
 	if (input_width == WIDTH) {
 
 		workgroup_load_input_static<WIDTH, N_ITERS>(item, act_shmem + elem_idx * WIDTH, input + elem_idx * WIDTH);
-		work_group_layer<WIDTH, N_ITERS, false>(item, activation, act_shmem + elem_idx * WIDTH, weights_layer, out_intermediate_layer + elem_idx * WIDTH, nullptr, outs);
+		work_group_layer<WIDTH, N_ITERS, false>(item, activation, act_shmem + elem_idx * WIDTH, weights_layer, out_intermediate_layer + elem_idx * WIDTH, nullptr);
 	}
 	else {
 		workgroup_input_layer_forward_dynamic<WIDTH, N_ITERS>(item,
@@ -269,8 +266,7 @@ void kernel_swift_mlp(nd_item<1> item,
 			weights_layer,
 			out_intermediate_layer + elem_idx * WIDTH,
 			input_width,
-			batch_size,
-			outs);
+			batch_size);
 
 	}
 
@@ -281,7 +277,7 @@ void kernel_swift_mlp(nd_item<1> item,
 	const int layer_lenght = WIDTH * batch_size;
 
 	for (int k = 0; k < n_hidden_matmuls; k++) {
-		work_group_layer<WIDTH, N_ITERS, false>(item, activation, act_shmem + elem_idx * WIDTH, weights_layer + first_weight_length + k * hidden_weight_lenght, out_intermediate_layer + elem_idx * WIDTH + (k + 1) * layer_lenght, nullptr, outs);
+		work_group_layer<WIDTH, N_ITERS, false>(item, activation, act_shmem + elem_idx * WIDTH, weights_layer + first_weight_length + k * hidden_weight_lenght, out_intermediate_layer + elem_idx * WIDTH + (k + 1) * layer_lenght, nullptr);
 	}
 
 	//// Handle output layer
@@ -297,8 +293,7 @@ void kernel_swift_mlp(nd_item<1> item,
 			act_shmem,
 			weights_layer + first_weight_length + hidden_weight_lenght * n_hidden_matmuls,
 			out + elem_idx * WIDTH + (n_hidden_matmuls + 1) * layer_lenght,
-			output_stride,
-			outs);
+			output_stride);
 
 	}
 }
@@ -322,10 +317,10 @@ void mlp_swift_forward(queue q,
 	int shmem_size = batch_size * WIDTH * n_hidden_layers;
 
 	const size_t alignment = 4096;
-	auto act = sycl::aligned_alloc_shared<bf16>(alignment, shmem_size, q);
-	auto weight = sycl::aligned_alloc_shared<bf16>(alignment, weights.size(), q);
+	auto act = sycl::aligned_alloc_device<bf16>(alignment, shmem_size, q);
+	//auto weight = sycl::aligned_alloc_device<bf16>(alignment, weights.size(), q);
 
-	q.memcpy(weight, weights.data(), weights.size() * sizeof(bf16));
+	//q.memcpy(weight, weights.data(), weights.size() * sizeof(bf16));
 
 	q.submit([&](handler& cgh)
 		{
@@ -333,7 +328,6 @@ void mlp_swift_forward(queue q,
 			sycl::access::local_accessor >
 			act_mem(shmem_size, cgh);*/
 
-			stream outs(1024, 256, cgh);
 			cgh.parallel_for(
 				nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE),
 				[=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]]
@@ -341,7 +335,7 @@ void mlp_swift_forward(queue q,
 					kernel_swift_mlp<WIDTH, N_ITERS, activation>(item,
 						output_activation,
 						inputs.data(),
-						weight,
+						weights.data(),
 						intermediate_output.data(),
 						act,
 						output.data(),
@@ -351,12 +345,11 @@ void mlp_swift_forward(queue q,
 						output_width,
 						n_hidden_layers - 1,
 						layout::col_major,
-						layout::col_major,
-						outs);
+						layout::col_major);
 				});
 		}).wait();
 		free(act, q);
-		free(weight, q);
+		//free(weight, q);
 
 }
 
@@ -369,8 +362,7 @@ void kernel_swiftnet_backward(
 	bf16* forward,
 	float* out_inter,
 	int batch_number,
-	uint32_t n_hidden_matmuls,
-	stream outs
+	uint32_t n_hidden_matmuls
 
 ) {
 	auto sg = item.get_sub_group();
@@ -391,7 +383,6 @@ void kernel_swiftnet_backward(
 			weights + WIDTH * WIDTH * (n_hidden_matmuls - k),
 			out_inter + groupId * WIDTH * WIDTH + (n_hidden_matmuls - k - 1) * layer_length,
 			loss_gradients + groupId * WIDTH * WIDTH,
-			outs,
 			forward + WIDTH * WIDTH * batch_number + WIDTH * WIDTH * batch_number * (n_hidden_matmuls - k - 1) + groupId * WIDTH * WIDTH//Le premier WIDTH*WIDTH*batch_number correspond à l'input, à remplacer par batch_size * input_width
 		);
 		item.barrier();
@@ -406,9 +397,9 @@ void dgemm_multiply(queue q, bf16* grads_device, float* loss_gradients, bf16* fw
 	int j = 0;
 
 	const size_t alignment = 4096;
-	auto A = sycl::aligned_alloc_shared<float>(alignment, batch_size * WIDTH, q);
-	auto B = sycl::aligned_alloc_shared<float>(alignment, batch_size * WIDTH, q);
-	auto C = sycl::aligned_alloc_shared<float>(alignment, WIDTH * WIDTH, q);
+	auto A = sycl::aligned_alloc_device<float>(alignment, batch_size * WIDTH, q);
+	auto B = sycl::aligned_alloc_device<float>(alignment, batch_size * WIDTH, q);
+	auto C = sycl::aligned_alloc_device<float>(alignment, WIDTH * WIDTH, q);
 
 	q.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
 		int i = idx / batch_size;
@@ -453,14 +444,13 @@ void mlp_swiftnet_backward(
 	int batch_number = batch_size / BATCH_CHUNK;
 	try {
 
-		float* out_inter = malloc_shared<float>(batch_size * WIDTH * (n_hidden_matmuls + 2), q);
+		float* out_inter = malloc_device<float>(batch_size * WIDTH * (n_hidden_matmuls + 2), q);
 
 		q.wait();
 		q.submit([&](handler& h) {
 			//Transfer data to device memory
-			stream outs(1024, 256, h);
 			h.parallel_for(nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE), [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
-				kernel_swiftnet_backward<WIDTH, N_ITERS, ACTIVATION>(item, deltas.data(), grads_matrices.data(), weights_transposed.data(), forward.data(), out_inter, batch_number, n_hidden_matmuls, outs);
+				kernel_swiftnet_backward<WIDTH, N_ITERS, ACTIVATION>(item, deltas.data(), grads_matrices.data(), weights_transposed.data(), forward.data(), out_inter, batch_number, n_hidden_matmuls);
 				});
 			}).wait();
 
@@ -507,7 +497,7 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
 
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::initialize_params() {
-	for (int i = 0; i < m_net_width * m_inputs_width; i++) {
+	/*for (int i = 0; i < m_net_width * m_inputs_width; i++) {
 		m_weights_matrices.data()[i] = bf16(1.0f / 64);
 		m_weights_matrices_inferences.data()[i] = bf16(1.0f / 64);
 		m_weightsT_matrices.data()[i] = bf16(1.0f / 64);
@@ -526,7 +516,9 @@ void SwiftNetMLP<WIDTH>::initialize_params() {
 		m_weights_matrices.data()[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 64);
 		m_weights_matrices_inferences.data()[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 64);
 		m_weightsT_matrices.data()[m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + i] = bf16(1.0f / 64);
-	}
+	}*/
+	m_weights_matrices.initialize_constant(1.0f / 64, m_q);
+	m_weightsT_matrices.initialize_constant(1.0f / 64, m_q);
 	//m_weights_matrices.initialize_uniform(0.1, m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices);
 };
 
@@ -566,9 +558,9 @@ DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, D
 		auto p = m_weights_matrices.data();
 
 		const size_t alignment = 4096;
-		auto A = sycl::aligned_alloc_shared<float>(alignment, layer_length, m_q);
-		auto B = sycl::aligned_alloc_shared<float>(alignment, m_output_width * m_net_width, m_q);
-		auto C = sycl::aligned_alloc_shared<float>(alignment, m_output_width * batch_size, m_q);
+		auto A = sycl::aligned_alloc_device<float>(alignment, layer_length, m_q);
+		auto B = sycl::aligned_alloc_device<float>(alignment, m_output_width * m_net_width, m_q);
+		auto C = sycl::aligned_alloc_device<float>(alignment, m_output_width * batch_size, m_q);
 
 		m_q.parallel_for<>(range<1>(layer_length), [=](id<1> idx) {
 			A[idx] = (float)forward_f.data()[idx + n_hidden_matrices * layer_length];
@@ -580,6 +572,7 @@ DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, D
 
 				oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
 					batch_size, m_output_width, WIDTH, 1, A, WIDTH, B, m_output_width, 0, C, m_output_width);
+
 
 				m_q.parallel_for<>(range<1>(m_output_width * batch_size), [=](id<1> idx) {
 					output.data()[idx] = (float)C[idx];
@@ -609,41 +602,41 @@ DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, D
 		return forward;
 }
 
-template<int WIDTH>
-void SwiftNetMLP<WIDTH>::save_to_file(std::string filename) {
-	std::ofstream file;
-	file.open(filename);
-	file << m_inputs_width << "\n";
-	file << m_net_width << "\n";
-	file << m_output_width << "\n";
-	file << m_n_hidden_layers << "\n";
-	file << m_n_hidden_matrices << "\n";
-	for (int i = 0; i < m_weights_matrices.size(); i++) {
-		file << m_weights_matrices.data()[i] << "\n";
-	}
-	file.close();
-	return;
-}
-
-template<int WIDTH>
-void SwiftNetMLP<WIDTH>::load_from_file(std::string filename) {
-	std::ifstream file;
-	std::string line;
-	file.open(filename);
-	file >> m_inputs_width;
-	file >> m_net_width;
-	file >> m_output_width;
-	file >> m_n_hidden_layers;
-	file >> m_n_hidden_matrices;
-	for (int i = 0; i < m_weights_matrices.size(); i++) {
-		float x;
-		file >> x;
-		m_weights_matrices.data()[i] = bf16(x);
-	}
-	file.close();
-	m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices);
-	return;
-}
+//template<int WIDTH>
+//void SwiftNetMLP<WIDTH>::save_to_file(std::string filename) {
+//	std::ofstream file;
+//	file.open(filename);
+//	file << m_inputs_width << "\n";
+//	file << m_net_width << "\n";
+//	file << m_output_width << "\n";
+//	file << m_n_hidden_layers << "\n";
+//	file << m_n_hidden_matrices << "\n";
+//	for (int i = 0; i < m_weights_matrices.size(); i++) {
+//		file << m_weights_matrices.data()[i] << "\n";
+//	}
+//	file.close();
+//	return;
+//}
+//
+//template<int WIDTH>
+//void SwiftNetMLP<WIDTH>::load_from_file(std::string filename) {
+//	std::ifstream file;
+//	std::string line;
+//	file.open(filename);
+//	file >> m_inputs_width;
+//	file >> m_net_width;
+//	file >> m_output_width;
+//	file >> m_n_hidden_layers;
+//	file >> m_n_hidden_matrices;
+//	for (int i = 0; i < m_weights_matrices.size(); i++) {
+//		float x;
+//		file >> x;
+//		m_weights_matrices.data()[i] = bf16(x);
+//	}
+//	file.close();
+//	m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices);
+//	return;
+//}
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads, DeviceMem<bf16>& forward, DeviceMem<bf16>& loss, int batch_size) {
 
@@ -661,9 +654,9 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads, Devic
 	auto activation = m_activation;
 
 	const size_t alignment = 4096;
-	auto A = sycl::aligned_alloc_shared<float>(alignment, grads.size(), m_q);
-	auto B = sycl::aligned_alloc_shared<float>(alignment, m_output_width * WIDTH, m_q);
-	auto C = sycl::aligned_alloc_shared<float>(alignment, WIDTH * batch_size, m_q);
+	auto A = sycl::aligned_alloc_device<float>(alignment, grads.size(), m_q);
+	auto B = sycl::aligned_alloc_device<float>(alignment, m_output_width * WIDTH, m_q);
+	auto C = sycl::aligned_alloc_device<float>(alignment, WIDTH * batch_size, m_q);
 
 	m_q.parallel_for<>(range<1>(grads.size()), [=](id<1> idx) {
 		A[idx] = (float)loss.data()[idx];
@@ -683,9 +676,9 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads, Devic
 			free(B, m_q);
 			m_q.wait();
 
-			A = sycl::aligned_alloc_shared<float>(alignment, m_net_width * batch_size, m_q);
-			B = sycl::aligned_alloc_shared<float>(alignment, batch_size * m_net_width, m_q);
-			auto D = sycl::aligned_alloc_shared<float>(alignment, m_net_width * m_net_width, m_q);
+			A = sycl::aligned_alloc_device<float>(alignment, m_net_width * batch_size, m_q);
+			B = sycl::aligned_alloc_device<float>(alignment, batch_size * m_net_width, m_q);
+			auto D = sycl::aligned_alloc_device<float>(alignment, m_net_width * m_net_width, m_q);
 
 			m_q.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
 				int i = idx / batch_size;
@@ -732,9 +725,9 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 	DeviceMem<bf16> loss(m_output_width * batch_size, m_q);
 
 	const size_t alignment = 4096;
-	auto A = sycl::aligned_alloc_shared<float>(alignment, m_net_width * batch_size, m_q);
-	auto B = sycl::aligned_alloc_shared<float>(alignment, batch_size * m_output_width, m_q);
-	auto C = sycl::aligned_alloc_shared<float>(alignment, m_net_width * m_output_width, m_q);
+	auto A = sycl::aligned_alloc_device<float>(alignment, m_net_width * batch_size, m_q);
+	auto B = sycl::aligned_alloc_device<float>(alignment, batch_size * m_output_width, m_q);
+	auto C = sycl::aligned_alloc_device<float>(alignment, m_net_width * m_output_width, m_q);
 
 
 	m_q.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
