@@ -78,7 +78,7 @@ public:
 	// Update for the future : use oneMKL RNG for weights intialization
 
 			//Initialziation
-	void initialize_normal(double dev, DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden,queue q) {
+	void initialize_normal(double dev, DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden, queue q) {
 
 		std::default_random_engine gen;
 		std::normal_distribution<double> distrib(0.0, dev);
@@ -111,9 +111,9 @@ public:
 		q.memcpy(m_data, data.data(), m_size * sizeof(T));
 		q.memcpy(transposed.data(), dataT.data(), m_size * sizeof(T));
 	}
-	
 
-	void initialize_normal(double dev,queue q) {
+
+	void initialize_normal(double dev, queue q) {
 		std::default_random_engine gen;
 		std::normal_distribution<double> distrib(0.0, dev);
 		std::vector<T> data(m_size);
@@ -121,10 +121,10 @@ public:
 			data[i] = (T)distrib(gen);
 		}
 		q.memcpy(m_data, data.data(), m_size * sizeof(T));
-		
-		
+
+
 	}
-	void initialize_uniform(double scale, DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden,queue q) {
+	void initialize_uniform(double scale, DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden, queue q) {
 
 		std::default_random_engine gen;
 		std::uniform_real_distribution<double> distrib(0.0, scale);
@@ -199,46 +199,48 @@ public:
 
 	}
 
-	void initialize_xavier_unif(DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden,queue q) {
+	void initialize_xavier_unif(DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden, queue q) {
 		double x = sqrt(6.0 / ((double)(input_width + output_width)));
-		initialize_uniform(x, transposed, input_width, width, output_width, n_hidden,q);
+		initialize_uniform(x, transposed, input_width, width, output_width, n_hidden, q);
 	}
 
-	void initialize_xavier_unif(int input_width, int output_width,queue q) {
+	void initialize_xavier_unif(int input_width, int output_width, queue q) {
 		double x = sqrt(6.0 / ((double)(input_width + output_width)));
-		initialize_uniform(x,q);
+		initialize_uniform(x, q);
 	}
 
 
-	void inititialize_xavier_normal(DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden,queue q ) {
+	void inititialize_xavier_normal(DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden, queue q) {
 		double dev = sqrt(2.0 / ((double)(input_width + output_width)));
-		initialize_normal(dev, transposed, input_width, width, output_width, n_hidden,q);
+		initialize_normal(dev, transposed, input_width, width, output_width, n_hidden, q);
 	}
 
-	void initialize_xavier_normal(int input_width, int output_width,queue q) {
+	void initialize_xavier_normal(int input_width, int output_width, queue q) {
 		double dev = sqrt(2.0 / ((double)(input_width + output_width)));
-		initialize_normal(dev,q);
+		initialize_normal(dev, q);
 	}
 
-	void initialize_constant(T constant, DeviceMem<T>& transposed,queue q) {
+	void initialize_constant(T constant, DeviceMem<T>& transposed, queue q) {
 		std::vector<T> data(m_size, constant);
 		q.memcpy(m_data, data.data(), m_size * sizeof(T));
 		q.memcpy(transposed.data(), data.data(), m_size * constant);
 	}
 
-	void initialize_constant(T constant,queue q) {
-		std::vector<T> data(m_size, constant);
-		q.memcpy(m_data, data.data(), m_size * sizeof(T));
+	void initialize_constant(T constant, queue q) {
+		auto p = m_data;
+		q.parallel_for<>(range<1>(m_size), [=](id<1> idx) {
+			p[idx] = (T)constant;
+			}).wait();
 	}
 
 
-	void intitialize_he_normal(DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden,queue q) {
+	void intitialize_he_normal(DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden, queue q) {
 		double dev = sqrt(2.0 / width);
-		initialize_normal(dev, transposed, input_width, width, output_width, n_hidden,q);
+		initialize_normal(dev, transposed, input_width, width, output_width, n_hidden, q);
 	}
-	void intitialize_he_normal(int input_width,queue q) {
+	void intitialize_he_normal(int input_width, queue q) {
 		double dev = sqrt(2.0 / input_width);
-		initialize_normal(dev,q);
+		initialize_normal(dev, q);
 
 	}
 
