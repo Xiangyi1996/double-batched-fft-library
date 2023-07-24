@@ -18,10 +18,10 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 
 #define TM 8
 #define TK 16
-#define TN 8
+#define TN 16
 
-#define SG_SIZE 8
-#define WG_SIZE 8*SG_SIZE
+#define SG_SIZE 16
+#define WG_SIZE 4*SG_SIZE
 #define BATCH_CHUNK 64
 
 
@@ -279,7 +279,7 @@ void kernel_swift_mlp(nd_item<1> item,
 	for (int k = 0; k < n_hidden_matmuls; k++) {
 		work_group_layer<WIDTH, N_ITERS, false>(item, activation, act_shmem + elem_idx * WIDTH, weights_layer + first_weight_length + k * hidden_weight_lenght, out_intermediate_layer + elem_idx * WIDTH + (k + 1) * layer_lenght, nullptr);
 	}
-
+	item.barrier();
 	//// Handle output layer
 
 	if (output_width > 16) {
@@ -318,9 +318,9 @@ void mlp_swift_forward(queue q,
 
 	const size_t alignment = 4096;
 	auto act = sycl::aligned_alloc_device<bf16>(alignment, shmem_size, q);
-	//auto weight = sycl::aligned_alloc_device<bf16>(alignment, weights.size(), q);
+	auto weight = sycl::aligned_alloc_device<bf16>(alignment, weights.size(), q);
 
-	//q.memcpy(weight, weights.data(), weights.size() * sizeof(bf16));
+	q.memcpy(weight, weights.data(), weights.size() * sizeof(bf16));
 
 	q.submit([&](handler& cgh)
 		{
@@ -335,7 +335,7 @@ void mlp_swift_forward(queue q,
 					kernel_swift_mlp<WIDTH, N_ITERS, activation>(item,
 						output_activation,
 						inputs.data(),
-						weights.data(),
+						weight,
 						intermediate_output.data(),
 						act,
 						output.data(),
@@ -349,7 +349,7 @@ void mlp_swift_forward(queue q,
 				});
 		}).wait();
 		free(act, q);
-		//free(weight, q);
+		free(weight, q);
 
 }
 
@@ -445,12 +445,18 @@ void mlp_swiftnet_backward(
 	try {
 
 		float* out_inter = malloc_device<float>(batch_size * WIDTH * (n_hidden_matmuls + 2), q);
+		const size_t alignment = 8192;
+		auto delta_l1 = sycl::aligned_alloc_device<bf16>(alignment, deltas.size(), q);
+		auto weight = sycl::aligned_alloc_device<bf16>(alignment, weights_transposed.size(), q);
+
+		q.memcpy(delta_l1, deltas.data(), deltas.size() * sizeof(bf16));
+		q.memcpy(weight, weights_transposed.data(), weights_transposed.size() * sizeof(bf16));
 
 		q.wait();
 		q.submit([&](handler& h) {
 			//Transfer data to device memory
 			h.parallel_for(nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE), [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
-				kernel_swiftnet_backward<WIDTH, N_ITERS, ACTIVATION>(item, deltas.data(), grads_matrices.data(), weights_transposed.data(), forward.data(), out_inter, batch_number, n_hidden_matmuls);
+				kernel_swiftnet_backward<WIDTH, N_ITERS, ACTIVATION>(item, delta_l1, grads_matrices.data(), weights_transposed.data(), forward.data(), out_inter, batch_number, n_hidden_matmuls);
 				});
 			}).wait();
 
@@ -818,7 +824,7 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 
 void test1() {
 
-	const int batch_size = std::pow(2, 19);
+	const int batch_size = std::pow(2, 17);
 	const int output_width = 128;
 	const int WIDTH = 64;
 
@@ -879,7 +885,7 @@ void test1() {
 	train.initialize_params();
 
 
-	for (int i = 0; i < 20; i++) {
+	for (int i = 0; i < 100; i++) {
 		std::cout << i << std::endl;
 		train.training_step(inputs, output, target, grads, losses, scale, 64);
 	}
