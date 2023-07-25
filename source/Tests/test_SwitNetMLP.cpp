@@ -81,7 +81,7 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, bf1
 		}
 
 		else {
-			matrix_activation<bf16>(item, activation, a + TN * sgId + TM * i * WIDTH, WIDTH);
+			matrix_activation<bf16, SG_SIZE>(item, activation, a + TN * sgId + TM * i * WIDTH, WIDTH);
 		}
 	}
 }
@@ -167,7 +167,7 @@ void workgroup_input_layer_forward_dynamic(nd_item<1> item,
 
 			result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix, result_matrix);
 
-			matrix_activation<float>(item, activation, o + TK * sgId + TM * l * WIDTH, WIDTH);
+			matrix_activation<float, SG_SIZE>(item, activation, o + TK * sgId + TM * l * WIDTH, WIDTH);
 
 			joint_matrix_store(sg, result_matrix, o + TN * sgId + TM * l * WIDTH, WIDTH, layout::row_major);
 		}
@@ -279,7 +279,6 @@ void kernel_swift_mlp(nd_item<1> item,
 	for (int k = 0; k < n_hidden_matmuls; k++) {
 		work_group_layer<WIDTH, N_ITERS, false>(item, activation, act_shmem + elem_idx * WIDTH, weights_layer + first_weight_length + k * hidden_weight_lenght, out_intermediate_layer + elem_idx * WIDTH + (k + 1) * layer_lenght, nullptr);
 	}
-	item.barrier();
 	//// Handle output layer
 
 	if (output_width > 16) {
@@ -318,9 +317,9 @@ void mlp_swift_forward(queue q,
 
 	const size_t alignment = 4096;
 	auto act = sycl::aligned_alloc_device<bf16>(alignment, shmem_size, q);
-	auto weight = sycl::aligned_alloc_device<bf16>(alignment, weights.size(), q);
+	//auto weight = sycl::aligned_alloc_device<bf16>(alignment, weights.size(), q);
 
-	q.memcpy(weight, weights.data(), weights.size() * sizeof(bf16));
+	//q.memcpy(weight, weights.data(), weights.size() * sizeof(bf16));
 
 	q.submit([&](handler& cgh)
 		{
@@ -335,7 +334,7 @@ void mlp_swift_forward(queue q,
 					kernel_swift_mlp<WIDTH, N_ITERS, activation>(item,
 						output_activation,
 						inputs.data(),
-						weight,
+						weights.data(),
 						intermediate_output.data(),
 						act,
 						output.data(),
@@ -349,7 +348,7 @@ void mlp_swift_forward(queue q,
 				});
 		}).wait();
 		free(act, q);
-		free(weight, q);
+		//free(weight, q);
 
 }
 
@@ -829,9 +828,9 @@ void test1() {
 	const int WIDTH = 64;
 
 	const float scale = 1e-3f;
-	device dev = device(gpu_selector());
+	device dev = device(gpu_selector_v);
 
-	
+
 	std::vector<device> subdev = {};
 	subdev = dev.create_sub_devices<sycl::info::partition_property::
 		partition_by_affinity_domain>(sycl::info::partition_affinity_domain::numa);
