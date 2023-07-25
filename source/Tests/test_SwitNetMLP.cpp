@@ -373,7 +373,7 @@ void kernel_swiftnet_backward(
 	const int layer_length = WIDTH * WIDTH * batch_number;
 
 
-	//On suppose qu'on a déjà fait la backprop dans le dernier layer
+	//On suppose qu'on a dï¿½jï¿½ fait la backprop dans le dernier layer
 	// Hidden Layers
 	for (int k = 0; k < n_hidden_matmuls; k++) {
 		work_group_layer<WIDTH, N_ITERS, true>(
@@ -383,7 +383,7 @@ void kernel_swiftnet_backward(
 			weights + WIDTH * WIDTH * (n_hidden_matmuls - k),
 			out_inter + groupId * WIDTH * WIDTH + (n_hidden_matmuls - k - 1) * layer_length,
 			loss_gradients + groupId * WIDTH * WIDTH,
-			forward + WIDTH * WIDTH * batch_number + WIDTH * WIDTH * batch_number * (n_hidden_matmuls - k - 1) + groupId * WIDTH * WIDTH//Le premier WIDTH*WIDTH*batch_number correspond à l'input, à remplacer par batch_size * input_width
+			forward + WIDTH * WIDTH * batch_number + WIDTH * WIDTH * batch_number * (n_hidden_matmuls - k - 1) + groupId * WIDTH * WIDTH//Le premier WIDTH*WIDTH*batch_number correspond ï¿½ l'input, ï¿½ remplacer par batch_size * input_width
 		);
 		item.barrier();
 	}
@@ -572,23 +572,23 @@ DeviceMem<bf16> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, D
 			A[idx] = (float)forward_f.data()[idx + n_hidden_matrices * layer_length];
 			}).wait();
 
-		m_q.parallel_for<>(range<1>(m_output_width * m_net_width), [=](id<1> idx) {
-			B[idx] = (float)p[toPackedLayoutCoord(idx, net_width, output_width) + net_width * (inputs_width + n_hidden_matrices * net_width)];
-			}).wait();
+			m_q.parallel_for<>(range<1>(m_output_width * m_net_width), [=](id<1> idx) {
+				B[idx] = (float)p[toPackedLayoutCoord(idx, net_width, output_width) + net_width * (inputs_width + n_hidden_matrices * net_width)];
+				}).wait();
 
-		oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
-			batch_size, m_output_width, WIDTH, 1, A, WIDTH, B, m_output_width, 0, C, m_output_width);
+				oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
+					batch_size, m_output_width, WIDTH, 1, A, WIDTH, B, m_output_width, 0, C, m_output_width);
 
 
-		m_q.parallel_for<>(range<1>(m_output_width * batch_size), [=](id<1> idx) {
-			output.data()[idx] = (float)C[idx];
-		}).wait();
+				m_q.parallel_for<>(range<1>(m_output_width * batch_size), [=](id<1> idx) {
+					output.data()[idx] = (float)C[idx];
+					}).wait();
 
-		free(A, m_q);
-		m_q.wait();
-		free(B, m_q);
-		m_q.wait();
-		free(C, m_q);
+					free(A, m_q);
+					m_q.wait();
+					free(B, m_q);
+					m_q.wait();
+					free(C, m_q);
 	}
 
 	m_q.parallel_for<>(range<1>(forward.size()), [=](id<1> idx) {
@@ -829,9 +829,13 @@ void test1() {
 	const int WIDTH = 64;
 
 	const float scale = 1e-3f;
+	device dev = device(gpu_selector());
 
-	queue q = queue();
-
+	
+	std::vector<device> subdev = {};
+	subdev = dev.create_sub_devices<sycl::info::partition_property::
+		partition_by_affinity_domain>(sycl::info::partition_affinity_domain::numa);
+	queue q = queue(subdev[0], property::queue::enable_profiling {});
 	DeviceMem<bf16> inputs = DeviceMem<bf16>(batch_size * WIDTH, q);
 	DeviceMem<float> output = DeviceMem<float>(batch_size * output_width, q);
 	DeviceMem<float> target = DeviceMem<float>(batch_size * output_width, q);
