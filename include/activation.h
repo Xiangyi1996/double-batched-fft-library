@@ -181,7 +181,7 @@ void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd, resT& res) {
 	}
 }
 template<typename T,int SG_SZ>
-void matrix_activation(nd_item<1> it, Activation activation, device_ptr<T> out, int stride, stream outs) {
+void matrix_activation(nd_item<1> it, Activation activation, device_ptr<T> out, int stride) {
 	int id = it.get_local_id() %SG_SZ;
 
 	for (int i = 0; i < 8; i++) {
