@@ -7,10 +7,10 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 class Network {
 public:
 
-    virtual DeviceMem<bf16> forward_pass(const DeviceMem<bf16>& input, DeviceMem<float>& output) = 0;
+    virtual void forward_pass(const DeviceMem<bf16>& input, float* forward, DeviceMem<float>& output) = 0;
 
     virtual void backward_pass(
-        const DeviceMem<bf16>& input, DeviceMem<bf16>& grads, DeviceMem<bf16>& forward
+        const DeviceMem<bf16>& input, DeviceMem<bf16>& grads, float* forward
     ) = 0;
 
     virtual void initialize_params() = 0;
