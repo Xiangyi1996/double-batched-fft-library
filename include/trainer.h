@@ -15,10 +15,10 @@ public:
 		m_optim = &optim;
 	}
 
-	void training_step(DeviceMem<bf16>& input, DeviceMem<float>& output, DeviceMem<float>& target, DeviceMem<bf16>& grads, DeviceMem<float>& losses, const float scale, const int WIDTH) {
-		const int input_size = input.size();
-		const int batch_size = std::pow(2, 19);
-		auto forward = m_network->forward_pass(input, output);
+	void training_step(DeviceMem<bf16>& input, float* forward,  DeviceMem<float>& output, DeviceMem<float>& target, DeviceMem<bf16>& grads, DeviceMem<float>& losses, const float scale, const int WIDTH) {
+		//const int input_size = input.size();
+		//const int batch_size = std::pow(2, 19);
+		m_network->forward_pass(input, forward, output);
 
 		m_loss->evaluate(m_network->get_queue(), WIDTH, WIDTH, scale, output, target, grads, losses);
 
@@ -46,20 +46,19 @@ public:
 				std::cout << "weight : " << i << " : " << m_network->m_weights_matrices.data()[64 * 64 * i + 64*j] << std::endl;
 			}
 		}*/
-		/*std::vector<bf16> data = std::vector<bf16>(forward.size());
-		forward.copy_to_host(data, forward.size(), m_network->get_queue());
+		std::vector<float> data = std::vector<float>(std::pow(2, 17) * (WIDTH + 64 + WIDTH * 4));
+		m_network->get_queue().memcpy(data.data(), forward, std::pow(2, 17) * (WIDTH + 64 + WIDTH * 4) * sizeof(float));
 		m_network->get_queue().wait();
 
 		for (int i = 0; i < 3; i++) {
 			for (int j = 64; j < 74 ; j++) {
-				std::cout << "forward : " << i << " : " << data[64 * batch_size * i + 64*j] << std::endl;
+				std::cout << "forward : " << i << " : " << data[64 * std::pow(2, 17) * i + 64*j] << std::endl;
 			}
 		}
 		for (int j = 0; j < 10; j++) {
-			std::cout << "forward : " << 3 << " : " << data[64 * batch_size * 3 + 128 * j] << std::endl;
-		}*/
+			std::cout << "forward : " << 3 << " : " << data[64 * std::pow(2, 17) * 3 + 128 * j] << std::endl;
+		}
 
-		forward.free_mem(m_network->get_queue());
 	}
 
 	void initialize_params() {
