@@ -13,13 +13,13 @@ class SwiftNetMLP : public Network {
 public:
     SwiftNetMLP(queue q, int input_width, int output_width, int n_hidden_layers, Activation activation, Activation output_activation);
 
-    DeviceMem<bf16> forward_pass(const DeviceMem<bf16>& input, DeviceMem<float>& output) override;
+    void forward_pass(const DeviceMem<bf16>& input, float* forward,  DeviceMem<float>& output) override;
 
     void backward_pass(
-        const DeviceMem<bf16>& input, DeviceMem<bf16>& grads, DeviceMem<bf16>& forward
+        const DeviceMem<bf16>& input, DeviceMem<bf16>& grads, float* forward
     ) override;
 
-    void dgemm_last_layer_backward(DeviceMem<bf16>& grads, DeviceMem<bf16>& forward, DeviceMem<bf16>& loss, int batch_size);
+    void dgemm_last_layer_backward(DeviceMem<bf16>& grads, float* forward, DeviceMem<bf16>& loss, int batch_size);
     //void set_params(float* params, float* inference_params, float* gradients);
     void save_to_file(std::string filename);
     void load_from_file(std::string filename);
