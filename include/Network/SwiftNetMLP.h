@@ -13,13 +13,39 @@ class SwiftNetMLP : public Network {
 public:
     SwiftNetMLP(queue q, int input_width, int output_width, int n_hidden_layers, Activation activation, Activation output_activation);
 
-    void forward_pass(const DeviceMem<bf16>& input, float* forward,  DeviceMem<float>& output) override;
+    void forward_pass(const DeviceMem<bf16>& input, float* forward, bf16* act_mem, float* act_mem_temp, float* A, float* B, float* C, DeviceMem<float>& output) override;
 
     void backward_pass(
-        const DeviceMem<bf16>& input, DeviceMem<bf16>& grads, float* forward
+        const DeviceMem<bf16>& input,
+        DeviceMem<bf16>& grads,
+        float* out_inter,
+        float* delta_temp, 
+        DeviceMem<bf16> loss,
+        float* A,
+        float* B,
+        float* C,
+        float* A_backward_last_layer,
+        float* B_backward_last_layer,
+        float* C_backward_last_layer,
+        float* D_backward_last_layer,
+        float* E_backward_last_layer,
+        float* F_backward_last_layer,
+        float* A_dgemm,
+        float* B_dgemm,
+        float* C_dgemm,
+        float* forward
     ) override;
 
-    void dgemm_last_layer_backward(DeviceMem<bf16>& grads, float* forward, DeviceMem<bf16>& loss, int batch_size);
+    void dgemm_last_layer_backward(DeviceMem<bf16>& grads,
+        float* forward,
+        DeviceMem<bf16>& loss,
+        int batch_size,
+        float* A,
+        float* B,
+        float* C,
+        float* D,
+        float* E,
+        float* F);
     //void set_params(float* params, float* inference_params, float* gradients);
     void save_to_file(std::string filename);
     void load_from_file(std::string filename);
