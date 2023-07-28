@@ -1,8 +1,8 @@
-#include <iostream>
-#include <vector>
-#include <CL/sycl.hpp>
-#include "activation.h"
+
 #include "SwiftNetMLP.h"
+<<<<<<< HEAD
+#include "config.h"
+=======
 #include "L2.h"
 #include "sgd.h"
 #include "trainer.h"
@@ -11,6 +11,9 @@
 #include "common.h"
 #include "oneapi/mkl.hpp"
 //#include "config.h"
+>>>>>>> b19c965695196e8d9e5421ccab00051b1f2d48bb
+
+
 
 using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;
@@ -496,12 +499,48 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
     m_activation{ activation },
     m_output_activation{ output_activation }
 {
+
     m_q = q;
     m_n_hidden_matrices = m_n_hidden_layers - 1;
     m_weightsT_matrices.allocate(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width, m_q);
     m_weights_matrices.allocate(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width, m_q);
     m_weights_matrices_inferences.allocate(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width, m_q);
     m_grads_matrices.allocate(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width, m_q);
+
+
+    const int batch_size = std::pow(2, 17);
+    const int layer_length = WIDTH * batch_size;
+    m_alignment = 4096;
+
+    m_forward = malloc_device<float>(batch_size * (WIDTH + m_output_width + WIDTH * m_n_hidden_layers), q);
+
+    m_shmem_size = batch_size * WIDTH * m_n_hidden_layers;
+
+    m_act_mem = sycl::aligned_alloc_device<bf16>(m_alignment, m_shmem_size, q);
+    m_act_mem_temp = sycl::aligned_alloc_device<float>(m_alignment, m_shmem_size, q);
+
+    m_A_forward = sycl::aligned_alloc_device<float>(m_alignment, layer_length, q);
+    m_B_forward = sycl::aligned_alloc_device<float>(m_alignment, m_output_width * 64, q);
+    m_C_forward = sycl::aligned_alloc_device<float>(m_alignment, m_output_width * batch_size, q);
+
+    m_out_inter = malloc_device<float>(batch_size * WIDTH * (m_n_hidden_layers), q);
+    m_deltas_temp = sycl::aligned_alloc_device<float>(m_alignment, m_output_width * batch_size, q);
+    m_deltas.allocate(m_output_width * batch_size, q);
+
+    m_A_backward = sycl::aligned_alloc_device<float>(m_alignment, WIDTH * batch_size, q);
+    m_B_backward = sycl::aligned_alloc_device<float>(m_alignment, batch_size * m_output_width, q);
+    m_C_backward = sycl::aligned_alloc_device<float>(m_alignment, WIDTH * m_output_width, q);
+
+    m_A_backward_last_layer = sycl::aligned_alloc_device<float>(m_alignment, batch_size * m_output_width, q);
+    m_B_backward_last_layer = sycl::aligned_alloc_device<float>(m_alignment, m_output_width * WIDTH, q);
+    m_C_backward_last_layer = sycl::aligned_alloc_device<float>(m_alignment, WIDTH * batch_size, q);
+    m_D_backward_last_layer = sycl::aligned_alloc_device<float>(m_alignment, WIDTH * batch_size, q);
+    m_E_backward_last_layer = sycl::aligned_alloc_device<float>(m_alignment, batch_size * WIDTH, q);
+    m_F_backward_last_layer = sycl::aligned_alloc_device<float>(m_alignment, WIDTH * WIDTH, q);
+
+    m_A_dgemm = sycl::aligned_alloc_device<float>(m_alignment, batch_size * WIDTH, q);
+    m_B_dgemm = sycl::aligned_alloc_device<float>(m_alignment, batch_size * WIDTH, q);
+    m_C_dgemm = sycl::aligned_alloc_device<float>(m_alignment, WIDTH * WIDTH, q);
 
 }
 
@@ -520,10 +559,10 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, float* forwa
     const int input_size = input.size();
     const int intermediate_output_size = batch_size * WIDTH * m_n_hidden_layers;
     const int layer_length = WIDTH * batch_size;
-    const int n_hidden_matrices = 4;
-    const int net_width = 64;
-    const int inputs_width = 64;
-    const int output_width = 128;
+    const int n_hidden_matrices = m_n_hidden_matrices;
+    const int net_width = m_net_width;
+    const int inputs_width = m_inputs_width;
+    const int output_width = m_output_width;
 
     static_assert(WIDTH % 16 == 0, "Width must be a multiply of 16.");
     assert(batch_size % 64 == 0);
@@ -565,7 +604,6 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, float* forwa
             }).wait();
     }
 
-
 }
 
 //template<int WIDTH>
@@ -605,6 +643,31 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, float* forwa
 //}
 
 template <int WIDTH>
+<<<<<<< HEAD
+void SwiftNetMLP<WIDTH>::free_mem(queue q) {
+    free(m_act_mem, q);
+    free(m_act_mem_temp, q);
+    free(m_out_inter, q);
+    free(m_deltas_temp, q);
+    free(m_A_forward, q);
+    free(m_B_forward, q);
+    free(m_C_forward, q);
+    m_deltas.free_mem(q);
+    free(m_A_backward, q);
+    free(m_B_backward, q);
+    free(m_C_backward, q);
+    free(m_A_backward_last_layer, q);
+    free(m_B_backward_last_layer, q);
+    free(m_C_backward_last_layer, q);
+    free(m_D_backward_last_layer, q);
+    free(m_E_backward_last_layer, q);
+    free(m_F_backward_last_layer, q);
+    free(m_A_dgemm, q);
+    free(m_B_dgemm, q);
+    free(m_C_dgemm, q);
+}
+
+
 void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads,
     float* forward,
     DeviceMem<bf16>& loss,
@@ -626,7 +689,6 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads,
 
     int i = 0;
     int j = 0;
-
     auto activation = m_activation;
 
 
@@ -738,5 +800,5 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input,
                 m_q.parallel_for<>(range<1>(s), [=](id<1> idx) {
                     p[idx] /= batch_size;
                     }).wait();
-
 }
+
