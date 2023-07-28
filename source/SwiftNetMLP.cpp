@@ -1,19 +1,9 @@
-
 #include "SwiftNetMLP.h"
-<<<<<<< HEAD
-#include "config.h"
-=======
-#include "L2.h"
-#include "sgd.h"
 #include "trainer.h"
 #include "mkl.h"
 #include "mkl_omp_offload.h"
 #include "common.h"
 #include "oneapi/mkl.hpp"
-//#include "config.h"
->>>>>>> b19c965695196e8d9e5421ccab00051b1f2d48bb
-
-
 
 using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;
@@ -70,7 +60,6 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, flo
         result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix3, result_matrix);
 
         joint_matrix_store(sg, result_matrix, at + TN * sgId + TM * l * WIDTH, WIDTH, layout::row_major);
-
 
     }
 
@@ -214,7 +203,6 @@ void workgroup_last_layer_forward(nd_item<1> item,
     joint_matrix_load(sg, weight_matrix2, w + TN * 2 * sgId + TK / 2 * 2 * WIDTH * 2, WIDTH * 2);
     joint_matrix_load(sg, weight_matrix3, w + TN * 2 * sgId + TK / 2 * 3 * WIDTH * 2, WIDTH * 2);
 
-
     for (int l = 0; l < N_ITERS; l++) {
         joint_matrix_fill(sg, result_matrix, 0.0f);
 
@@ -228,8 +216,6 @@ void workgroup_last_layer_forward(nd_item<1> item,
         result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix3, result_matrix);
 
         joint_matrix_store(sg, result_matrix, o + TM * sgId + TN * l * WIDTH, WIDTH, layout::row_major);
-
-
     }
 }
 
@@ -277,6 +263,7 @@ void kernel_swift_mlp(nd_item<1> item,
 
     }
     item.barrier();
+
     // Handle hidden layers all together
 
     for (int k = 0; k < n_hidden_matmuls; k++) {
@@ -333,11 +320,6 @@ void mlp_swift_forward(queue q,
     const int N_BLOCKS = WIDTH / TK;
     const int N_ITERS = BATCH_CHUNK / TM;
 
-
-
-    //auto weight = sycl::aligned_alloc_device<bf16>(alignment, weights.size(), q);
-
-    //q.memcpy(weight, weights.data(), weights.size() * sizeof(bf16));
     q.submit([&](handler& cgh)
         {
             cgh.parallel_for(
@@ -362,10 +344,6 @@ void mlp_swift_forward(queue q,
 
                 });
         }).wait();
-
-
-        //free(weight, q);
-
 }
 
 template <int WIDTH, int N_ITERS, Activation ACTIVATION>
@@ -388,9 +366,6 @@ void kernel_swiftnet_backward(
     int idx = 8 * groupId * N_ITERS;
     const int layer_length = WIDTH * WIDTH * batch_number;
 
-
-    //On suppose qu'on a d�j� fait la backprop dans le dernier layer
-    // Hidden Layers
     for (int k = 0; k < n_hidden_matmuls; k++) {
         work_group_layer<WIDTH, N_ITERS, true>(
             item,
@@ -400,7 +375,7 @@ void kernel_swiftnet_backward(
             weights + WIDTH * WIDTH * (n_hidden_matmuls - k),
             out_inter + groupId * WIDTH * WIDTH + (n_hidden_matmuls - k - 1) * layer_length,
             loss_gradients + groupId * WIDTH * WIDTH,
-            forward + WIDTH * WIDTH * batch_number + WIDTH * WIDTH * batch_number * (n_hidden_matmuls - k - 1) + groupId * WIDTH * WIDTH//Le premier WIDTH*WIDTH*batch_number correspond � l'input, � remplacer par batch_size * input_width
+            forward + WIDTH * WIDTH * batch_number + WIDTH * WIDTH * batch_number * (n_hidden_matmuls - k - 1) + groupId * WIDTH * WIDTH
         );
         item.barrier();
     }
@@ -463,7 +438,7 @@ void mlp_swiftnet_backward(
     int batch_number = batch_size / BATCH_CHUNK;
     try {
         q.submit([&](handler& h) {
-            //Transfer data to device memory
+
             h.parallel_for(nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE), [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
                 kernel_swiftnet_backward<WIDTH, N_ITERS, ACTIVATION>(item, deltas.data(), delta_temp, grads_matrices.data(), weights_transposed.data(), forward, out_inter, batch_number, n_hidden_matmuls);
                 });
@@ -551,6 +526,66 @@ void SwiftNetMLP<WIDTH>::initialize_params() {
     //m_weights_matrices.initialize_uniform(0.1, m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices);
 };
 
+template<int WIDTH>
+void SwiftNetMLP<WIDTH>::save_to_file(std::string filename) {
+    std::ofstream file;
+    file.open(filename);
+    file << m_inputs_width << "\n";
+    file << m_net_width << "\n";
+    file << m_output_width << "\n";
+    file << m_n_hidden_layers << "\n";
+    file << m_n_hidden_matrices << "\n";
+    for (int i = 0; i < m_weights_matrices.size(); i++) {
+        file << m_weights_matrices.data()[i] << "\n";
+    }
+    file.close();
+    return;
+}
+
+template<int WIDTH>
+void SwiftNetMLP<WIDTH>::load_from_file(std::string filename) {
+    std::ifstream file;
+    std::string line;
+    file.open(filename);
+    file >> m_inputs_width;
+    file >> m_net_width;
+    file >> m_output_width;
+    file >> m_n_hidden_layers;
+    file >> m_n_hidden_matrices;
+    for (int i = 0; i < m_weights_matrices.size(); i++) {
+        float x;
+        file >> x;
+        m_weights_matrices.data()[i] = bf16(x);
+    }
+    file.close();
+    m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices);
+    return;
+}
+
+template <int WIDTH>
+void SwiftNetMLP<WIDTH>::free_mem(queue q) {
+    free(m_act_mem, q);
+    free(m_act_mem_temp, q);
+    free(m_out_inter, q);
+    free(m_deltas_temp, q);
+    free(m_A_forward, q);
+    free(m_B_forward, q);
+    free(m_C_forward, q);
+    m_deltas.free_mem(q);
+    free(m_A_backward, q);
+    free(m_B_backward, q);
+    free(m_C_backward, q);
+    free(m_A_backward_last_layer, q);
+    free(m_B_backward_last_layer, q);
+    free(m_C_backward_last_layer, q);
+    free(m_D_backward_last_layer, q);
+    free(m_E_backward_last_layer, q);
+    free(m_F_backward_last_layer, q);
+    free(m_A_dgemm, q);
+    free(m_B_dgemm, q);
+    free(m_C_dgemm, q);
+}
+
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, float* forward, bf16* act_mem, float* act_mem_temp, float* A, float* B, float* C, DeviceMem<float>& output) {
 
@@ -605,68 +640,6 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, float* forwa
     }
 
 }
-
-//template<int WIDTH>
-//void SwiftNetMLP<WIDTH>::save_to_file(std::string filename) {
-//      std::ofstream file;
-//      file.open(filename);
-//      file << m_inputs_width << "\n";
-//      file << m_net_width << "\n";
-//      file << m_output_width << "\n";
-//      file << m_n_hidden_layers << "\n";
-//      file << m_n_hidden_matrices << "\n";
-//      for (int i = 0; i < m_weights_matrices.size(); i++) {
-//              file << m_weights_matrices.data()[i] << "\n";
-//      }
-//      file.close();
-//      return;
-//}
-
-//template<int WIDTH>
-//void SwiftNetMLP<WIDTH>::load_from_file(std::string filename) {
-//      std::ifstream file;
-//      std::string line;
-//      file.open(filename);
-//      file >> m_inputs_width;
-//      file >> m_net_width;
-//      file >> m_output_width;
-//      file >> m_n_hidden_layers;
-//      file >> m_n_hidden_matrices;
-//      for (int i = 0; i < m_weights_matrices.size(); i++) {
-//              float x;
-//              file >> x;
-//              m_weights_matrices.data()[i] = bf16(x);
-//      }
-//      file.close();
-//      m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices);
-//      return;
-//}
-
-template <int WIDTH>
-<<<<<<< HEAD
-void SwiftNetMLP<WIDTH>::free_mem(queue q) {
-    free(m_act_mem, q);
-    free(m_act_mem_temp, q);
-    free(m_out_inter, q);
-    free(m_deltas_temp, q);
-    free(m_A_forward, q);
-    free(m_B_forward, q);
-    free(m_C_forward, q);
-    m_deltas.free_mem(q);
-    free(m_A_backward, q);
-    free(m_B_backward, q);
-    free(m_C_backward, q);
-    free(m_A_backward_last_layer, q);
-    free(m_B_backward_last_layer, q);
-    free(m_C_backward_last_layer, q);
-    free(m_D_backward_last_layer, q);
-    free(m_E_backward_last_layer, q);
-    free(m_F_backward_last_layer, q);
-    free(m_A_dgemm, q);
-    free(m_B_dgemm, q);
-    free(m_C_dgemm, q);
-}
-
 
 void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads,
     float* forward,
