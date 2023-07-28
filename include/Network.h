@@ -10,9 +10,9 @@ public:
     virtual void forward_pass(const DeviceMem<bf16>& input, float* forward, bf16* act_mem, float* act_mem_temp, float* A, float* B, float* C, DeviceMem<float>& output) = 0;
 
     virtual void backward_pass(
-        const DeviceMem<bf16>& input, 
+        const DeviceMem<bf16>& input,
         DeviceMem<bf16>& grads,
-        float* out_inter, 
+        float* out_inter,
         float* delta_temp,
         DeviceMem<bf16> loss,
         float* A,

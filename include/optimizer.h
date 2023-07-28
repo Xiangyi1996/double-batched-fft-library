@@ -15,4 +15,3 @@ public:
 
 };
 
-Optimizer* create_optimizer(const json& params);

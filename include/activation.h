@@ -40,13 +40,10 @@ void elt_activation(Activation activation, T& elt) {
 
 		return;
 	case Activation::Sine:
-
 		elt = (T)((elt)-floor(q) * 2 * PI);
 		elt = (T)sinf((float)elt);
-
 		return;
 	case Activation::Sigmoid:
-
 		elt = (T)(1.0f / (1.0f + expf((float)-elt)));
 		return;
 	case Activation::None:
@@ -56,18 +53,21 @@ void elt_activation(Activation activation, T& elt) {
 		return;
 	default:
 		return;
-
 	}
 }
+
 template<typename T>
 T elt_activation_ret(Activation activation, T& elt) {
 	float q = ((float)elt / (2 * PI));
+
 	switch (activation) {
+
 	case Activation::ReLU:
 		if (elt < (T)0.0f) {
 			return (T)0.0f;
 		}
 		return elt;
+
 	case Activation::LeakyReLU:
 		if (elt >= 0) {
 			return (T)elt;
@@ -79,26 +79,24 @@ T elt_activation_ret(Activation activation, T& elt) {
 	case Activation::Exponential:
 		return (T)exp((float)elt);
 
-
-
 	case Activation::Sigmoid:
-
 		return (T)(1.0f / (1.0f + expf((float)-elt)));
 
 	case Activation::None:
 		return elt;
+
 	case Activation::Tanh:
 		return (T)(tanhf((float)elt));
 
 	default:
 		return elt;
-
 	}
 }
 
 template<typename outT, typename fwdT>
 void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd) {
 	switch (activation) {
+
 	case Activation::ReLU:
 		if (fwd < (fwdT)0.0f) {
 			elt = (outT)0.0f;
@@ -135,12 +133,12 @@ void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd) {
 
 	default:
 		return;
-
 	}
 }
 template<typename outT, typename fwdT, typename resT>
 void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd, resT& res) {
 	switch (activation) {
+
 	case Activation::ReLU:
 		if (fwd < (fwdT)0.0f) {
 			res = (resT)0.0f;

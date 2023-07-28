@@ -24,5 +24,3 @@ public:
 
 };
 
-Loss* create_loss(const json& params);
-
