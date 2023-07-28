@@ -47,7 +47,7 @@ public:
 		//const int batch_size = std::pow(2, 19);
 
 
-		q.parallel_for<>(range<1>(input.size()), [=](id<1> idx) {
+		m_network->get_queue().parallel_for<>(range<1>(input.size()), [=](id<1> idx) {
 			forward[idx] = (float)input.data()[idx];
 			});
 
@@ -96,7 +96,7 @@ public:
 				std::cout << "weight : " << i << " : " << m_network->m_weights_matrices.data()[64 * 64 * i + 64*j] << std::endl;
 			}
 		}*/
-		std::vector<float> data = std::vector<float>(std::pow(2, 17) * (128 + 64 + WIDTH * 4));
+		/*std::vector<float> data = std::vector<float>(std::pow(2, 17) * (128 + 64 + WIDTH * 4));
 		m_network->get_queue().memcpy(data.data(), forward, std::pow(2, 17) * (64 + WIDTH * 4 + 128) * sizeof(float));
 		m_network->get_queue().wait();
 
@@ -116,7 +116,7 @@ public:
 			for (int j = 0; j < 10; j++) {
 				std::cout << "weight : " << i << " : " << data_w[64 * 64 * i + 64 * j] << std::endl;
 			}
-		}
+		}*/
 
 
 	}
