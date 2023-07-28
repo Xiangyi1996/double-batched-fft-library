@@ -641,6 +641,7 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, float* forwa
 
 }
 
+template <int WIDTH>
 void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads,
     float* forward,
     DeviceMem<bf16>& loss,
