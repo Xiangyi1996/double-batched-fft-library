@@ -180,15 +180,10 @@ void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd, resT& res) {
 		}
 	}
 }
-<<<<<<< HEAD
-template<typename T, int SG_SZ>
-void matrix_activation(nd_item<1> it, Activation activation, device_ptr<T> out, int stride) {
-	int id = it.get_local_id() % SG_SZ;
-=======
+
 template<typename T,int SG_SZ>
 void matrix_activation(nd_item<1> it, Activation activation, device_ptr<T> out, int stride) {
 	int id = it.get_local_id() %SG_SZ;
->>>>>>> b19c965695196e8d9e5421ccab00051b1f2d48bb
 
 	for (int i = 0; i < 8; i++) {
 		elt_activation<T>(activation, out[i * stride + id]);
