@@ -1,4 +1,6 @@
 #pragma once
+
+#include "activation.h"
 #include "SwiftNetMLP.h"
 #include "loss.h"
 #include "optimizer.h"
@@ -87,13 +89,13 @@ TrainableModel create_from_config(
 	}
 
 	switch (WIDTH) {
-	case  16:  network = new SwiftNetMLP<16>( q, config.value("network", json::object()).value("n_input_dims", 0), config.value("network", json::object()).value("n_output_dims",0), config.value("network", json::object()).value("n_hidden_layers",2), string_to_activation(config.value("network", json::object()).value("activation", "ReLU")),string_to_activation(config.value("network", json::object()).value("output_activation", "None")) );
+	case  16:  network = new SwiftNetMLP<16>( q, config.value("network", json::object()).value("n_input_dims", 16), config.value("network", json::object()).value("n_output_dims",16), config.value("network", json::object()).value("n_hidden_layers",2), string_to_activation(config.value("network", json::object()).value("activation", "ReLU")),string_to_activation(config.value("network", json::object()).value("output_activation", "None")) );
 			break;
-	case  32:  network = new SwiftNetMLP<32>(q, config.value("network", json::object()).value("n_input_dims", 0), config.value("network", json::object()).value("n_output_dims", 0), config.value("network", json::object()).value("n_hidden_layers", 2), string_to_activation(config.value("network", json::object()).value("activation", "ReLU")), string_to_activation(config.value("network", json::object()).value("output_activation", "None")));
+	case  32:  network = new SwiftNetMLP<32>(q, config.value("network", json::object()).value("n_input_dims", 32), config.value("network", json::object()).value("n_output_dims", 32), config.value("network", json::object()).value("n_hidden_layers", 2), string_to_activation(config.value("network", json::object()).value("activation", "ReLU")), string_to_activation(config.value("network", json::object()).value("output_activation", "None")));
 			break;
-	case  64:  network = new SwiftNetMLP<64>( q, config.value("network", json::object()).value("n_input_dims", 0), config.value("network", json::object()).value("n_output_dims",0), config.value("network", json::object()).value("n_hidden_layers",2), string_to_activation(config.value("network", json::object()).value("activation", "ReLU")),string_to_activation(config.value("network", json::object()).value("output_activation", "None")));
+	case  64:  network = new SwiftNetMLP<64>( q, config.value("network", json::object()).value("n_input_dims", 64), config.value("network", json::object()).value("n_output_dims",64), config.value("network", json::object()).value("n_hidden_layers",2), string_to_activation(config.value("network", json::object()).value("activation", "ReLU")),string_to_activation(config.value("network", json::object()).value("output_activation", "None")));
 			break;
-	case 128:  network = new SwiftNetMLP<128>( q, config.value("network", json::object()).value("n_input_dims", 0), config.value("network", json::object()).value("n_output_dims",0), config.value("network", json::object()).value("n_hidden_layers",2), string_to_activation(config.value("network", json::object()).value("activation", "ReLU")),string_to_activation(config.value("network", json::object()).value("output_activation", "None")) );
+	case 128:  network = new SwiftNetMLP<128>( q, config.value("network", json::object()).value("n_input_dims", 128), config.value("network", json::object()).value("n_output_dims",128), config.value("network", json::object()).value("n_hidden_layers",2), string_to_activation(config.value("network", json::object()).value("activation", "ReLU")),string_to_activation(config.value("network", json::object()).value("output_activation", "None")) );
 			break;
 	default: throw std::runtime_error{"SwiftNetMLP only supports 16, 32, 64, and 128 neurons, but got ..."};
 	}
