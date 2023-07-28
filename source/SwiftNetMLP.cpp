@@ -1,6 +1,17 @@
 
 #include "SwiftNetMLP.h"
+<<<<<<< HEAD
 #include "config.h"
+=======
+#include "L2.h"
+#include "sgd.h"
+#include "trainer.h"
+#include "mkl.h"
+#include "mkl_omp_offload.h"
+#include "common.h"
+#include "oneapi/mkl.hpp"
+//#include "config.h"
+>>>>>>> b19c965695196e8d9e5421ccab00051b1f2d48bb
 
 
 
@@ -488,14 +499,18 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
     m_activation{ activation },
     m_output_activation{ output_activation }
 {
+<<<<<<< HEAD
 
 
+=======
+>>>>>>> b19c965695196e8d9e5421ccab00051b1f2d48bb
     m_q = q;
     m_n_hidden_matrices = m_n_hidden_layers - 1;
     m_weightsT_matrices.allocate(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width, m_q);
     m_weights_matrices.allocate(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width, m_q);
     m_weights_matrices_inferences.allocate(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width, m_q);
     m_grads_matrices.allocate(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width, m_q);
+<<<<<<< HEAD
 
     const int batch_size = std::pow(2, 17);
     const int layer_length = WIDTH * batch_size;
@@ -530,6 +545,8 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
     m_A_dgemm = sycl::aligned_alloc_device<float>(m_alignment, batch_size * WIDTH, q);
     m_B_dgemm = sycl::aligned_alloc_device<float>(m_alignment, batch_size * WIDTH, q);
     m_C_dgemm = sycl::aligned_alloc_device<float>(m_alignment, WIDTH * WIDTH, q);
+=======
+>>>>>>> b19c965695196e8d9e5421ccab00051b1f2d48bb
 
 }
 
@@ -548,10 +565,17 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, float* forwa
     const int input_size = input.size();
     const int intermediate_output_size = batch_size * WIDTH * m_n_hidden_layers;
     const int layer_length = WIDTH * batch_size;
+<<<<<<< HEAD
     const int n_hidden_matrices = m_n_hidden_matrices;
     const int net_width = m_net_width;
     const int inputs_width = m_inputs_width;
     const int output_width = m_output_width;
+=======
+    const int n_hidden_matrices = 4;
+    const int net_width = 64;
+    const int inputs_width = 64;
+    const int output_width = 128;
+>>>>>>> b19c965695196e8d9e5421ccab00051b1f2d48bb
 
     static_assert(WIDTH % 16 == 0, "Width must be a multiply of 16.");
     assert(batch_size % 64 == 0);
@@ -582,6 +606,7 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, float* forwa
         m_q.parallel_for<>(range<1>(m_output_width * m_net_width), [=](id<1> idx) {
             B[idx] = (float)p[toPackedLayoutCoord(idx, net_width, output_width) + net_width * (inputs_width + n_hidden_matrices * net_width)];
             });
+<<<<<<< HEAD
 
         oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
             batch_size, m_output_width, WIDTH, 1, A, WIDTH, B, m_output_width, 0, C, m_output_width);
@@ -592,6 +617,20 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, float* forwa
             forward[intermediate_output_size + input.size() + idx] = (float)C[idx];
             }).wait();
     }
+=======
+
+        oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
+            batch_size, m_output_width, WIDTH, 1, A, WIDTH, B, m_output_width, 0, C, m_output_width);
+
+
+        m_q.parallel_for<>(range<1>(m_output_width * batch_size), [=](id<1> idx) {
+            output.data()[idx] = (float)C[idx];
+            forward[intermediate_output_size + input.size() + idx] = (float)C[idx];
+            }).wait();
+    }
+
+
+>>>>>>> b19c965695196e8d9e5421ccab00051b1f2d48bb
 }
 
 //template<int WIDTH>
@@ -631,6 +670,7 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, float* forwa
 //}
 
 template <int WIDTH>
+<<<<<<< HEAD
 void SwiftNetMLP<WIDTH>::free_mem(queue q) {
     free(m_act_mem, q);
     free(m_act_mem_temp, q);
@@ -677,6 +717,30 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads,
     int i = 0;
     int j = 0;
 
+=======
+void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads,
+    float* forward,
+    DeviceMem<bf16>& loss,
+    int batch_size,
+    float* A,
+    float* B,
+    float* C,
+    float* D,
+    float* E,
+    float* F) {
+
+    auto p_w = m_weightsT_matrices.data();
+    auto p_g = m_grads_matrices.data();
+    const int offset_w = m_n_hidden_matrices * m_net_width * m_net_width + m_net_width * m_inputs_width;
+    const int offset_g = m_inputs_width * m_net_width + (m_n_hidden_matrices - 1) * m_net_width * m_net_width;
+    const int offset_f = (m_inputs_width + (m_n_hidden_matrices - 1) * batch_size) * m_net_width;
+    const int output_width = m_output_width;
+    const int net_width = m_net_width;
+
+    int i = 0;
+    int j = 0;
+
+>>>>>>> b19c965695196e8d9e5421ccab00051b1f2d48bb
     auto activation = m_activation;
 
 
@@ -789,4 +853,8 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input,
                     p[idx] /= batch_size;
                     }).wait();
 
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> b19c965695196e8d9e5421ccab00051b1f2d48bb
