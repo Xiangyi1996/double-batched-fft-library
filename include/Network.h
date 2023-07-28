@@ -1,35 +1,19 @@
 #pragma once
 
-#include <iostream>
-#include <vector>
-#include <CL/sycl.hpp>
-#include "activation.h"
-#include "Network.h"
 #include "DeviceMem.h"
-#include "L2.h"
-#include "sgd.h"
-#include "trainer.h"
-#include "mkl.h"
-#include "mkl_omp_offload.h"
-#include "common.h"
-#include "oneapi/mkl.hpp"
-#include <json/json.hpp>
 
 using bf16 = sycl::ext::oneapi::bfloat16;
-using json = nlohmann::json;
 
-template <int WIDTH>
-class SwiftNetMLP : public Network {
+class Network {
 public:
-    SwiftNetMLP(queue q, int input_width, int output_width, int n_hidden_layers, Activation activation, Activation output_activation);
 
-    void forward_pass(const DeviceMem<bf16>& input, float* forward, bf16* act_mem, float* act_mem_temp, float* A, float* B, float* C, DeviceMem<float>& output) override;
+    virtual void forward_pass(const DeviceMem<bf16>& input, float* forward, bf16* act_mem, float* act_mem_temp, float* A, float* B, float* C, DeviceMem<float>& output) = 0;
 
-    void backward_pass(
+    virtual void backward_pass(
         const DeviceMem<bf16>& input,
         DeviceMem<bf16>& grads,
         float* out_inter,
-        float* delta_temp, 
+        float* delta_temp,
         DeviceMem<bf16> loss,
         float* A,
         float* B,
@@ -44,59 +28,51 @@ public:
         float* B_dgemm,
         float* C_dgemm,
         float* forward
-    ) override;
+    ) = 0;
 
-    void dgemm_last_layer_backward(DeviceMem<bf16>& grads,
-        float* forward,
-        DeviceMem<bf16>& loss,
-        int batch_size,
-        float* A,
-        float* B,
-        float* C,
-        float* D,
-        float* E,
-        float* F);
-    //void set_params(float* params, float* inference_params, float* gradients);
-    void save_to_file(std::string filename);
+    virtual void initialize_params() = 0;
 
-    void load_from_file(std::string filename);
+    virtual void free_mem(queue q) = 0;
 
-    void initialize_params()  override;
-
-    void free_mem(queue q) override;
-
-    ~SwiftNetMLP() {
-        m_weights_matrices_inferences.free_mem(m_q);
+    queue get_queue() {
+        return m_q;
     }
 
 
-    DeviceMem<bf16>* grads_matrices() {
-        return &m_grads_matrices;
-    }
+    float* m_forward;
+    int m_shmem_size;
+    size_t m_alignment;
 
-    DeviceMem<bf16>* weights_matrices() {
-        return &m_weights_matrices;
-    } 
+    bf16* m_act_mem;
+    float* m_act_mem_temp;
 
-    DeviceMem<bf16>* weightsT_matrices() {
-        return &m_weightsT_matrices;
-    }
+    float* m_A_forward;
+    float* m_B_forward;
+    float* m_C_forward;
+
+    float* m_out_inter;
+    float* m_deltas_temp;
+    DeviceMem<bf16> m_deltas;
+
+    float* m_A_backward;
+    float* m_B_backward;
+    float* m_C_backward;
+
+    float* m_A_backward_last_layer;
+    float* m_B_backward_last_layer;
+    float* m_C_backward_last_layer;
+    float* m_D_backward_last_layer;
+    float* m_E_backward_last_layer;
+    float* m_F_backward_last_layer;
+
+    float* m_A_dgemm;
+    float* m_B_dgemm;
+    float* m_C_dgemm;
+
+    queue m_q;
+    DeviceMem<bf16> m_grads_matrices;
+    DeviceMem<bf16> m_weights_matrices;
+    DeviceMem<bf16> m_weightsT_matrices;
 
 
-private:
-    int m_n_hidden_layers;
-    int m_n_hidden_matrices;
-    int m_inputs_width;
-    int m_net_width;
-    int m_output_width;
-    int m_padded_output_width;
-
-    Activation m_activation;
-    Activation m_output_activation;
-
-
-    DeviceMem<bf16> m_weights_matrices_inferences;
-
-    int m_total_n_params;
 };
-
