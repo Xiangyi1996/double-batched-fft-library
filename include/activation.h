@@ -75,21 +75,21 @@ T elt_activation_ret(Activation activation, T& elt) {
 		else {
 			return (T)0.01f * (float)elt;
 		}
-		
+
 	case Activation::Exponential:
 		return (T)exp((float)elt);
 
-	
-			
+
+
 	case Activation::Sigmoid:
 
 		return (T)(1.0f / (1.0f + expf((float)-elt)));
-		
+
 	case Activation::None:
 		return elt;
 	case Activation::Tanh:
 		return (T)(tanhf((float)elt));
-		
+
 	default:
 		return elt;
 
@@ -180,9 +180,15 @@ void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd, resT& res) {
 		}
 	}
 }
+<<<<<<< HEAD
+template<typename T, int SG_SZ>
+void matrix_activation(nd_item<1> it, Activation activation, device_ptr<T> out, int stride) {
+	int id = it.get_local_id() % SG_SZ;
+=======
 template<typename T,int SG_SZ>
 void matrix_activation(nd_item<1> it, Activation activation, device_ptr<T> out, int stride) {
 	int id = it.get_local_id() %SG_SZ;
+>>>>>>> b19c965695196e8d9e5421ccab00051b1f2d48bb
 
 	for (int i = 0; i < 8; i++) {
 		elt_activation<T>(activation, out[i * stride + id]);
