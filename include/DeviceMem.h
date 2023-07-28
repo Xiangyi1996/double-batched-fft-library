@@ -159,13 +159,13 @@ public:
 
     void make_transposed(DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden,queue q) {
         auto p = m_data;
-        int i;
-        int j;
-        int mat_num;
-        int mat_offset;
 
             q.parallel_for<>(range<1>(input_width * width + n_hidden * width * width + width * output_width), [=](id<1> idx) {
-                
+                int i = 0;
+                int j = 0;
+                int mat_num = 0;
+                int mat_offset = 0;
+
                 if (idx < input_width * width) {
                     i = idx / input_width;
                     j = idx % input_width;
