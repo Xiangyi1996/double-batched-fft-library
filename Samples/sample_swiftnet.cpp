@@ -65,16 +65,8 @@ int main() {
 
     auto model = create_from_config(q, config);
 
-    /*L2Loss loss;
-    SGDOptimizer optim = SGDOptimizer(128, 4, 1e-3f, 1e-8f);
-    SwiftNetMLP<64> network = SwiftNetMLP<64>(q, 64, 128, 4, Activation::None, Activation::None);
-    Trainer train(network, loss, optim);*/
 
     model.trainer.initialize_params();
-    auto p = model.network->m_forward;
-    q.parallel_for<>(range<1>(inputs.size()), [=](id<1> idx) {
-        p[idx] = (float)inputs.data()[idx];
-        });
 
     for (int i = 0; i < 1000; i++) {
         std::cout << i << std::endl;
@@ -105,7 +97,7 @@ int main() {
             grads,
             losses,
             scale,
-            64);
+            WIDTH);
     }
 
     inputs.free_mem(q);
