@@ -75,7 +75,7 @@ public:
     }
 
     void initialize_normal(double dev, DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden, queue q) {
-
+        auto p = m_data;
         std::default_random_engine gen;
         std::normal_distribution<double> distrib(0.0, dev);
         T rnd;
@@ -104,8 +104,18 @@ public:
                 dataT[input_width * width + n_hidden * width * width + toPackedLayoutCoord(j * output_width + i, output_width, width)] = rnd;
             }
         }
-        q.memcpy(m_data, data.data(), m_size * sizeof(T));
-        q.memcpy(transposed.data(), dataT.data(), m_size * sizeof(T));
+        buffer<T, 1> buf(data.data(), data.size());
+        buffer<T, 1> bufT(dataT.data(), dataT.size());
+        q.submit([&](handler& h) {
+            auto acc = buf.get_access(h);
+            auto accT = bufT.get_access(h);
+            h.parallel_for(m_size, [=](id<1> idx) {
+                p[idx] = acc[idx];
+                transposed.data()[idx] = accT[idx];
+                });
+            });
+        //q.memcpy(m_data, data.data(), m_size * sizeof(T));
+        //q.memcpy(transposed.data(), dataT.data(), m_size * sizeof(T));
     }
 
     void initialize_normal(double dev, queue q) {
@@ -117,9 +127,9 @@ public:
         }
         q.memcpy(m_data, data.data(), m_size * sizeof(T));
     }
-      
-    void initialize_uniform(double scale, DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden, queue q) {
 
+    void initialize_uniform(double scale, DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden, queue q) {
+        auto p = m_data;
         std::default_random_engine gen;
         std::uniform_real_distribution<double> distrib(0.0, scale);
 
@@ -153,40 +163,50 @@ public:
                 dataT[input_width * width + n_hidden * width * width + toPackedLayoutCoord(j * output_width + i, output_width, width)] = rnd;
             }
         }
-        q.memcpy(m_data, data.data(), m_size * sizeof(T));
-        q.memcpy(transposed.data(), dataT.data(), m_size * sizeof(T));
+        buffer<T, 1> buf(data.data(), data.size());
+        buffer<T, 1> bufT(dataT.data(), dataT.size());
+        q.submit([&](handler& h) {
+            auto acc = buf.get_access(h);
+            auto accT = bufT.get_access(h);
+            h.parallel_for(m_size, [=](id<1> idx) {
+                p[idx] = acc[idx];
+                transposed.data()[idx] = accT[idx];
+                });
+            });
+        //q.memcpy(m_data, data.data(), m_size * sizeof(T));
+        //q.memcpy(transposed.data(), dataT.data(), m_size * sizeof(T));
     }
 
-    void make_transposed(DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden,queue q) {
+    void make_transposed(DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden, queue q) {
         auto p = m_data;
 
-            q.parallel_for<>(range<1>(input_width * width + n_hidden * width * width + width * output_width), [=](id<1> idx) {
-                int i = 0;
-                int j = 0;
-                int mat_num = 0;
-                int mat_offset = 0;
+        q.parallel_for<>(range<1>(input_width * width + n_hidden * width * width + width * output_width), [=](id<1> idx) {
+            int i = 0;
+            int j = 0;
+            int mat_num = 0;
+            int mat_offset = 0;
 
-                if (idx < input_width * width) {
-                    i = idx / input_width;
-                    j = idx % input_width;
-                    transposed.data()[toPackedLayoutCoord(j * width + i, width, input_width)] = m_data[toPackedLayoutCoord(i * width + j, input_width, width)];
-                }
+            if (idx < input_width * width) {
+                i = idx / input_width;
+                j = idx % input_width;
+                transposed.data()[toPackedLayoutCoord(j * width + i, width, input_width)] = m_data[toPackedLayoutCoord(i * width + j, input_width, width)];
+            }
 
-                else if (idx < input_width * width + n_hidden * width * width) {
-                    mat_num = idx / (width * width);
-                    mat_offset = (idx - input_width * width) % (width * width);
-                    i = mat_offset / input_width;
-                    j = mat_offset % input_width;
-                    transposed.data()[input_width * width + mat_num * width * width + toPackedLayoutCoord(j * width + i, width, width)] = m_data[input_width * width + mat_num * width * width + toPackedLayoutCoord(i * width + j, width, width)];
-                }
-    
-                else {
-                    mat_offset = (idx - input_width * width - n_hidden * width * width) % (width * output_width);
-                    i = mat_offset / input_width;
-                    j = mat_offset % input_width;
-                    transposed.data()[input_width * width + n_hidden * width * width + toPackedLayoutCoord(j * width + i, output_width, width)] = m_data[input_width * width + n_hidden * width * width + toPackedLayoutCoord(i * width + j, width, output_width)];
+            else if (idx < input_width * width + n_hidden * width * width) {
+                mat_num = idx / (width * width);
+                mat_offset = (idx - input_width * width) % (width * width);
+                i = mat_offset / input_width;
+                j = mat_offset % input_width;
+                transposed.data()[input_width * width + mat_num * width * width + toPackedLayoutCoord(j * width + i, width, width)] = m_data[input_width * width + mat_num * width * width + toPackedLayoutCoord(i * width + j, width, width)];
+            }
 
-                }
+            else {
+                mat_offset = (idx - input_width * width - n_hidden * width * width) % (width * output_width);
+                i = mat_offset / input_width;
+                j = mat_offset % input_width;
+                transposed.data()[input_width * width + n_hidden * width * width + toPackedLayoutCoord(j * width + i, output_width, width)] = m_data[input_width * width + n_hidden * width * width + toPackedLayoutCoord(i * width + j, width, output_width)];
+
+            }
             });
     }
 
