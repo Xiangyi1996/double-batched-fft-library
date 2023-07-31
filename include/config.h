@@ -1,7 +1,10 @@
 #pragma once
+
+#include "activation.h"
 #include "SwiftNetMLP.h"
 #include "loss.h"
 #include "optimizer.h"
+#include "Network.h"
 #include "trainer.h"
 #include "L1.h"
 #include "L2.h"
@@ -11,27 +14,50 @@
 #include "adam.h"
 #include "sgd.h"
 
+Activation string_to_activation(const std::string& activation_name) {
+	if (isequalstring(activation_name, "None")) {
+		return Activation::None;
+	}
+	else if (isequalstring(activation_name, "ReLU")) {
+		return Activation::ReLU;
+	}
+	else if (isequalstring(activation_name, "Exponential")) {
+		return Activation::Exponential;
+	}
+	else if (isequalstring(activation_name, "Sigmoid")) {
+		return Activation::Sigmoid;
+	}
+	else if (isequalstring(activation_name, "Sine")) {
+		return Activation::Sine;
+	}
+	else if (isequalstring(activation_name, "Tanh")) {
+		return Activation::Tanh;
+	}
+	throw std::runtime_error{"Invalid activation name:}"};
+}
 
-template<int WIDTH>
 struct TrainableModel {
 	queue m_q;
 	Loss* loss;
 	Optimizer* optimizer;
-	SwiftNetMLP<WIDTH>* network;
-	Trainer<WIDTH> trainer;
+	Network* network;
+	Trainer trainer;
 };
 
-template<int WIDTH>
-TrainableModel<WIDTH> create_from_config(
+
+TrainableModel create_from_config(
 	queue q,
 	json config
 ) {
 	queue m_q{ q };
 	std::string loss_type = config.value("loss", json::object()).value("otype", "RelativeL2");
 	std::string optimizer_type = config.value("optimizer", json::object()).value("otype", "sgd");
+	const int WIDTH = config.value("network", json::object()).value("n_neurons", 64);
 
 	Loss* loss;
 	Optimizer* optimizer;
+	Network* network;
+
 	if (isequalstring(loss_type, "L2")) {
 		loss = new L2Loss();
 	}
@@ -52,19 +78,29 @@ TrainableModel<WIDTH> create_from_config(
 	}
 	
 	if (isequalstring(optimizer_type, "Adam")) {
-		optimizer = new AdamOptimizer<WIDTH>();
+		optimizer = new AdamOptimizer();
 	}
 
 	else if (isequalstring(optimizer_type, "SGD")) {
-		optimizer = new SGDOptimizer<WIDTH>(config.value("optimizer", json::object()).value("output_width", 64) , config.value("optimizer", json::object()).value("n_hidden_layer", 2) , config.value("optimizer", json::object()).value("learning_rate", 1e-3f) , config.value("optimizer", json::object()).value("l2_reg", 1e-8f) );
+		optimizer = new SGDOptimizer(config.value("optimizer", json::object()).value("output_width", 64) , config.value("optimizer", json::object()).value("n_hidden_layer", 2) , config.value("optimizer", json::object()).value("learning_rate", 1e-3f) , config.value("optimizer", json::object()).value("l2_reg", 1e-8f) );
 	}
 	else {
 		throw std::runtime_error{"Invalid optimizer type: "};
 	}
-	//Loss* loss = create_loss(config.value("loss", json::object()));
-	//Optimizer* optimizer{create_optimizer(config.value("optimizer", json::object()))};
-	SwiftNetMLP<WIDTH>* network{create_network<WIDTH>(q, config.value("network", json::object()))};
-	auto trainer = Trainer<WIDTH>(*network, *loss, *optimizer);
+
+	switch (WIDTH) {
+	case  16:  network = new SwiftNetMLP<16>( q, config.value("network", json::object()).value("n_input_dims", 16), config.value("network", json::object()).value("n_output_dims",16), config.value("network", json::object()).value("n_hidden_layers",2), string_to_activation(config.value("network", json::object()).value("activation", "ReLU")),string_to_activation(config.value("network", json::object()).value("output_activation", "None")) );
+			break;
+	case  32:  network = new SwiftNetMLP<32>(q, config.value("network", json::object()).value("n_input_dims", 32), config.value("network", json::object()).value("n_output_dims", 32), config.value("network", json::object()).value("n_hidden_layers", 2), string_to_activation(config.value("network", json::object()).value("activation", "ReLU")), string_to_activation(config.value("network", json::object()).value("output_activation", "None")));
+			break;
+	case  64:  network = new SwiftNetMLP<64>( q, config.value("network", json::object()).value("n_input_dims", 64), config.value("network", json::object()).value("n_output_dims",64), config.value("network", json::object()).value("n_hidden_layers",2), string_to_activation(config.value("network", json::object()).value("activation", "ReLU")),string_to_activation(config.value("network", json::object()).value("output_activation", "None")));
+			break;
+	case 128:  network = new SwiftNetMLP<128>( q, config.value("network", json::object()).value("n_input_dims", 128), config.value("network", json::object()).value("n_output_dims",128), config.value("network", json::object()).value("n_hidden_layers",2), string_to_activation(config.value("network", json::object()).value("activation", "ReLU")),string_to_activation(config.value("network", json::object()).value("output_activation", "None")) );
+			break;
+	default: throw std::runtime_error{"SwiftNetMLP only supports 16, 32, 64, and 128 neurons, but got ..."};
+	}
+	auto trainer = Trainer(*network, *loss, *optimizer);
 	return { m_q, loss, optimizer,network,  trainer };
 
 }
+

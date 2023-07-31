@@ -2,7 +2,6 @@
 #include "optimizer.h"
 #include <vector>
 
-template<int WIDTH>
 void adam_step(id<1> idx,
 	const int n_elements,
 	const float relative_weight_decay,
@@ -20,7 +19,8 @@ void adam_step(id<1> idx,
 	bf16*  weights,
 	const bf16*  gradients,
 	float*  first_moments,
-	float*  second_moments
+	float*  second_moments,
+	int WIDTH
 ) {
 
 	const bf16 weight = weights[idx];
@@ -44,7 +44,6 @@ void adam_step(id<1> idx,
 	weights[idx] = (bf16)new_weight;
 }
 
-template<int WIDTH>
 void adam_stepT(id<1> idx,
 	const int n_elements,
 	const float relative_weight_decay,
@@ -62,7 +61,8 @@ void adam_stepT(id<1> idx,
 	bf16* weightsT,
 	const bf16* gradients,
 	float* first_moments,
-	float* second_moments
+	float* second_moments,
+	int WIDTH
 ) {
 	const int i = idx / WIDTH;
 	const int j = idx % WIDTH;
@@ -91,11 +91,10 @@ void adam_stepT(id<1> idx,
 }
 
 
-template <int WIDTH>
 class AdamOptimizer : public Optimizer {
 public:
 
-	void step(queue q, float loss_scale, DeviceMem<bf16>& weights, DeviceMem<bf16>& weightsT, DeviceMem<bf16>& gradients) const  override {
+	void step(queue q, float loss_scale, DeviceMem<bf16>& weights, DeviceMem<bf16>& weightsT, DeviceMem<bf16>& gradients, int WIDTH) const  override {
 
 		const int n_elements = weights.size();
 		float learning_rate = m_learning_rate;
@@ -115,7 +114,7 @@ public:
 
 
 		q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
-			adam_step<WIDTH>(idx, 
+			adam_step(idx, 
 			n_elements,
 			relative_weight_decay,
 			absolute_weight_decay,
@@ -132,11 +131,12 @@ public:
 			weights.data(),
 			gradients.data(),
 			first_moment,
-			second_moment);
+			second_moment,
+			WIDTH);
 			}).wait();
 
 			q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
-				adam_stepT<WIDTH>(idx,
+				adam_stepT(idx,
 				n_elements,
 				relative_weight_decay,
 				absolute_weight_decay,
@@ -153,7 +153,8 @@ public:
 				weightsT.data(),
 				gradients.data(),
 				first_moment,
-				second_moment);
+				second_moment,
+				WIDTH);
 			}).wait();
 	}
 
