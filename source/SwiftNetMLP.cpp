@@ -520,9 +520,9 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
 
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::initialize_params() {
-    m_weights_matrices.initialize_constant(1.0f / 64, m_q);
-    m_weightsT_matrices.initialize_constant(1.0f / 64, m_q);
-    //m_weights_matrices.initialize_uniform(0.1, m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices);
+    //m_weights_matrices.initialize_constant(1.0f / 64, m_q);
+    //m_weightsT_matrices.initialize_constant(1.0f / 64, m_q);
+    m_weights_matrices.initialize_uniform(0.1, m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices);
 };
 
 template<int WIDTH>
