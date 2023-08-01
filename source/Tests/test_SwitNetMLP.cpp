@@ -167,7 +167,7 @@ void workgroup_input_layer_forward_dynamic(nd_item<1> item,
 
             result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix, result_matrix);
 
-            matrix_activation<float, SG_SIZE>(item, activation, o + TK * sgId + TM * l * WIDTH, WIDTH);
+            
 
             joint_matrix_store(sg, result_matrix, o + TN * sgId + TM * l * WIDTH, WIDTH, layout::row_major);
         }
