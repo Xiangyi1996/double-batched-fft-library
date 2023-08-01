@@ -154,6 +154,9 @@ void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd, resT& res) {
 		if (fwd < (fwdT)0.0f) {
 			res = (resT)0.0f;
 		}
+		else {
+			res = (resT)elt;
+		}
 			return;
 			break
 
