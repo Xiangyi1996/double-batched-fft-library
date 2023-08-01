@@ -18,12 +18,11 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 
 #define TM 8
 #define TK 16
-#define TN 16
+#define TN 8
 
-#define SG_SIZE 16
-#define WG_SIZE 4*SG_SIZE
+#define SG_SIZE 8
+#define WG_SIZE 8*SG_SIZE
 #define BATCH_CHUNK 64
-
 
 template <int WIDTH, int N_ITERS, bool BACKWARD = false>
 void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, float* act_mem_temp, bf16* weights_layer, float* out_inter, bf16* out, float* forward_act = nullptr) {
@@ -74,12 +73,13 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, flo
 
     for (int i = 0; i < N_ITERS; i++) {
         if (BACKWARD) {
-            matrix_activation_backward<bf16, float, bf16, SG_SIZE>(item, activation, a + TN * sgId + TM * i * WIDTH, f + TN * sgId + i * TM * WIDTH, act_mem + TN * sgId + TM * i * WIDTH, WIDTH);
+            matrix_activation_backward<float, float, bf16, SG_SIZE>(activation, at + TN * sgId + TM * i * WIDTH, f + TN * sgId + i * TM * WIDTH + id, act_mem + TN * sgId + TM * i * WIDTH + id, WIDTH);
+        }
+        else {
+
+            matrix_activation<float, bf16, SG_SIZE>(activation, at + TN * sgId + TM * i * WIDTH + id, act_mem + TN * sgId + TM * i * WIDTH + id, WIDTH);
         }
 
-        else {
-            matrix_activation<bf16, SG_SIZE>(item, activation, a + TN * sgId + TM * i * WIDTH, WIDTH);
-        }
     }
 
     for (int i = 0; i < N_ITERS; i++) {
@@ -88,6 +88,7 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, flo
         }
     }
 }
+
 
 template <int WIDTH, int N_ITERS>
 void workgroup_load_input_static(nd_item<1> item, bf16* act_mem, const bf16* input) {
@@ -530,7 +531,7 @@ template <int WIDTH>
 void SwiftNetMLP<WIDTH>::initialize_params() {
     //m_weights_matrices.initialize_constant(1.0f / 64, m_q);
     //m_weightsT_matrices.initialize_constant(1.0f / 64, m_q);
-    m_weights_matrices.initialize_uniform(0.1, m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices);
+    m_weights_matrices.initialize_uniform(0.01, m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices, m_q);
 };
 
 template<int WIDTH>
@@ -799,16 +800,16 @@ void test1() {
 
 
     const float scale = 1e-3f;
-    device dev = device(gpu_selector_v);
+    /*device dev = device(gpu_selector_v);
 
     std::vector<device> subdev = {};
 
     subdev = dev.create_sub_devices<sycl::info::partition_property::
         partition_by_affinity_domain>(sycl::info::partition_affinity_domain::numa);
 
-    queue q = queue(subdev[0]);
+    queue q = queue(subdev[0]);*/
 
-    /*queue q = queue();*/
+    queue q = queue();
 
     DeviceMem<bf16> inputs = DeviceMem<bf16>(batch_size * WIDTH, q);
     DeviceMem<float> output = DeviceMem<float>(batch_size * output_width, q);
