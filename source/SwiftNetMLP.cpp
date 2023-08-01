@@ -66,12 +66,13 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, flo
 
     for (int i = 0; i < N_ITERS; i++) {
         if (BACKWARD) {
-            matrix_activation_backward<bf16, float, bf16, SG_SIZE>(item, activation, a + TN * sgId + TM * i * WIDTH, f + TN * sgId + i * TM * WIDTH, act_mem + TN * sgId + TM * i * WIDTH, WIDTH);
+            matrix_activation_backward<float, float, bf16, SG_SIZE>(activation, at + TN * sgId + TM * i * WIDTH, f + TN * sgId + i * TM * WIDTH + id, act_mem + TN * sgId + TM * i * WIDTH + id, WIDTH);
+        }
+        else {
+
+            matrix_activation<float, bf16, SG_SIZE>(activation, at + TN * sgId + TM * i * WIDTH + id, act_mem + TN * sgId + TM * i * WIDTH + id, WIDTH);
         }
 
-        else {
-            matrix_activation<bf16, SG_SIZE>(item, activation, a + TN * sgId + TM * i * WIDTH, WIDTH);
-        }
     }
 
     for (int i = 0; i < N_ITERS; i++) {
@@ -80,6 +81,7 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, flo
         }
     }
 }
+
 
 template <int WIDTH, int N_ITERS>
 void workgroup_load_input_static(nd_item<1> item, bf16* act_mem, const bf16* input) {
@@ -522,7 +524,7 @@ template <int WIDTH>
 void SwiftNetMLP<WIDTH>::initialize_params() {
     //m_weights_matrices.initialize_constant(1.0f / 64, m_q);
     //m_weightsT_matrices.initialize_constant(1.0f / 64, m_q);
-    m_weights_matrices.initialize_uniform(0.1, m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices);
+    m_weights_matrices.initialize_uniform(0.01, m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices, m_q);
 };
 
 template<int WIDTH>
@@ -774,4 +776,5 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input,
                     p[idx] /= batch_size;
                     }).wait();
 }
+
 
