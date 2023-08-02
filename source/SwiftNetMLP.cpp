@@ -82,7 +82,6 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, flo
     }
 }
 
-
 template <int WIDTH, int N_ITERS>
 void workgroup_load_input_static(nd_item<1> item, bf16* act_mem, const bf16* input) {
     int id = item.get_local_id() % SG_SIZE;
@@ -278,8 +277,7 @@ void kernel_swift_mlp(nd_item<1> item,
         item.barrier();
     }
 
-    //// Handle output layer
-
+    // Handle output layer
     if (output_width > 16) {
         /*work_group_layer<WIDTH, N_ITERS, false>(item,
             activation,
@@ -289,7 +287,7 @@ void kernel_swift_mlp(nd_item<1> item,
             out_intermediate_layer + elem_idx * WIDTH + (n_hidden_matmuls + 1) * layer_lenght,
             nullptr);*/
 
-        workgroup_write_output_static<WIDTH, N_ITERS>(item, act_mem, out + elem_idx * WIDTH);
+            //workgroup_write_output_static<WIDTH, N_ITERS>(item, act_mem, out + elem_idx * WIDTH);
     }
 
     else if (out) {
@@ -522,8 +520,8 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
 
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::initialize_params() {
-    //m_weights_matrices.initialize_constant(1.0f / 64, m_q);
-    //m_weightsT_matrices.initialize_constant(1.0f / 64, m_q);
+    //m_weights_matrices.initialize_constant(1e-4f, m_q);
+    //m_weightsT_matrices.initialize_constant(1e-4f, m_q);
     m_weights_matrices.initialize_uniform(0.01, m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices, m_q);
 };
 
@@ -623,7 +621,7 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, float* forwa
 
 
         m_q.parallel_for<>(range<1>(layer_length), [=](id<1> idx) {
-            A[idx] = (float)forward[idx + n_hidden_matrices * layer_length];
+            A[idx] = (float)forward[idx + (n_hidden_matrices + 1) * layer_length];
             });
 
         m_q.parallel_for<>(range<1>(m_output_width * m_net_width), [=](id<1> idx) {
@@ -751,7 +749,7 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input,
                 }).wait();
 
                 /// Backpropagation through last layer
-                dgemm_last_layer_backward(grads,
+                /*dgemm_last_layer_backward(grads,
                     forward,
                     loss,
                     batch_size,
@@ -770,7 +768,7 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input,
                 case Activation::Tanh:        mlp_swiftnet_backward<WIDTH, Activation::Tanh>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, delta_temp, forward, A_dgemm, B_dgemm, C_dgemm, batch_size, m_n_hidden_matrices); break;
 
                 default: throw std::runtime_error{"Unsupported activation."};
-                }
+                }*/
 
                 m_q.parallel_for<>(range<1>(s), [=](id<1> idx) {
                     p[idx] /= batch_size;
