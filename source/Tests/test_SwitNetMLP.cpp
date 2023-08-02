@@ -491,7 +491,7 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
     m_grads_matrices.allocate(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width, m_q);
 
 
-    const int batch_size = std::pow(2, 17);
+    const int batch_size = std::pow(2, 10);
     const int layer_length = WIDTH * batch_size;
     m_alignment = 4096;
 
@@ -789,7 +789,7 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input,
 
 void test1() {
 
-    const int batch_size = std::pow(2, 17);
+    const int batch_size = std::pow(2, 10);
     const int output_width = 128;
     const int WIDTH = 64;
     const int intermediate_output_size = batch_size * WIDTH * 2;
