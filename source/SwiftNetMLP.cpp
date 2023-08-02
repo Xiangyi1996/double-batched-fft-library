@@ -749,7 +749,7 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input,
                 }).wait();
 
                 /// Backpropagation through last layer
-                /*dgemm_last_layer_backward(grads,
+                dgemm_last_layer_backward(grads,
                     forward,
                     loss,
                     batch_size,
@@ -768,7 +768,7 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input,
                 case Activation::Tanh:        mlp_swiftnet_backward<WIDTH, Activation::Tanh>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, delta_temp, forward, A_dgemm, B_dgemm, C_dgemm, batch_size, m_n_hidden_matrices); break;
 
                 default: throw std::runtime_error{"Unsupported activation."};
-                }*/
+                }
 
                 m_q.parallel_for<>(range<1>(s), [=](id<1> idx) {
                     p[idx] /= batch_size;
