@@ -27,7 +27,7 @@ void sgd_step(id<1> idx,
 
 	const int packed_idx = matrices_number * WIDTH * WIDTH + packed_idx_matrices;
 	const bf16 weight = weights[packed_idx];
-	float gradient = gradients[idx] / loss_scale;
+	float gradient = gradients[idx];
 
 	gradient += l2_reg * weight;
 
@@ -57,10 +57,10 @@ void sgd_stepT(id<1> idx,
 	int packed_idx_matrices = 0;
 
 	if (matrices_number < n_hidden_layers) {
-		int packed_idx_matrices = toPackedLayoutCoord(matrices_offset, WIDTH, WIDTH);
+		int packed_idx_matrices = fromPackedLayoutCoord(matrices_offset, WIDTH, WIDTH);
 	}
 	else {
-		int packed_idx_matrices = toPackedLayoutCoord(matrices_offset, output_width, WIDTH);
+		int packed_idx_matrices = fromPackedLayoutCoord(matrices_offset, output_width, WIDTH);
 	}
 
 	const int packed_idx = matrices_number * WIDTH * WIDTH + packed_idx_matrices;
