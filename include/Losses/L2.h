@@ -23,7 +23,7 @@ void L2_loss(id<1> idx,
 
 	values[idx] = difference * difference ;
 
-	grads[idx] = bf16(scale * 2 * (preds[idx] - targets[target_idx]) / stride );
+	grads[idx] = bf16(((bf16)preds[idx] - (bf16)targets[target_idx])  );
 }
 
 class L2Loss : public Loss {
