@@ -160,7 +160,7 @@ public:
             for (int j = 0; j < output_width; j++) {
                 rnd = (T)distrib(gen);
                 data[input_width * width + n_hidden * width * width + toPackedLayoutCoord(i * output_width + j, width, output_width)] = rnd;
-                dataT[input_width * width + n_hidden * width * width + toPackedLayoutCoord(j * output_width + i, output_width, width)] = rnd;
+                dataT[input_width * width + n_hidden * width * width + toPackedLayoutCoord(j * width + i, output_width, width)] = rnd;
             }
         }
         buffer<T, 1> buf(data.data(), data.size());
