@@ -11,10 +11,10 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 
 #define TM 8
 #define TK 16
-#define TN 16
+#define TN 8
 
-#define SG_SIZE 16
-#define WG_SIZE 4*SG_SIZE
+#define SG_SIZE 8
+#define WG_SIZE 8*SG_SIZE
 #define BATCH_CHUNK 64
 
 template <int WIDTH, int N_ITERS, bool BACKWARD = false>
@@ -342,7 +342,7 @@ void mlp_swift_forward(queue q,
                         layout::col_major);
 
                 });
-        }).wait();
+        });
 }
 
 template <int WIDTH, int N_ITERS, Activation ACTIVATION>
@@ -518,6 +518,23 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
 
 }
 
+template<int WIDTH>
+SwiftNetMLP<WIDTH>::~SwiftNetMLP() {
+    m_weights_matrices_inferences.free_mem(m_q);
+}
+template<int WIDTH>
+DeviceMem<bf16>* SwiftNetMLP<WIDTH>::grads_matrices() {
+    return &m_grads_matrices;
+}
+template<int WIDTH>
+DeviceMem<bf16>* SwiftNetMLP<WIDTH>::weights_matrices() {
+    return &m_weights_matrices;
+}
+template<int WIDTH>
+DeviceMem<bf16>* SwiftNetMLP<WIDTH>::weightsT_matrices() {
+    return &m_weightsT_matrices;
+}
+
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::initialize_params() {
     //m_weights_matrices.initialize_constant(1e-4f, m_q);
@@ -557,7 +574,7 @@ void SwiftNetMLP<WIDTH>::load_from_file(std::string filename) {
         m_weights_matrices.data()[i] = bf16(x);
     }
     file.close();
-    m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices);
+    m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices, m_q);
     return;
 }
 
@@ -613,7 +630,7 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, float* forwa
     case Activation::Squareplus:  mlp_swift_forward<WIDTH, Activation::Squareplus>(m_q, m_output_activation, m_weights_matrices, input, forward + input.size(), act_mem, act_mem_temp, output, output_stride, m_n_hidden_layers, batch_size, m_inputs_width, m_output_width); break;
     case Activation::Softplus:    mlp_swift_forward<WIDTH, Activation::Softplus>(m_q, m_output_activation, m_weights_matrices, input, forward + input.size(), act_mem, act_mem_temp, output, output_stride, m_n_hidden_layers, batch_size, m_inputs_width, m_output_width); break;
     case Activation::Tanh:        mlp_swift_forward<WIDTH, Activation::Tanh>(m_q, m_output_activation, m_weights_matrices, input, forward + input.size(), act_mem, act_mem_temp, output, output_stride, m_n_hidden_layers, batch_size, m_inputs_width, m_output_width); break;
-    default: throw std::runtime_error{"Unsupported activation."};
+    default: return;
     }
 
     if (m_output_width > 16) {
@@ -767,10 +784,13 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input,
                 case Activation::Sigmoid:     mlp_swiftnet_backward<WIDTH, Activation::Sigmoid>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, delta_temp, forward, A_dgemm, B_dgemm, C_dgemm, batch_size, m_n_hidden_matrices); break;
                 case Activation::Tanh:        mlp_swiftnet_backward<WIDTH, Activation::Tanh>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, delta_temp, forward, A_dgemm, B_dgemm, C_dgemm, batch_size, m_n_hidden_matrices); break;
 
-                default: throw std::runtime_error{"Unsupported activation."};
+                default: return;
                 }
 
                 m_q.parallel_for<>(range<1>(s), [=](id<1> idx) {
                     p[idx] /= batch_size;
                     }).wait();
 }
+
+template class SwiftNetMLP<64>;
+template class SwiftNetMLP<128>;
