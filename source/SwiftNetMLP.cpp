@@ -1,3 +1,10 @@
+#define TM 8
+#define TK 16
+#define TN 8
+
+#define SG_SIZE 8
+#define WG_SIZE 8*SG_SIZE
+#define BATCH_CHUNK 64
 #include "SwiftNetMLP.h"
 #include "trainer.h"
 #include "mkl.h"
@@ -9,13 +16,7 @@ using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;
 using bf16 = sycl::ext::oneapi::bfloat16;
 
-#define TM 8
-#define TK 16
-#define TN 8
 
-#define SG_SIZE 8
-#define WG_SIZE 8*SG_SIZE
-#define BATCH_CHUNK 64
 
 template <int WIDTH, int N_ITERS, bool BACKWARD = false>
 void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, float* act_mem_temp, bf16* weights_layer, float* out_inter, bf16* out, float* forward_act = nullptr) {
