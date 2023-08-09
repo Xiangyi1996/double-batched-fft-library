@@ -1,4 +1,5 @@
-#pragma once
+#ifndef SWIFTNET_H
+#define SWIFTNET_H
 
 #include <iostream>
 #include <vector>
@@ -6,7 +7,7 @@
 #include "activation.h"
 #include "Network.h"
 #include "DeviceMem.h"
-#include "L2.h"
+
 #include "sgd.h"
 #include "trainer.h"
 #include "mkl.h"
@@ -22,14 +23,14 @@ template <int WIDTH>
 class SwiftNetMLP : public Network {
 public:
     SwiftNetMLP(queue q, int input_width, int output_width, int n_hidden_layers, Activation activation, Activation output_activation);
-
+    ~SwiftNetMLP();
     void forward_pass(const DeviceMem<bf16>& input, float* forward, bf16* act_mem, float* act_mem_temp, float* A, float* B, float* C, DeviceMem<float>& output) override;
 
     void backward_pass(
         const DeviceMem<bf16>& input,
         DeviceMem<bf16>& grads,
         float* out_inter,
-        float* delta_temp, 
+        float* delta_temp,
         DeviceMem<bf16> loss,
         float* A,
         float* B,
@@ -62,22 +63,14 @@ public:
     void initialize_params()  override;
     void free_mem(queue q) override;
 
-    ~SwiftNetMLP() {
-        m_weights_matrices_inferences.free_mem(m_q);
-    }
 
 
-    DeviceMem<bf16>* grads_matrices() {
-        return &m_grads_matrices;
-    }
 
-    DeviceMem<bf16>* weights_matrices() {
-        return &m_weights_matrices;
-    } 
+    DeviceMem<bf16>* grads_matrices();
 
-    DeviceMem<bf16>* weightsT_matrices() {
-        return &m_weightsT_matrices;
-    }
+    DeviceMem<bf16>* weights_matrices();
+
+    DeviceMem<bf16>* weightsT_matrices();
 
 
 private:
@@ -97,3 +90,4 @@ private:
     int m_total_n_params;
 };
 
+#endif
