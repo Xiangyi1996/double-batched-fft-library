@@ -1,4 +1,6 @@
 #include "common.h"
+
+// Convert index from packed layout to original matrix layout
 int toPackedLayoutCoord(int idx, int rows, int cols) {
     int i = idx / cols;
     int j = idx % cols;
@@ -9,7 +11,8 @@ int toPackedLayoutCoord(int idx, int rows, int cols) {
         return (i - 1) * cols + 2 * j + 1;
     }
 }
-// Row et cols correspondent au nombre de rows et cols de la matrice d'origine pas celle en packec layout ( qui est donc cols*2 rows/2)
+
+// Convert index from original matrix layout to packed layout
 int fromPackedLayoutCoord(int idx, int rows, int cols) {
     int i = idx / (cols * 2);
     int j = idx % (cols * 2);
@@ -21,10 +24,15 @@ int fromPackedLayoutCoord(int idx, int rows, int cols) {
     }
 }
 
+// Compare two strings case-insensitively
 bool isequalstring(const std::string& str1, const std::string& str2) {
-    if (str1.length() != str2.length()) { return false; }
+    if (str1.length() != str2.length()) {
+        return false;
+    }
     for (int i = 0; i < str1.length(); i++) {
-        if (std::tolower(str1[i]) != std::tolower(str2[i])) { return false; }
+        if (std::tolower(str1[i]) != std::tolower(str2[i])) {
+            return false;
+        }
     }
     return true;
 }
