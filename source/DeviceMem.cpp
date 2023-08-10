@@ -113,8 +113,6 @@ void DeviceMem<T>::initialize_normal(double dev, DeviceMem<T>& transposed, int i
             transposed.data()[idx] = accT[idx];
             });
         });
-    //q.memcpy(m_data, data.data(), m_size * sizeof(T));
-    //q.memcpy(transposed.data(), dataT.data(), m_size * sizeof(T));
 }
 template<typename T>
 void DeviceMem<T>::initialize_normal(double dev, queue q) {
@@ -172,8 +170,6 @@ void DeviceMem<T>::initialize_uniform(double scale, DeviceMem<T>& transposed, in
             transposed.data()[idx] = accT[idx];
             });
         });
-    //q.memcpy(m_data, data.data(), m_size * sizeof(T));
-    //q.memcpy(transposed.data(), dataT.data(), m_size * sizeof(T));
 }
 template<typename T>
 void DeviceMem<T>::make_transposed(DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden, queue q) {
