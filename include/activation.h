@@ -59,7 +59,7 @@ void elt_activation(Activation activation, T& elt, resT& res){
 		break;
 	}
 }
-
+// Apply an element-wise activation function to a value and return the result
 template<typename T>
 T elt_activation_ret(Activation activation, T& elt) {
 	float q = ((float)elt / (2 * PI));
@@ -100,6 +100,7 @@ T elt_activation_ret(Activation activation, T& elt) {
 	}
 }
 
+// Calculate the backward pass for an element-wise activation function
 template<typename outT, typename fwdT>
 void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd) {
 	switch (activation) {
@@ -147,6 +148,7 @@ void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd) {
 	}
 }
 
+// Calculate the backward pass for an element-wise activation function and store the result
 template<typename outT, typename fwdT, typename resT>
 void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd, resT& res) {
 	switch (activation) {
@@ -197,6 +199,7 @@ void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd, resT& res) {
 		}
 }
 
+// Apply an activation function to a matrix (batch of 8 values) on the device
 template<typename T, typename resT, int SG_SZ>
 void matrix_activation( Activation activation, device_ptr<T> out, resT* res, int stride) {
 
@@ -207,6 +210,7 @@ void matrix_activation( Activation activation, device_ptr<T> out, resT* res, int
 	return;
 }
 
+// Calculate the backward pass for a matrix (batch of 8 values) on the device
 template<typename outT, typename fwdT, typename resT, int SG_SZ>
 void matrix_activation_backward( Activation activation, device_ptr<outT> out, device_ptr<fwdT> fwd, resT* res, int stride) {
 
