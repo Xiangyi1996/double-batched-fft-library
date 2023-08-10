@@ -11,6 +11,9 @@ public:
     // Perform forward pass through the network
     virtual void forward_pass(const DeviceMem<bf16>& input, float* forward, bf16* act_mem, float* act_mem_temp, float* A, float* B, float* C, DeviceMem<float>& output) = 0;
 
+    // Perform inference through the network
+    virtual void inference(const DeviceMem<bf16>& input, bf16* act_mem, float* act_mem_temp, float* A, float* B, float* C, DeviceMem<float>& output) = 0;
+
     // Perform backward pass through the network
     virtual void backward_pass(
         const DeviceMem<bf16>& input,
