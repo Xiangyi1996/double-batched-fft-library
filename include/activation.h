@@ -19,7 +19,7 @@ enum class Activation {
 static constexpr float PI = 3.14159265358979323846f;
 
 template<typename T, typename resT>
-void elt_activation(Activation activation, T& elt, resT& res){
+void elt_activation(Activation activation, T& elt, resT& res) {
 	float q = ((float)elt / (2 * PI));
 	switch (activation) {
 	case Activation::ReLU:
@@ -59,7 +59,7 @@ void elt_activation(Activation activation, T& elt, resT& res){
 		break;
 	}
 }
-// Apply an element-wise activation function to a value and return the result
+
 template<typename T>
 T elt_activation_ret(Activation activation, T& elt) {
 	float q = ((float)elt / (2 * PI));
@@ -100,7 +100,6 @@ T elt_activation_ret(Activation activation, T& elt) {
 	}
 }
 
-// Calculate the backward pass for an element-wise activation function
 template<typename outT, typename fwdT>
 void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd) {
 	switch (activation) {
@@ -148,7 +147,6 @@ void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd) {
 	}
 }
 
-// Calculate the backward pass for an element-wise activation function and store the result
 template<typename outT, typename fwdT, typename resT>
 void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd, resT& res) {
 	switch (activation) {
@@ -160,8 +158,8 @@ void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd, resT& res) {
 		else {
 			res = (resT)elt;
 		}
-			return;
-			break;
+		return;
+		break;
 
 	case Activation::LeakyReLU:
 		if (fwd >= 0) {
@@ -196,27 +194,62 @@ void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd, resT& res) {
 	default:
 		return;
 		break;
-		}
+	}
 }
 
-// Apply an activation function to a matrix (batch of 8 values) on the device
 template<typename T, typename resT, int SG_SZ>
-void matrix_activation( Activation activation, device_ptr<T> out, resT* res, int stride) {
+void matrix_activation(Activation activation, multi_ptr<T, access::address_space::local_space, (access::decorated)2>  elt,  multi_ptr<resT, access::address_space::local_space, (access::decorated)2> res, int offset,  int stride) {
 
 
 	for (int i = 0; i < 8; i++) {
-		elt_activation<T, resT>(activation, out[i * stride], res[i * stride]);
+		float q = ((float)elt[offset + i * stride] / (2 * PI));
+		switch (activation) {
+		case Activation::ReLU:
+			if (elt[offset + i * stride] < (T)0.0f) {
+				res[offset + i * stride] = (resT)0.0f;
+			}
+			else {
+				res[offset + i * stride] = (resT)elt[offset + i * stride];
+			}
+			break;
+		case Activation::LeakyReLU:
+			if (elt[offset + i * stride] >= 0) {
+				res[offset + i * stride] = (resT)elt[offset + i * stride];
+			}
+			else {
+				res[offset + i * stride] = (resT)0.01f * (resT)elt[offset + i * stride];
+			}
+			break;
+		case Activation::Exponential:
+			res[offset + i * stride] = (resT)exp((float)elt[offset + i * stride]);
+
+			break;
+		case Activation::Sine:
+			res[offset + i * stride] = (resT)((elt[offset + i * stride])-floor(q) * 2 * PI);
+			res[offset + i * stride] = (resT)sinf((float)elt[offset + i * stride]);
+			break;
+		case Activation::Sigmoid:
+			res[offset + i * stride] = (resT)(1.0f / (1.0f + expf((float)-elt[offset + i * stride])));
+			break;
+		case Activation::None:
+			res[offset + i * stride] = (resT)elt[offset + i * stride];
+			break;
+		case Activation::Tanh:
+			res[offset + i * stride] = (resT)(tanhf((float)elt[offset + i * stride]));
+			break;
+		default:
+			break;
+		}
 	}
 	return;
 }
 
-// Calculate the backward pass for a matrix (batch of 8 values) on the device
 template<typename outT, typename fwdT, typename resT, int SG_SZ>
-void matrix_activation_backward( Activation activation, device_ptr<outT> out, device_ptr<fwdT> fwd, resT* res, int stride) {
+void matrix_activation_backward(Activation activation, multi_ptr<outT, access::address_space::local_space, (access::decorated)2> out, device_ptr<fwdT> fwd, multi_ptr<resT, access::address_space::local_space, (access::decorated)2> res,int offset,  int stride) {
 
 	for (int i = 0; i < 8; i++) {
 
-		elt_activation_bwd<outT, fwdT, resT>(activation, out[i * stride], fwd[i * stride ], res[i * stride]);
+		elt_activation_bwd<outT, fwdT, resT>(activation, out[offset + i * stride], fwd[offset + i * stride], res[offset + i * stride]);
 
 	}
 }
