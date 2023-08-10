@@ -3,8 +3,8 @@
 #include "SwiftNetMLP.h"
 #include "L2.h"
 #include "DeviceMem.h"
-//#include "optimizer.h"
-//#include "Network.h"
+#include "optimizer.h"
+#include "Network.h"
 
 class Trainer {
 public:
