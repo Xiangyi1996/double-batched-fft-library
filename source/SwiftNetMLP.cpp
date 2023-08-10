@@ -449,6 +449,22 @@ void mlp_swift_forward(queue q,
 }
 
 
+/**
+ * Kernel function for backpropagation pass in the SwiftNet model.
+ *
+ * @param item             The SYCL nd_item representing the work item.
+ * @param loss_gradients   Pointer to loss gradients for backpropagation.
+ * @param loss_gradients_temp Pointer to temporary loss gradients memory.
+ * @param grads            Pointer to gradients for weight updates.
+ * @param weights          Pointer to weights of the model.
+ * @param forward          Pointer to forward pass intermediate outputs.
+ * @param out_inter        Pointer to intermediate output memory.
+ * @param batch_number     Batch number for current computation.
+ * @param n_hidden_matmuls Number of hidden matrix multiplications.
+ * @tparam WIDTH           Width of the layers.
+ * @tparam N_ITERS         Number of iterations.
+ * @tparam ACTIVATION      Type of activation for hidden layers.
+ */
 template <int WIDTH, int N_ITERS, Activation ACTIVATION>
 void kernel_swiftnet_backward(
     nd_item<1> item,
@@ -460,7 +476,6 @@ void kernel_swiftnet_backward(
     float* out_inter,
     int batch_number,
     uint32_t n_hidden_matmuls
-
 ) {
     auto sg = item.get_sub_group();
 
@@ -469,6 +484,7 @@ void kernel_swiftnet_backward(
     int idx = 8 * groupId * N_ITERS;
     const int layer_length = WIDTH * WIDTH * batch_number;
 
+    // Iterate through hidden layers for backpropagation
     for (int k = 0; k < n_hidden_matmuls; k++) {
         work_group_layer<WIDTH, N_ITERS, true>(
             item,
@@ -484,40 +500,78 @@ void kernel_swiftnet_backward(
     }
 }
 
+
+/**
+ * Multiplies matrices using DGEMM for gradient calculation in the SwiftNet model.
+ *
+ * @param q                 SYCL queue for command submission.
+ * @param grads_device      Pointer to device memory for gradients.
+ * @param loss_gradients    Pointer to loss gradients for backpropagation.
+ * @param fwd               Pointer to forward pass intermediate outputs.
+ * @param A                 Pointer to matrix A (calculated activations).
+ * @param B                 Pointer to matrix B (loss gradients).
+ * @param C                 Pointer to matrix C (result of DGEMM).
+ * @param k                 Index of the hidden matrix multiplication.
+ * @param batch_size        Batch size of the data.
+ * @param m_n_hidden_matrices Number of hidden matrix multiplications.
+ * @tparam WIDTH            Width of the matrices.
+ * @tparam ACTIVATION       Type of activation for hidden layers.
+ */
 template <int WIDTH, Activation ACTIVATION>
 void dgemm_multiply(queue q,
-    bf16* grads_device,
-    float* loss_gradients,
-    float* fwd,
-    float* A,
-    float* B,
-    float* C,
-    int k,
-    int batch_size,
-    int m_n_hidden_matrices) {
+                    bf16* grads_device,
+                    float* loss_gradients,
+                    float* fwd,
+                    float* A,
+                    float* B,
+                    float* C,
+                    int k,
+                    int batch_size,
+                    int m_n_hidden_matrices) {
     const int layer_length = WIDTH * batch_size;
     const int n_hidden_matrices = m_n_hidden_matrices;
-    int i = 0;
-    int j = 0;
 
+    // Calculate matrix A using the given activation function
     q.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
         int i = idx / batch_size;
         int j = idx % batch_size;
         A[i * batch_size + j] = (float)elt_activation_ret<float>(ACTIVATION, fwd[i + j * WIDTH + (n_hidden_matrices - k - 1) * layer_length]);
-        });
+    });
 
+    // Assign matrix B using loss gradients
     q.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
         B[idx] = (float)loss_gradients[idx + (n_hidden_matrices - k - 1) * layer_length];
-        });
+    });
 
+    // Perform DGEMM operation
     oneapi::mkl::blas::row_major::gemm(q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
-        WIDTH, WIDTH, batch_size, 1, A, batch_size, B, WIDTH, 0, C, WIDTH);
+                                       WIDTH, WIDTH, batch_size, 1, A, batch_size, B, WIDTH, 0, C, WIDTH);
 
+    // Update gradients_device with the computed values
     q.parallel_for<>(range<1>(WIDTH * WIDTH), [=](id<1> idx) {
         grads_device[(m_n_hidden_matrices - k - 1) * WIDTH * WIDTH + idx] += C[idx];
-        }).wait();
+    }).wait();
 }
 
+
+/**
+ * Backward pass for gradient calculation in the SwiftNet model.
+ *
+ * @param q                 SYCL queue for command submission.
+ * @param weights_transposed Pointer to transposed and packed weights.
+ * @param deltas            Pointer to delta values.
+ * @param grads_matrices    Pointer to matrices for gradients.
+ * @param out_inter         Pointer to intermediate outputs.
+ * @param delta_temp        Pointer to temporary delta memory.
+ * @param forward           Pointer to forward pass intermediate outputs.
+ * @param A_dgemm           Pointer to matrix A for DGEMM.
+ * @param B_dgemm           Pointer to matrix B for DGEMM.
+ * @param C_dgemm           Pointer to matrix C for DGEMM.
+ * @param batch_size        Batch size of the data.
+ * @param n_hidden_matmuls Number of hidden matrix multiplications.
+ * @tparam WIDTH            Width of the matrices.
+ * @tparam ACTIVATION       Type of activation for hidden layers.
+ */
 template<int WIDTH, Activation ACTIVATION>
 void mlp_swiftnet_backward(
     queue q,
@@ -533,32 +587,31 @@ void mlp_swiftnet_backward(
     int batch_size,
     const uint32_t n_hidden_matmuls
 ) {
-    // here, weights are already transposed and packed
-    // in deltas, the last layer has already been calculated
-
     const int layer_lenght = WIDTH * batch_size;
     const int N_ITERS = BATCH_CHUNK / TM;
     int batch_number = batch_size / BATCH_CHUNK;
-    try {
-        q.submit([&](handler& h) {
 
+    try {
+        // Execute the kernel for backward pass
+        q.submit([&](handler& h) {
             h.parallel_for(nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE), [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
                 kernel_swiftnet_backward<WIDTH, N_ITERS, ACTIVATION>(item, deltas.data(), delta_temp, grads_matrices.data(), weights_transposed.data(), forward, out_inter, batch_number, n_hidden_matmuls);
-                });
-            }).wait();
+            });
+        }).wait();
 
-            for (int k = 0; k < n_hidden_matmuls; k++) {
-                dgemm_multiply<WIDTH, ACTIVATION>(q, grads_matrices.data(), out_inter, forward, A_dgemm, B_dgemm, C_dgemm, k, batch_size, n_hidden_matmuls);
-            }
-            q.wait();
+        // Execute DGEMM multiply for each hidden layer
+        for (int k = 0; k < n_hidden_matmuls; k++) {
+            dgemm_multiply<WIDTH, ACTIVATION>(q, grads_matrices.data(), out_inter, forward, A_dgemm, B_dgemm, C_dgemm, k, batch_size, n_hidden_matmuls);
+        }
+        q.wait();
     }
-
     catch (std::exception const& e)
     {
         std::cout << "An exception was caught when performing AMX/XMX matrix multiply.\n";
         std::terminate();
     }
 }
+
 
 
 template <int WIDTH>
