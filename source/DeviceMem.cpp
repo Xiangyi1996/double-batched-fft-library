@@ -1,10 +1,14 @@
 #include "DeviceMem.h"
 
-
+// Using namespace and alias for bfloat16
 using namespace sycl;
 using bf16 = sycl::ext::oneapi::bfloat16;
+
+// Constructor for DeviceMem class (default)
 template<typename T>
 DeviceMem<T>::DeviceMem() {}
+
+// Constructor for DeviceMem class with size and queue
 template<typename T>
 DeviceMem<T>::DeviceMem(int size, queue q) {
     if (m_size != 0 || size <= 0) {
@@ -13,6 +17,8 @@ DeviceMem<T>::DeviceMem(int size, queue q) {
     m_size = size;
     m_data = (T*)malloc_device(size, q);
 }
+
+// Allocate memory for DeviceMem class with size and queue
 template<typename T>
 void DeviceMem<T>::allocate(int size, queue q) {
     if (m_size != 0 || size <= 0) {
@@ -21,46 +27,50 @@ void DeviceMem<T>::allocate(int size, queue q) {
     m_size = size;
     m_data = (T*)malloc_device(size, q);
 }
-//template<typename T>
-//void DeviceMem<T>::allocate(int size) {
-//        if (m_size != 0 || size <= 0) {
-//            return;
-//        }
-//        m_size = size;
-//        m_data = (T*) malloc_device(size);
-//    }
+
+// Free memory for DeviceMem class with queue
 template<typename T>
 void DeviceMem<T>::free_mem(queue q) {
     m_size = 0;
     free(m_data, q);
 }
+
+// Free memory for DeviceMem class
 template<typename T>
 void DeviceMem<T>::free_mem() {
     m_size = 0;
     free(m_data);
 }
+
+// Copy data from host to DeviceMem object with specified number of elements and queue
 template<typename T>
 void DeviceMem<T>::copy_from_host(std::vector<T>& data, int n, queue q) {
     q.memcpy(m_data, data.data(), n * sizeof(T));
 }
+
+// Copy data from DeviceMem object to host with specified number of elements and queue
 template<typename T>
 void DeviceMem<T>::copy_to_host(std::vector<T>& data, int n, queue q) {
     q.memcpy(data.data(), m_data, n * sizeof(T));
 }
+
+// Copy data from host to DeviceMem object using the object's size and queue
 template<typename T>
 void DeviceMem<T>::copy_from_host(std::vector<T>& data, queue q) {
     copy_from_host(data, m_size, q);
 }
+
+// Copy data from DeviceMem object to host using the object's size and queue
 template<typename T>
 void DeviceMem<T>::copy_to_host(std::vector<T>& data, queue q) {
     copy_to_host(data, m_size, q);
 }
 
+// Set data at a specific index in the DeviceMem object
 template<typename T>
 void DeviceMem<T>::set_data(int id, T value) {
     m_data[id] = value;
 }
-
 
 template<typename T>
 void DeviceMem<T>::initialize_normal(double dev, DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden, queue q) {
