@@ -30,35 +30,31 @@ void L2_loss(
     grads[idx] = bf16(((bf16)preds[idx] - (bf16)targets[target_idx]));
 }
 
-// Class for evaluating L2 loss
-class L2Loss {
-public:
-    // Evaluate L2 loss using OpenCL queue
-    void evaluate(
-        queue q,
-        const int dims,
-        const int stride,
-        const float scale,
-        DeviceMem<float>& preds,
-        DeviceMem<float>& targets,
-        DeviceMem<bf16>& grads,
-        DeviceMem<float>& values
-    ) {
-        // Get the total number of elements
-        int n_elements = preds.size();
+// Evaluate L2 loss using OpenCL queue
+void L2Loss::evaluate(
+    queue q,
+    const int dims,
+    const int stride,
+    const float scale,
+    DeviceMem<float>& preds,
+    DeviceMem<float>& targets,
+    DeviceMem<bf16>& grads,
+    DeviceMem<float>& values
+) {
+    // Get the total number of elements
+    int n_elements = preds.size();
 
-        // Parallel computation using OpenCL
-        q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
-            L2_loss(idx,
-                n_elements,
-                dims,
-                stride,
-                scale,
-                preds.data(),
-                targets.data(),
-                grads.data(),
-                values.data()
-            );
-        }).wait();
-    }
-};
+    // Parallel computation using OpenCL
+    q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
+        L2_loss(idx,
+            n_elements,
+            dims,
+            stride,
+            scale,
+            preds.data(),
+            targets.data(),
+            grads.data(),
+            values.data()
+        );
+    }).wait();
+}
