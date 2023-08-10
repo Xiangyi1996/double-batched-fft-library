@@ -26,6 +26,8 @@ public:
     ~SwiftNetMLP();
     void forward_pass(const DeviceMem<bf16>& input, float* forward, bf16* act_mem, float* act_mem_temp, float* A, float* B, float* C, DeviceMem<float>& output) override;
 
+    void inference(const DeviceMem<bf16>& input, bf16* act_mem, float* act_mem_temp, float* A, float* B, float* C, DeviceMem<float>& output) override;
+
     void backward_pass(
         const DeviceMem<bf16>& input,
         DeviceMem<bf16>& grads,
