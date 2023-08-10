@@ -1,6 +1,23 @@
 #include "sgd.h"
 
-// Perform a single step of SGD optimization for weight matrices
+/**
+ * Perform a single step of Stochastic Gradient Descent (SGD) optimization for updating weights.
+ *
+ * This function updates the weights of a neural network using the SGD optimization
+ * algorithm. It computes the new weight values based on the provided gradients,
+ * learning rate, L2 regularization factor, and loss scale.
+ *
+ * @param idx            The global index of the weight element to update.
+ * @param n_elements     The total number of weight elements.
+ * @param output_width   The width of the output layer.
+ * @param n_hidden_layers The number of hidden layers in the network.
+ * @param loss_scale     The scale factor for loss.
+ * @param learning_rate  The learning rate for the optimization step.
+ * @param l2_reg         The L2 regularization factor.
+ * @param weights        Pointer to the array of weights.
+ * @param gradients      Pointer to the array of gradients.
+ * @param WIDTH          The width of weight matrices.
+ */
 void sgd_step(id<1> idx,
     const int n_elements,
     int output_width,
@@ -17,7 +34,7 @@ void sgd_step(id<1> idx,
     int matrices_offset = idx % (WIDTH * WIDTH);
     int packed_idx_matrices = 0;
 
-    // Determine if the matrix belongs to hidden layers or output layer
+    // Determine if the matrix belongs to hidden layers or the output layer
     if (matrices_number < n_hidden_layers) {
         packed_idx_matrices = toPackedLayoutCoord(matrices_offset, WIDTH, WIDTH);
     }
@@ -33,14 +50,33 @@ void sgd_step(id<1> idx,
     // Apply L2 regularization
     gradient += l2_reg * weight;
 
-    // Calculate the new weight using SGD update rule
+    // Calculate the new weight using the SGD update rule
     const bf16 new_weight = weight - learning_rate * gradient;
 
     // Update the weight
     weights[packed_idx] = new_weight;
 }
 
+
 // Perform a single step of SGD optimization for transposed weight matrices
+/**
+ * Perform a single step of Stochastic Gradient Descent (SGD) optimization for updating transposed weights.
+ *
+ * This function updates the transposed weights of a neural network using the SGD optimization
+ * algorithm. It computes the new transposed weight values based on the provided gradients,
+ * learning rate, L2 regularization factor, and loss scale.
+ *
+ * @param idx             The global index of the transposed weight element to update.
+ * @param n_elements      The total number of transposed weight elements.
+ * @param output_width    The width of the output layer.
+ * @param n_hidden_layers The number of hidden layers in the network.
+ * @param loss_scale      The scale factor for loss.
+ * @param learning_rate   The learning rate for the optimization step.
+ * @param l2_reg          The L2 regularization factor.
+ * @param weightsT        Pointer to the array of transposed weights.
+ * @param gradients       Pointer to the array of gradients.
+ * @param WIDTH           The width of weight matrices.
+ */
 void sgd_stepT(id<1> idx,
     const int n_elements,
     int output_width,
@@ -64,7 +100,7 @@ void sgd_stepT(id<1> idx,
     const int matrices_offset = T_idx % (WIDTH * WIDTH);
     int packed_idx_matrices = 0;
 
-    // Determine if the matrix belongs to hidden layers or output layer
+    // Determine if the matrix belongs to hidden layers or the output layer
     if (matrices_number < n_hidden_layers) {
         packed_idx_matrices = fromPackedLayoutCoord(matrices_offset, WIDTH, WIDTH);
     }
@@ -80,12 +116,13 @@ void sgd_stepT(id<1> idx,
     // Apply L2 regularization
     gradient += l2_reg * weightT;
 
-    // Calculate the new transposed weight using SGD update rule
+    // Calculate the new transposed weight using the SGD update rule
     const bf16 new_weightT = weightT - learning_rate * gradient;
 
     // Update the transposed weight
     weightsT[packed_idx] = new_weightT;
 }
+
 
 // Constructor for SGDOptimizer class
 SGDOptimizer::SGDOptimizer(int output_rows, int n_hidden_layers, float learning_rate, float l2_reg) {
