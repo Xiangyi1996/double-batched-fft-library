@@ -18,14 +18,30 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 
 
 
+/**
+ * Executes a work group layer operation.
+ *
+ * @param item          The SYCL nd_item representing the work item.
+ * @param activation    The type of activation to be applied.
+ * @param act_mem       Pointer to activation memory.
+ * @param act_mem_temp  Pointer to temporary activation memory.
+ * @param weights_layer Pointer to weights for the layer.
+ * @param out_inter     Pointer to output intermediate memory.
+ * @param out           Pointer to final output memory.
+ * @param forward_act   Optional pointer to forward activation memory.
+ * @tparam WIDTH        Width of the layer.
+ * @tparam N_ITERS      Number of iterations.
+ * @tparam BACKWARD     Flag indicating if backward activation is applied.
+ */
 template <int WIDTH, int N_ITERS, bool BACKWARD = false>
 void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, float* act_mem_temp, bf16* weights_layer, float* out_inter, bf16* out, float* forward_act = nullptr) {
-
+    // Get sub-group and local IDs
     auto sg = item.get_sub_group();
     int id = item.get_local_id() % SG_SIZE;
     int sgId = sg.get_group_id();
     const int N_BLOCKS = WIDTH / TK;
 
+    // Device pointers to memory
     device_ptr<bf16> w(weights_layer);
     device_ptr<bf16> a(act_mem);
     device_ptr<float> at(act_mem_temp);
@@ -34,6 +50,7 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, flo
 
     item.barrier();
 
+    // Define matrices and load weights
     joint_matrix<sub_group, bf16, use::a, TM, TK, layout::row_major> act_matrix;
     joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix0;
     joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix1;
@@ -46,10 +63,10 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, flo
     joint_matrix_load(sg, weight_matrix2, w + TN * 2 * sgId + TK / 2 * 2 * WIDTH * 2, WIDTH * 2);
     joint_matrix_load(sg, weight_matrix3, w + TN * 2 * sgId + TK / 2 * 3 * WIDTH * 2, WIDTH * 2);
 
-
     for (int l = 0; l < N_ITERS; l++) {
         joint_matrix_fill(sg, result_matrix, 0.0f);
 
+        // Load activation matrix and perform matrix multiplication and accumulation
         joint_matrix_load(sg, act_matrix, a + TK * 0 + TM * l * WIDTH, WIDTH);
         result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix0, result_matrix);
         joint_matrix_load(sg, act_matrix, a + TK * 1 + TM * l * WIDTH, WIDTH);
@@ -59,76 +76,117 @@ void work_group_layer(nd_item<1> item, Activation activation, bf16* act_mem, flo
         joint_matrix_load(sg, act_matrix, a + TK * 3 + TM * l * WIDTH, WIDTH);
         result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix3, result_matrix);
 
+        // Store the result matrix
         joint_matrix_store(sg, result_matrix, at + TN * sgId + TM * l * WIDTH, WIDTH, layout::row_major);
-
     }
 
     item.barrier();
 
     for (int i = 0; i < N_ITERS; i++) {
         if (BACKWARD) {
+            // Apply backward activation matrix if required
             matrix_activation_backward<float, float, bf16, SG_SIZE>(activation, at + TN * sgId + TM * i * WIDTH, f + TN * sgId + i * TM * WIDTH + id, act_mem + TN * sgId + TM * i * WIDTH + id, WIDTH);
         }
         else {
-
+            // Apply forward activation matrix
             matrix_activation<float, bf16, SG_SIZE>(activation, at + TN * sgId + TM * i * WIDTH + id, act_mem + TN * sgId + TM * i * WIDTH + id, WIDTH);
         }
-
     }
 
     for (int i = 0; i < N_ITERS; i++) {
         for (int k = 0; k < TM; k++) {
+            // Copy results to the output intermediate matrix
             out_inter[TN * sgId + TM * i * WIDTH + k * WIDTH + id] = act_mem_temp[TN * sgId + TM * i * WIDTH + k * WIDTH + id];
         }
     }
 }
 
+
+/**
+ * Loads input data into the activation memory using a static pattern for work groups.
+ *
+ * @param item      The SYCL nd_item representing the work item.
+ * @param act_mem   Pointer to the activation memory.
+ * @param input     Pointer to the input data.
+ * @tparam WIDTH    Width of the data.
+ * @tparam N_ITERS  Number of iterations.
+ */
 template <int WIDTH, int N_ITERS>
 void workgroup_load_input_static(nd_item<1> item, bf16* act_mem, const bf16* input) {
+    // Get local ID and sub-group information
     int id = item.get_local_id() % SG_SIZE;
     auto sg = item.get_sub_group();
     int sgId = sg.get_group_id();
 
     for (int i = 0; i < N_ITERS; i++) {
         for (int k = 0; k < TM; k++) {
+            // Copy input data to activation memory
             act_mem[TN * sgId + TM * i * WIDTH + k * WIDTH + id] = input[TN * sgId + TM * i * WIDTH + k * WIDTH + id];
         }
     }
 }
 
 
+
+/**
+ * Writes data from shared memory to the output thread block using a static pattern for work groups.
+ *
+ * @param item              The SYCL nd_item representing the work item.
+ * @param act_shmem         Pointer to the shared memory containing activation data.
+ * @param output_threadblock Pointer to the output thread block.
+ * @tparam WIDTH            Width of the data.
+ * @tparam N_ITERS          Number of iterations.
+ */
 template <int WIDTH, int N_ITERS>
 void workgroup_write_output_static(nd_item<1> item, bf16* act_shmem, float* output_threadblock) {
+    // Get local ID and sub-group information
     int id = item.get_local_id() % SG_SIZE;
     auto sg = item.get_sub_group();
     int sgId = sg.get_group_id();
 
     for (int i = 0; i < N_ITERS; i++) {
         for (int k = 0; k < TM; k++) {
+            // Copy data from shared memory to output thread block
             output_threadblock[TN * sgId + TM * i * WIDTH + k * WIDTH + id] = act_shmem[TN * sgId + TM * i * WIDTH + k * WIDTH + id];
         }
     }
 }
 
+
+/**
+ * Performs forward dynamic input layer computation within a work group.
+ *
+ * @param item                  The SYCL nd_item representing the work item.
+ * @param activation            The type of activation to be applied.
+ * @param act_shmem             Pointer to the shared memory containing activation data.
+ * @param input                 Pointer to the input data.
+ * @param weights_layer         Pointer to weights for the layer.
+ * @param out_intermediate_layer Pointer to output intermediate memory for the layer.
+ * @param input_width           Width of the input data.
+ * @param batch_size            Batch size of the data.
+ * @tparam WIDTH                Width of the layer.
+ * @tparam N_ITERS              Number of iterations.
+ */
 template <int WIDTH, int N_ITERS>
 void workgroup_input_layer_forward_dynamic(nd_item<1> item,
-    Activation activation,
-    bf16* act_shmem,
-    const bf16* input,
-    bf16* weights_layer,
-    float* out_intermediate_layer,
-    const int input_width,
-    const int batch_size)
-{
+                                           Activation activation,
+                                           bf16* act_shmem,
+                                           const bf16* input,
+                                           bf16* weights_layer,
+                                           float* out_intermediate_layer,
+                                           const int input_width,
+                                           const int batch_size) {
     auto sg = item.get_sub_group();
     int sgId = sg.get_group_id();
     const int N_BLOCKS = WIDTH / TK;
     const int li = item.get_local_id(0);
 
+    // Device pointers to memory
     device_ptr<bf16> w(weights_layer);
     device_ptr<bf16> a(act_shmem);
     device_ptr<float> o(out_intermediate_layer);
 
+    // Create weights shared memory
     bf16* weights_shmem = act_shmem + 16 * input_width;
 
     const int n_element_load = N_BLOCKS * 32 * 8;
@@ -136,10 +194,12 @@ void workgroup_input_layer_forward_dynamic(nd_item<1> item,
 
     const int n_elements_weights = WIDTH * input_width;
 
+    // Load weights to shared memory
     for (int i = wi_elem_idx; i < n_elements_weights; i += n_element_load) {
         weights_shmem[i] = weights_layer[i];
     }
 
+    // Define matrices and load weights
     joint_matrix<sub_group, bf16, use::a, TM, TK, layout::row_major> act_matrix;
     joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix;
 
@@ -160,22 +220,32 @@ void workgroup_input_layer_forward_dynamic(nd_item<1> item,
 
             result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix, result_matrix);
 
-
-
             joint_matrix_store(sg, result_matrix, o + TN * sgId + TM * l * WIDTH, WIDTH, layout::row_major);
         }
     }
 }
 
 
+
+/**
+ * Performs forward computation for the last layer within a work group.
+ *
+ * @param item              The SYCL nd_item representing the work item.
+ * @param activation        The type of activation to be applied.
+ * @param act_mem           Pointer to activation memory.
+ * @param weights_layer     Pointer to weights for the layer.
+ * @param out               Pointer to the output memory.
+ * @param output_stride     The stride for the output memory.
+ * @tparam WIDTH            Width of the layer.
+ * @tparam N_ITERS          Number of iterations.
+ */
 template <int WIDTH, int N_ITERS>
 void workgroup_last_layer_forward(nd_item<1> item,
-    Activation activation,
-    bf16* act_mem,
-    bf16* weights_layer,
-    float* out,
-    const int output_stride) {
-
+                                  Activation activation,
+                                  bf16* act_mem,
+                                  bf16* weights_layer,
+                                  float* out,
+                                  const int output_stride) {
     auto sg = item.get_sub_group();
     int sgId = sg.get_group_id();
     const int li = item.get_local_id(0);
@@ -184,6 +254,7 @@ void workgroup_last_layer_forward(nd_item<1> item,
     device_ptr<bf16> a(act_mem);
     device_ptr<float> o(out);
 
+    // Define matrices and load weights
     joint_matrix<sub_group, bf16, use::a, TM, TK, layout::row_major> act_matrix;
 
     joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix0;
@@ -192,11 +263,13 @@ void workgroup_last_layer_forward(nd_item<1> item,
     joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix3;
     joint_matrix<sub_group, float, use::accumulator, TM, TN> result_matrix;
 
+    // Create weights shared memory
     bf16* weights_shmem = act_mem + N_ITERS * 16 * WIDTH;
 
     const int weights_row = (8 * li) % WIDTH;
     const int weights_col = (8 * li + 8 * 32 * sgId) / WIDTH;
 
+    // Load weights to shared memory
     weights_shmem[weights_row + weights_col * WIDTH] = weights_layer[weights_row + weights_col * WIDTH];
 
     joint_matrix_load(sg, weight_matrix0, w + TN * 2 * sgId + TK / 2 * 0 * WIDTH * 2, WIDTH * 2);
@@ -207,6 +280,7 @@ void workgroup_last_layer_forward(nd_item<1> item,
     for (int l = 0; l < N_ITERS; l++) {
         joint_matrix_fill(sg, result_matrix, 0.0f);
 
+        // Load activation matrix and perform matrix multiplication and accumulation
         joint_matrix_load(sg, act_matrix, a + TK * 0 + TM * l * WIDTH, WIDTH);
         result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix0, result_matrix);
         joint_matrix_load(sg, act_matrix, a + TK * 1 + TM * l * WIDTH, WIDTH);
@@ -216,27 +290,51 @@ void workgroup_last_layer_forward(nd_item<1> item,
         joint_matrix_load(sg, act_matrix, a + TK * 3 + TM * l * WIDTH, WIDTH);
         result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix3, result_matrix);
 
+        // Store the result matrix
         joint_matrix_store(sg, result_matrix, o + TM * sgId + TN * l * WIDTH, WIDTH, layout::row_major);
     }
 }
 
 
+
+/**
+ * Kernel function for the Swift MLP model.
+ *
+ * @param item                  The SYCL nd_item representing the work item.
+ * @param output_activation     The type of activation to be applied for output layer.
+ * @param input                 Pointer to input data.
+ * @param weights_layer         Pointer to weights for the layer.
+ * @param out_intermediate_layer Pointer to intermediate output memory.
+ * @param act_mem               Pointer to activation memory.
+ * @param act_mem_temp          Pointer to temporary activation memory.
+ * @param out                   Pointer to output memory.
+ * @param batch_size            Batch size of the data.
+ * @param output_stride         The stride for the output memory.
+ * @param input_width           Width of the input data.
+ * @param output_width          Width of the output data.
+ * @param n_hidden_matmuls      Number of hidden matrix multiplications.
+ * @param input_layout          Layout of the input data.
+ * @param output_layout         Layout of the output data.
+ * @tparam WIDTH                Width of the layers.
+ * @tparam N_ITERS              Number of iterations.
+ * @tparam activation           Type of activation for hidden layers.
+ */
 template <int WIDTH, int N_ITERS, Activation activation>
 void kernel_swift_mlp(nd_item<1> item,
-    const Activation output_activation,
-    bf16* input,
-    bf16* weights_layer,
-    float* out_intermediate_layer,
-    bf16* act_mem,
-    float* act_mem_temp,
-    float* out,
-    const int batch_size,
-    const uint32_t output_stride,
-    const uint32_t input_width,
-    const uint32_t output_width,
-    const uint32_t n_hidden_matmuls,
-    const layout input_layout,
-    const layout output_layout) {
+                      const Activation output_activation,
+                      bf16* input,
+                      bf16* weights_layer,
+                      float* out_intermediate_layer,
+                      bf16* act_mem,
+                      float* act_mem_temp,
+                      float* out,
+                      const int batch_size,
+                      const uint32_t output_stride,
+                      const uint32_t input_width,
+                      const uint32_t output_width,
+                      const uint32_t n_hidden_matmuls,
+                      const layout input_layout,
+                      const layout output_layout) {
 
     // Handle first layer because it has different input
 
@@ -244,15 +342,13 @@ void kernel_swift_mlp(nd_item<1> item,
     const int wg_idx = wg.get_group_id();
     const int elem_idx = BATCH_CHUNK * wg_idx;
     const int first_weight_length = input_width * WIDTH;
-    const int hidden_weight_lenght = WIDTH * WIDTH;
-    const int layer_lenght = WIDTH * batch_size;
+    const int hidden_weight_length = WIDTH * WIDTH;
+    const int layer_length = WIDTH * batch_size;
 
     if (input_width == WIDTH) {
-
         workgroup_load_input_static<WIDTH, N_ITERS>(item, act_mem + elem_idx * WIDTH, input + elem_idx * WIDTH);
         work_group_layer<WIDTH, N_ITERS, false>(item, activation, act_mem + elem_idx * WIDTH, act_mem_temp + elem_idx * WIDTH, weights_layer, out_intermediate_layer + elem_idx * WIDTH, nullptr);
-    }
-    else {
+    } else {
         workgroup_input_layer_forward_dynamic<WIDTH, N_ITERS>(item,
             activation,
             act_mem,
@@ -261,7 +357,6 @@ void kernel_swift_mlp(nd_item<1> item,
             out_intermediate_layer + elem_idx * WIDTH,
             input_width,
             batch_size);
-
     }
     item.barrier();
 
@@ -272,79 +367,87 @@ void kernel_swift_mlp(nd_item<1> item,
             activation,
             act_mem + elem_idx * WIDTH,
             act_mem_temp + elem_idx * WIDTH,
-            weights_layer + first_weight_length + k * hidden_weight_lenght,
-            out_intermediate_layer + elem_idx * WIDTH + (k + 1) * layer_lenght,
+            weights_layer + first_weight_length + k * hidden_weight_length,
+            out_intermediate_layer + elem_idx * WIDTH + (k + 1) * layer_length,
             nullptr);
         item.barrier();
     }
 
     // Handle output layer
     if (output_width > 16) {
-        /*work_group_layer<WIDTH, N_ITERS, false>(item,
-            activation,
-            act_mem + elem_idx * WIDTH,
-            act_mem_temp + elem_idx * WIDTH,
-            weights_layer + first_weight_length + n_hidden_matmuls * hidden_weight_lenght,
-            out_intermediate_layer + elem_idx * WIDTH + (n_hidden_matmuls + 1) * layer_lenght,
-            nullptr);*/
-
-            //workgroup_write_output_static<WIDTH, N_ITERS>(item, act_mem, out + elem_idx * WIDTH);
-    }
-
-    else if (out) {
+        // Code for handling output width > 16
+    } else if (out) {
         workgroup_last_layer_forward<WIDTH, N_ITERS>(item,
             output_activation,
             act_mem,
-            weights_layer + first_weight_length + hidden_weight_lenght * n_hidden_matmuls,
-            out + elem_idx * WIDTH + (n_hidden_matmuls + 1) * layer_lenght,
+            weights_layer + first_weight_length + hidden_weight_length * n_hidden_matmuls,
+            out + elem_idx * WIDTH + (n_hidden_matmuls + 1) * layer_length,
             output_stride);
-
     }
 }
 
+
+/**
+ * Performs forward pass for the Swift MLP model.
+ *
+ * @param q                  SYCL queue for command submission.
+ * @param output_activation The type of activation to be applied for output layer.
+ * @param weights            Device memory containing weights for the model.
+ * @param inputs             Device memory containing input data.
+ * @param intermediate_output Pointer to intermediate output memory.
+ * @param act_mem            Pointer to activation memory.
+ * @param act_mem_temp       Pointer to temporary activation memory.
+ * @param output             Device memory for storing the output.
+ * @param output_stride      The stride for the output memory.
+ * @param n_hidden_layers    Number of hidden layers.
+ * @param batch_size         Batch size of the data.
+ * @param input_width        Width of the input data.
+ * @param output_width       Width of the output data.
+ * @tparam WIDTH             Width of the layers.
+ * @tparam activation        Type of activation for hidden layers.
+ */
 template <int WIDTH, Activation activation>
 void mlp_swift_forward(queue q,
-    Activation output_activation,
-    const DeviceMem<bf16>& weights,
-    const DeviceMem<bf16>& inputs,
-    float* intermediate_output,
-    bf16* act_mem,
-    float* act_mem_temp,
-    DeviceMem<float>& output,
-    const int output_stride,
-    const int n_hidden_layers,
-    const int batch_size,
-    const int input_width,
-    const int output_width)
-{
+                       Activation output_activation,
+                       const DeviceMem<bf16>& weights,
+                       const DeviceMem<bf16>& inputs,
+                       float* intermediate_output,
+                       bf16* act_mem,
+                       float* act_mem_temp,
+                       DeviceMem<float>& output,
+                       const int output_stride,
+                       const int n_hidden_layers,
+                       const int batch_size,
+                       const int input_width,
+                       const int output_width) {
     const int N_BLOCKS = WIDTH / TK;
     const int N_ITERS = BATCH_CHUNK / TM;
 
-    q.submit([&](handler& cgh)
-        {
-            cgh.parallel_for(
-                nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE),
-                [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]]
-                {
-                    kernel_swift_mlp<WIDTH, N_ITERS, activation>(item,
-                        output_activation,
-                        inputs.data(),
-                        weights.data(),
-                        intermediate_output,
-                        act_mem,
-                        act_mem_temp,
-                        output.data(),
-                        batch_size,
-                        output_stride,
-                        input_width,
-                        output_width,
-                        n_hidden_layers - 1,
-                        layout::col_major,
-                        layout::col_major);
-
-                });
-        });
+    // Submit a parallel_for kernel for batched computation
+    q.submit([&](handler& cgh) {
+        cgh.parallel_for(nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE),
+                         [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
+                             // Call the Swift MLP kernel for forward pass
+                             kernel_swift_mlp<WIDTH, N_ITERS, activation>(
+                                 item,
+                                 output_activation,
+                                 inputs.data(),
+                                 weights.data(),
+                                 intermediate_output,
+                                 act_mem,
+                                 act_mem_temp,
+                                 output.data(),
+                                 batch_size,
+                                 output_stride,
+                                 input_width,
+                                 output_width,
+                                 n_hidden_layers - 1,
+                                 layout::col_major,
+                                 layout::col_major);
+                         });
+    });
 }
+
 
 template <int WIDTH, int N_ITERS, Activation ACTIVATION>
 void kernel_swiftnet_backward(
