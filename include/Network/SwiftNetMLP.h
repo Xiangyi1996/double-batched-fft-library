@@ -68,11 +68,11 @@ public:
 
 
 
-    DeviceMem<bf16>* grads_matrices();
+    DeviceMem<bf16>* get_grads_matrices();
 
-    DeviceMem<bf16>* weights_matrices();
+    DeviceMem<bf16>* get_weights_matrices();
 
-    DeviceMem<bf16>* weightsT_matrices();
+    DeviceMem<bf16>* get_weightsT_matrices();
 
 
 private:
