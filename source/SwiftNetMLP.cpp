@@ -684,6 +684,14 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
 }
 
 /**
+ * Destructor for the SwiftNetMLP class. Frees memory for matrices related to inferences.
+ */
+template<int WIDTH>
+SwiftNetMLP<WIDTH>::~SwiftNetMLP() {
+    m_weights_matrices_inferences.free_mem(m_q);
+}
+
+/**
  * Get a pointer to the gradients matrices.
  *
  * @return A pointer to the gradients matrices.
