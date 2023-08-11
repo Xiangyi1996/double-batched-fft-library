@@ -120,13 +120,6 @@ void DeviceMem<T>::set_data(int id, T value) {
     m_data[id] = value;
 }
 
-/**
- * Copy data from DeviceMem object to host. The size copied is the size of the DeviceMem object.
- *
- * @param data               Array to copy the data to.
- * @param n                  Size of the data to copy.
- * @param queue              SYCL queue associated with the object.
- */
 template<typename T>
 void DeviceMem<T>::initialize_normal(double dev, DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden, queue q) {
     auto p = m_data;
