@@ -421,8 +421,8 @@ void mlp_swift_forward(queue q,
     // Submit a parallel_for kernel for batched computation
     q.submit([&](handler& cgh) {
 
-        local_accessor<bf16> act_mem = local_accessor<bf16>(range<1>(512), cgh);
-        local_accessor<float> act_mem_temp = local_accessor<float>(range<1>(512), cgh);
+        local_accessor<bf16> act_mem = local_accessor<bf16>(range<1>(SHMEM_SIZE), cgh);
+        local_accessor<float> act_mem_temp = local_accessor<float>(range<1>(SHMEM_SIZE), cgh);
 
         cgh.parallel_for(nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE),
             [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
@@ -595,8 +595,8 @@ void mlp_swiftnet_backward(
     // Execute the kernel for backward pass
     q.submit([&](handler& h) {
 
-        local_accessor<bf16> deltas_layers = local_accessor<bf16>(range<1>(512), h);
-        local_accessor<float> delta_temp = local_accessor<float>(range<1>(512), h);
+        local_accessor<bf16> deltas_layers = local_accessor<bf16>(range<1>(SHMEM_SIZE), h);
+        local_accessor<float> delta_temp = local_accessor<float>(range<1>(SHMEM_SIZE), h);
         auto a = deltas_layers.get_pointer();
         auto at = delta_temp.get_pointer();
 
@@ -651,9 +651,9 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
     m_grads_matrices.allocate(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width, m_q);
 
     // Initialize constants and allocations
-    const int batch_size = std::pow(2, 16);
+    const int batch_size = BATCH_SIZE;
     const int layer_length = WIDTH * batch_size;
-    m_alignment = 512;
+    m_alignment = SHMEM_SIZE;
 
     // Allocate and initialize various memory buffers
     m_forward = malloc_device<float>(batch_size * (WIDTH + m_output_width + WIDTH * m_n_hidden_layers), q);
