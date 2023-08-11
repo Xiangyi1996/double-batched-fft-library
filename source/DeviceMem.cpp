@@ -4,11 +4,19 @@
 using namespace sycl;
 using bf16 = sycl::ext::oneapi::bfloat16;
 
-// Constructor for DeviceMem class (default)
+/**
+ * Constructor for the SwiftNetMLP class.
+ *
+ */
 template<typename T>
 DeviceMem<T>::DeviceMem() {}
 
-// Constructor for DeviceMem class with size and queue
+/**
+ * Constructor for the SwiftNetMLP class.
+ *
+ * @param size               Size of the memory to allocate.
+ * @param queue              SYCL queue associated with the object.
+ */
 template<typename T>
 DeviceMem<T>::DeviceMem(int size, queue q) {
     if (m_size != 0 || size <= 0) {
@@ -18,7 +26,12 @@ DeviceMem<T>::DeviceMem(int size, queue q) {
     m_data = (T*)malloc_device(size, q);
 }
 
-// Allocate memory for DeviceMem class with size and queue
+/**
+ * Allocate memory for a DeviceMem object.
+ *
+ * @param size               Size of the memory to allocate.
+ * @param queue              SYCL queue associated with the object.
+ */
 template<typename T>
 void DeviceMem<T>::allocate(int size, queue q) {
     if (m_size != 0 || size <= 0) {
@@ -28,50 +41,92 @@ void DeviceMem<T>::allocate(int size, queue q) {
     m_data = (T*)malloc_device(size, q);
 }
 
-// Free memory for DeviceMem class with queue
+/**
+ * Free memory for a DeviceMem object.
+ *
+ * @param queue              SYCL queue associated with the object.
+ */
 template<typename T>
 void DeviceMem<T>::free_mem(queue q) {
     m_size = 0;
     free(m_data, q);
 }
 
-// Free memory for DeviceMem class
+/**
+ * Free memory for a DeviceMem object.
+ *
+ */
 template<typename T>
 void DeviceMem<T>::free_mem() {
     m_size = 0;
     free(m_data);
 }
 
-// Copy data from host to DeviceMem object with specified number of elements and queue
+/**
+ * Copy data from host to DeviceMem object.
+ *
+ * @param data               Array to copy the data from.
+ * @param n                  Size of the data to copy.
+ * @param queue              SYCL queue associated with the object.
+ */
 template<typename T>
 void DeviceMem<T>::copy_from_host(std::vector<T>& data, int n, queue q) {
     q.memcpy(m_data, data.data(), n * sizeof(T));
 }
 
-// Copy data from DeviceMem object to host with specified number of elements and queue
+/**
+ * Copy data from DeviceMem object to host.
+ *
+ * @param data               Array to copy the data to.
+ * @param n                  Size of the data to copy.
+ * @param queue              SYCL queue associated with the object.
+ */
 template<typename T>
 void DeviceMem<T>::copy_to_host(std::vector<T>& data, int n, queue q) {
     q.memcpy(data.data(), m_data, n * sizeof(T));
 }
 
-// Copy data from host to DeviceMem object using the object's size and queue
+/**
+ * Copy data from host to DeviceMem object. The size copied is the size of the DeviceMem object.
+ *
+ * @param data               Array to copy the data from.
+ * @param queue              SYCL queue associated with the object.
+ */
 template<typename T>
 void DeviceMem<T>::copy_from_host(std::vector<T>& data, queue q) {
     copy_from_host(data, m_size, q);
 }
 
-// Copy data from DeviceMem object to host using the object's size and queue
+/**
+ * Copy data from DeviceMem object to host. The size copied is the size of the DeviceMem object.
+ *
+ * @param data               Array to copy the data to.
+ * @param n                  Size of the data to copy.
+ * @param queue              SYCL queue associated with the object.
+ */
 template<typename T>
 void DeviceMem<T>::copy_to_host(std::vector<T>& data, queue q) {
     copy_to_host(data, m_size, q);
 }
 
-// Set data at a specific index in the DeviceMem object
+/**
+ * Set data to a specific id of the DeviceMem object.
+ *
+ * @param id                 Index to set the data.
+ * @param value              Value to set.
+ */
 template<typename T>
 void DeviceMem<T>::set_data(int id, T value) {
     m_data[id] = value;
 }
 
+/**
+ * Copy data from DeviceMem object to host. The size copied is the size of the DeviceMem object.
+ *
+ * @param data               Array to copy the data to.
+ * @param n                  Size of the data to copy.
+ * @param queue              SYCL queue associated with the object.
+ */
 template<typename T>
 void DeviceMem<T>::initialize_normal(double dev, DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden, queue q) {
     auto p = m_data;
