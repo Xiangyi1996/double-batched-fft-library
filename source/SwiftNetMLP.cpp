@@ -19,7 +19,7 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 
 
 /**
- * Executes a work group layer operation.
+ * Execute the action made by a work-group to calculate the next layer.
  *
  * @param item          The SYCL nd_item representing the work item.
  * @param activation    The type of activation to be applied.
@@ -289,7 +289,7 @@ void workgroup_last_layer_forward(nd_item<1> item,
 
 
 /**
- * Kernel function for the Swift MLP model.
+ * Kernel function for the forward pass of the Swift MLP model.
  *
  * @param item                  The SYCL nd_item representing the work item.
  * @param output_activation     The type of activation to be applied for output layer.
@@ -446,7 +446,7 @@ void mlp_swift_forward(queue q,
 
 
 /**
- * Kernel function for backpropagation pass in the SwiftNet model.
+ * Kernel function for backpropagation in the SwiftNet model.
  *
  * @param item             The SYCL nd_item representing the work item.
  * @param loss_gradients   Pointer to loss gradients for backpropagation.
@@ -971,7 +971,7 @@ void SwiftNetMLP<WIDTH>::inference(const DeviceMem<bf16>& input, bf16* act_mem, 
 }
 
 /**
- * Perform matrix multiplications and activation backpropagation for the last layer of the backward pass.
+ * Perform matrix multiplications and activation backpropagation for the last layer (beginning of the backward pass) .
  *
  * @param grads The gradients on the device.
  * @param forward Pointer to the forward intermediate array.
