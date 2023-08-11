@@ -120,6 +120,21 @@ void DeviceMem<T>::set_data(int id, T value) {
     m_data[id] = value;
 }
 
+/**
+ * Initialize the device memory with values drawn from a normal distribution and generate the transposed version.
+ *
+ * This function initializes the device memory with random values drawn from a normal distribution
+ * with the specified standard deviation. It also generates the transposed version of the weight matrices
+ * and stores them in the provided transposed memory.
+ *
+ * @param dev            The standard deviation of the normal distribution.
+ * @param transposed     The device memory to store the transposed weight matrices.
+ * @param input_width    The width of the input layer.
+ * @param width          The width of the hidden layer weight matrices.
+ * @param output_width   The width of the output layer.
+ * @param n_hidden       The number of hidden layers in the network.
+ * @param q              The SYCL queue for parallel computation.
+ */
 template<typename T>
 void DeviceMem<T>::initialize_normal(double dev, DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden, queue q) {
     auto p = m_data;
@@ -162,6 +177,16 @@ void DeviceMem<T>::initialize_normal(double dev, DeviceMem<T>& transposed, int i
             });
         });
 }
+
+/**
+ * Initialize the device memory with values drawn from a normal distribution.
+ *
+ * This function initializes the device memory with random values drawn from a normal distribution
+ * with the specified standard deviation.
+ *
+ * @param dev   The standard deviation of the normal distribution.
+ * @param q     The SYCL queue for parallel computation.
+ */
 template<typename T>
 void DeviceMem<T>::initialize_normal(double dev, queue q) {
     std::default_random_engine gen;
@@ -172,6 +197,21 @@ void DeviceMem<T>::initialize_normal(double dev, queue q) {
     }
     q.memcpy(m_data, data.data(), m_size * sizeof(T));
 }
+
+/**
+ * Initialize the device memory with values drawn from a uniform distribution.
+ *
+ * This function initializes the device memory with random values drawn from a uniform distribution
+ * within the specified scale range.
+ *
+ * @param scale         The range for generating uniform random values.
+ * @param transposed    The transposed version of the initialized data.
+ * @param input_width   The width of the input.
+ * @param width         The width of the layer.
+ * @param output_width  The width of the output.
+ * @param n_hidden      The number of hidden layers.
+ * @param q             The SYCL queue for parallel computation.
+ */
 template<typename T>
 void DeviceMem<T>::initialize_uniform(double scale, DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden, queue q) {
     auto p = m_data;
@@ -219,6 +259,21 @@ void DeviceMem<T>::initialize_uniform(double scale, DeviceMem<T>& transposed, in
             });
         });
 }
+
+/**
+ * Create the transposed version of the data and store it in the provided memory.
+ *
+ * This function calculates the transposed version of the data and stores it in the provided
+ * `transposed` memory. It takes into account the layout of input, hidden, and output layers
+ * and performs the transposition accordingly.
+ *
+ * @param transposed    The memory to store the transposed data.
+ * @param input_width   The width of the input.
+ * @param width         The width of the layer.
+ * @param output_width  The width of the output.
+ * @param n_hidden      The number of hidden layers.
+ * @param q             The SYCL queue for parallel computation.
+ */
 template<typename T>
 void DeviceMem<T>::make_transposed(DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden, queue q) {
     auto p = m_data;
@@ -252,6 +307,16 @@ void DeviceMem<T>::make_transposed(DeviceMem<T>& transposed, int input_width, in
         }
         });
 }
+
+/**
+ * Initialize the device memory with values sampled from a uniform distribution.
+ *
+ * This function generates random values sampled from a uniform distribution within
+ * the specified scale and initializes the device memory with those values.
+ *
+ * @param q       The SYCL queue for memory operations.
+ * @param scale   The scale of the uniform distribution.
+ */
 template<typename T>
 void DeviceMem<T>::initialize_uniform(queue q, double scale) {
     std::default_random_engine gen;
@@ -262,27 +327,84 @@ void DeviceMem<T>::initialize_uniform(queue q, double scale) {
     }
     q.memcpy(m_data, data.data(), m_size * sizeof(T));
 }
+/**
+ * Initialize the device memory with values sampled from a Xavier uniform distribution.
+ *
+ * This function generates random values sampled from a Xavier uniform distribution and
+ * initializes both the device memory and its transposed version with those values.
+ *
+ * @param transposed    The memory to store the transposed data.
+ * @param input_width   The width of the input.
+ * @param width         The width of the layer.
+ * @param output_width  The width of the output.
+ * @param n_hidden      The number of hidden layers.
+ * @param q             The SYCL queue for memory operations.
+ */
 template<typename T>
 void DeviceMem<T>::initialize_xavier_unif(DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden, queue q) {
     double x = sqrt(6.0 / ((double)(input_width + output_width)));
     initialize_uniform(x, transposed, input_width, width, output_width, n_hidden, q);
 }
+/**
+ * Initialize the device memory with values sampled from a Xavier uniform distribution.
+ *
+ * This function generates random values sampled from a Xavier uniform distribution and
+ * initializes the device memory with those values.
+ *
+ * @param input_width   The width of the input.
+ * @param output_width  The width of the output.
+ * @param q             The SYCL queue for memory operations.
+ */
 template<typename T>
 void DeviceMem<T>::initialize_xavier_unif(int input_width, int output_width, queue q) {
     double x = sqrt(6.0 / ((double)(input_width + output_width)));
     initialize_uniform(q, x);
 }
-
+/**
+ * Initialize the device memory with values sampled from a Xavier normal distribution.
+ *
+ * This function generates random values sampled from a Xavier normal distribution and
+ * initializes both the device memory and its transposed version with those values.
+ *
+ * @param transposed    The memory to store the transposed data.
+ * @param input_width   The width of the input.
+ * @param width         The width of the layer.
+ * @param output_width  The width of the output.
+ * @param n_hidden      The number of hidden layers.
+ * @param q             The SYCL queue for memory operations.
+ */
 template<typename T>
 void DeviceMem<T>::inititialize_xavier_normal(DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden, queue q) {
     double dev = sqrt(2.0 / ((double)(input_width + output_width)));
     initialize_normal(dev, transposed, input_width, width, output_width, n_hidden, q);
 }
+
+/**
+ * Initialize the device memory with values sampled from a Xavier normal distribution.
+ *
+ * This function generates random values sampled from a Xavier normal distribution and
+ * initializes the device memory with those values.
+ *
+ * @param input_width   The width of the input.
+ * @param output_width  The width of the output.
+ * @param q             The SYCL queue for memory operations.
+ */
 template<typename T>
 void DeviceMem<T>::initialize_xavier_normal(int input_width, int output_width, queue q) {
     double dev = sqrt(2.0 / ((double)(input_width + output_width)));
     initialize_normal(dev, q);
 }
+
+/**
+ * Initialize the device memory with a constant value and its transposed version.
+ *
+ * This function initializes both the device memory and its transposed version with a
+ * constant value.
+ *
+ * @param constant      The constant value to be filled in the memory.
+ * @param transposed    The memory to store the transposed data.
+ * @param q             The SYCL queue for memory operations.
+ */
 template<typename T>
 void DeviceMem<T>::initialize_constant(T constant, DeviceMem<T>& transposed, queue q) {
     std::vector<T> data(m_size, constant);
@@ -290,6 +412,14 @@ void DeviceMem<T>::initialize_constant(T constant, DeviceMem<T>& transposed, que
     q.memcpy(transposed.data(), data.data(), m_size * constant);
 }
 
+/**
+ * Initialize the device memory with a constant value.
+ *
+ * This function initializes the device memory with a constant value.
+ *
+ * @param constant      The constant value to be filled in the memory.
+ * @param q             The SYCL queue for memory operations.
+ */
 template<typename T>
 void DeviceMem<T>::initialize_constant(T constant, queue q) {
     auto p = m_data;
@@ -297,11 +427,35 @@ void DeviceMem<T>::initialize_constant(T constant, queue q) {
         p[idx] = (T)constant;
         }).wait();
 }
+
+/**
+ * Initialize the device memory with values sampled from a He normal distribution.
+ *
+ * This function generates random values sampled from a He normal distribution and
+ * initializes both the device memory and its transposed version with those values.
+ *
+ * @param transposed    The memory to store the transposed data.
+ * @param input_width   The width of the input.
+ * @param width         The width of the layer.
+ * @param output_width  The width of the output.
+ * @param n_hidden      The number of hidden layers.
+ * @param q             The SYCL queue for memory operations.
+ */
 template<typename T>
 void DeviceMem<T>::intitialize_he_normal(DeviceMem<T>& transposed, int input_width, int width, int output_width, int n_hidden, queue q) {
     double dev = sqrt(2.0 / width);
     initialize_normal(dev, transposed, input_width, width, output_width, n_hidden, q);
 }
+
+/**
+ * Initialize the device memory with values sampled from a He normal distribution.
+ *
+ * This function generates random values sampled from a He normal distribution and
+ * initializes the device memory with those values.
+ *
+ * @param input_width   The width of the input.
+ * @param q             The SYCL queue for memory operations.
+ */
 template<typename T>
 void DeviceMem<T>::intitialize_he_normal(int input_width, queue q) {
     double dev = sqrt(2.0 / input_width);
