@@ -1,5 +1,4 @@
-DIR := source Sample
-SRC = $(wildcard $(addsuffix /*.cpp,$(DIR)))
+SRC = $(wildcard source/*.cpp)
 OBJ = $(SRC:.cpp=.o)
 GPU = pvc
 
