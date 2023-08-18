@@ -61,6 +61,16 @@ for (int i =0; i< n_iterations; i++){
 }
 
 ```
+
+## Build
+
+To build the tiny-nn librairy, currently you need to upload all the files from the repos inside a unique folder and run the following command :
+
+source /opt/intel/oneapi/setvars.sh intel64
+make <options>
+
+Where options stand for the name of the machine you are compiling for. Currently, you can build the librairy for dg2 or pvc.
+
 ## Required Hardware and Framework
 XMX hardware on GPU or AMX on CPU.
 DPC++ with level zero.
