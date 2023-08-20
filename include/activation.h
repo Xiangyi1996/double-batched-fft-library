@@ -202,44 +202,7 @@ void matrix_activation(Activation activation, multi_ptr<T, access::address_space
 
 
 	for (int i = 0; i < 8; i++) {
-		float q = ((float)elt[offset + i * stride] / (2 * PI));
-		switch (activation) {
-		case Activation::ReLU:
-			if (elt[offset + i * stride] < (T)0.0f) {
-				res[offset + i * stride] = (resT)0.0f;
-			}
-			else {
-				res[offset + i * stride] = (resT)elt[offset + i * stride];
-			}
-			break;
-		case Activation::LeakyReLU:
-			if (elt[offset + i * stride] >= 0) {
-				res[offset + i * stride] = (resT)elt[offset + i * stride];
-			}
-			else {
-				res[offset + i * stride] = (resT)0.01f * (resT)elt[offset + i * stride];
-			}
-			break;
-		case Activation::Exponential:
-			res[offset + i * stride] = (resT)exp((float)elt[offset + i * stride]);
-
-			break;
-		case Activation::Sine:
-			res[offset + i * stride] = (resT)((elt[offset + i * stride])-floor(q) * 2 * PI);
-			res[offset + i * stride] = (resT)sinf((float)elt[offset + i * stride]);
-			break;
-		case Activation::Sigmoid:
-			res[offset + i * stride] = (resT)(1.0f / (1.0f + expf((float)-elt[offset + i * stride])));
-			break;
-		case Activation::None:
-			res[offset + i * stride] = (resT)elt[offset + i * stride];
-			break;
-		case Activation::Tanh:
-			res[offset + i * stride] = (resT)(tanhf((float)elt[offset + i * stride]));
-			break;
-		default:
-			break;
-		}
+		elt_activation<T, resT>(activation, elt[offset + i * stride],  res[offset + i * stride]);
 	}
 	return;
 }
