@@ -27,13 +27,19 @@ class Network {
 
   // Initialize network parameters
   virtual void initialize_params() = 0;
-
   // Free memory allocated by the network
   virtual void free_mem(queue q) = 0;
 
   // Get the SYCL queue associated with the network
   queue get_queue() { return m_q; }
+  virtual void set_params(std::vector<bf16> params) = 0;
 
+  virtual DeviceMem<bf16>* get_grads_matrices() = 0;
+  virtual DeviceMem<bf16>* get_weights_matrices() = 0;
+  virtual DeviceMem<bf16>* get_weightsT_matrices() = 0;
+
+  virtual std::vector<bf16> get_weights_matrices_as_vector() = 0;
+  virtual std::vector<bf16> get_weightsT_matrices_as_vector() = 0;
   // Data members
   float* m_forward;
   int m_shmem_size;

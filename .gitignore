@@ -1,2 +1,8 @@
+**/.vscode/
 *.o
-.vscode
+*.so
+*.egg-info
+**/build/
+extern/torch/
+**/__pycache__/
+*.pyc

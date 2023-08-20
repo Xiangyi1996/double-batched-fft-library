@@ -71,8 +71,7 @@ void DeviceMem<T>::free_mem() {
  */
 template <typename T>
 void DeviceMem<T>::copy_from_host(std::vector<T>& data, int n, queue q) {
-  q.memcpy(m_data, data.data(), n * sizeof(T));
-  q.wait();
+  q.memcpy(m_data, data.data(), n * sizeof(T)).wait();
 }
 
 /**
@@ -84,8 +83,7 @@ void DeviceMem<T>::copy_from_host(std::vector<T>& data, int n, queue q) {
  */
 template <typename T>
 void DeviceMem<T>::copy_to_host(std::vector<T>& data, int n, queue q) {
-  q.memcpy(data.data(), m_data, n * sizeof(T));
-  q.wait();
+  q.memcpy(data.data(), m_data, n * sizeof(T)).wait();
 }
 
 /**
@@ -210,7 +208,7 @@ void DeviceMem<T>::initialize_normal(double dev, queue q) {
   for (int i = 0; i < m_size; i++) {
     data[i] = (T)distrib(gen);
   }
-  q.memcpy(m_data, data.data(), m_size * sizeof(T));
+  q.memcpy(m_data, data.data(), m_size * sizeof(T)).wait();
 }
 
 /**
@@ -239,7 +237,6 @@ void DeviceMem<T>::initialize_uniform(double scale, DeviceMem<T>& transposed,
 
   std::vector<T> data(m_size);
   std::vector<T> dataT(m_size);
-
   for (int i = 0; i < input_width; i++) {
     for (int j = 0; j < width; j++) {
       rnd = (T)distrib(gen);
@@ -259,7 +256,6 @@ void DeviceMem<T>::initialize_uniform(double scale, DeviceMem<T>& transposed,
       }
     }
   }
-
   for (int i = 0; i < width; i++) {
     for (int j = 0; j < output_width; j++) {
       rnd = (T)distrib(gen);
@@ -363,7 +359,7 @@ void DeviceMem<T>::initialize_uniform(queue q, double scale) {
   for (int i = 0; i < m_size; i++) {
     data[i] = (T)distrib(gen);
   }
-  q.memcpy(m_data, data.data(), m_size * sizeof(T));
+  q.memcpy(m_data, data.data(), m_size * sizeof(T)).wait();
 }
 /**
  * Initialize the device memory with values sampled from a Xavier uniform
@@ -464,8 +460,9 @@ template <typename T>
 void DeviceMem<T>::initialize_constant(T constant, DeviceMem<T>& transposed,
                                        queue q) {
   std::vector<T> data(m_size, constant);
-  q.memcpy(m_data, data.data(), m_size * sizeof(T));
-  q.memcpy(transposed.data(), data.data(), m_size * constant);
+  q.memcpy(m_data, data.data(), m_size * sizeof(T)).wait();
+  q.memcpy(transposed.data(), data.data(), m_size * constant * sizeof(T))
+      .wait();
 }
 
 /**
@@ -525,5 +522,10 @@ void DeviceMem<T>::intitialize_he_normal(int input_width, queue q) {
   initialize_normal(dev, q);
 }
 
+template <typename T>
+void DeviceMem<T>::initialize_test_input(queue q) {
+  auto p = m_data;
+  q.parallel_for(m_size, [=](id<1> idx) { p[idx] = (T)(idx % 64) * 0.01f; });
+}
 template class DeviceMem<float>;
 template class DeviceMem<bf16>;

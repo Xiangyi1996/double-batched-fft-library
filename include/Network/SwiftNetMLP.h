@@ -3,6 +3,7 @@
 
 #include <CL/sycl.hpp>
 #include <iostream>
+#include <json/json.hpp>
 #include <vector>
 
 #include "DeviceMem.h"
@@ -10,10 +11,10 @@
 #include "activation.h"
 #include "common.h"
 #include "mkl.h"
+#include "mkl_omp_offload.h"
 #include "oneapi/mkl.hpp"
 #include "sgd.h"
 #include "trainer.h"
-
 using bf16 = sycl::ext::oneapi::bfloat16;
 
 template <int WIDTH>
@@ -41,17 +42,19 @@ class SwiftNetMLP : public Network {
                                  DeviceMem<bf16>& loss, int batch_size,
                                  float* A, float* B, float* C, float* D,
                                  float* E, float* F);
-  // void set_params(float* params, float* inference_params, float* gradients);
+  void set_params(std::vector<bf16> params) override;
   void save_to_file(std::string filename);
   void load_from_file(std::string filename);
   void initialize_params() override;
   void free_mem(queue q) override;
 
-  DeviceMem<bf16>* get_grads_matrices();
+  DeviceMem<bf16>* get_grads_matrices() override;
 
-  DeviceMem<bf16>* get_weights_matrices();
+  DeviceMem<bf16>* get_weights_matrices() override;
 
-  DeviceMem<bf16>* get_weightsT_matrices();
+  DeviceMem<bf16>* get_weightsT_matrices() override;
+  std::vector<bf16> get_weights_matrices_as_vector() override;
+  std::vector<bf16> get_weightsT_matrices_as_vector() override;
 
  private:
   int m_n_hidden_layers;

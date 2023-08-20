@@ -1,25 +1,27 @@
 SRC = $(wildcard source/*.cpp)
+SRC := $(filter-out source/tnn_api.cpp, $(SRC))
+
 OBJ = $(SRC:.cpp=.o)
 GPU = pvc
 
 program: $(OBJ)
-        icpx -fsycl -qmkl=parallel -I include/ -I include/Network -I include/Losses -I include/Optimizers -fsycl-targets=spir64_gen -Xs "-device $(GPU)" $^ -o $@
+		icpx -fsycl -qmkl=parallel -I include/ -I include/Network -I include/Losses -I include/Optimizers -fsycl-targets=spir64_gen -Xs "-device $(GPU)" $^ -o $@
 
 %.o: %.cpp
-        icpx -fsycl -qmkl=parallel -I include/ -I include/Network -I include/Losses -I include/Optimizers -fsycl-targets=spir64_gen -c $< -o $@
+		icpx -fsycl -qmkl=parallel -I include/ -I include/Network -I include/Losses -I include/Optimizers -fsycl-targets=spir64_gen -c $< -o $@
 
 clean:
         rm -fr source/*.o
 
 pvc_build:
-        tail -n +11 source/SwiftNetMLP.cpp > temp && mv temp source/SwiftNetMLP.cpp
-        cat pvc_header | cat - source/SwiftNetMLP.cpp > temp && mv temp source/SwiftNetMLP.cpp
+		tail -n +11 source/SwiftNetMLP.cpp > temp && mv temp source/SwiftNetMLP.cpp
+		cat pvc_header | cat - source/SwiftNetMLP.cpp > temp && mv temp source/SwiftNetMLP.cpp
 
 dg2_build:
-        tail -n +11 source/SwiftNetMLP.cpp > temp && mv temp source/SwiftNetMLP.cpp
-        cat dg2_header | cat - source/SwiftNetMLP.cpp > temp && mv temp source/SwiftNetMLP.cpp
-        $(eval GPU = dg2-g12)
-        @echo "$(GPU)"
+		tail -n +11 source/SwiftNetMLP.cpp > temp && mv temp source/SwiftNetMLP.cpp
+		cat dg2_header | cat - source/SwiftNetMLP.cpp > temp && mv temp source/SwiftNetMLP.cpp
+		$(eval GPU = dg2-g12)
+		@echo "$(GPU)"
 
 dg2: dg2_build program
 

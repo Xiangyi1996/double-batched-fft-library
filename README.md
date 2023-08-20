@@ -9,7 +9,7 @@ The computation of the product of matrices is realised thanks to an Intel extens
 ![Image](data/performances.png)
 We benchmarked the thoughput of our network in training and inference on DG2 GPU. We compared our network with Python Tensorflow on a 4 hidden layers, 64 neurons wide networks.
 
-## Usage 
+## Usage
 ```cpp
 #include <config.h>
 
@@ -116,3 +116,22 @@ Mandatory : XMX hardware ( if not DG2 or PVC, pay attention to SG_SIZE and tile 
 
 
 
+## PyBindings
+
+First install pybindings with
+```
+git submodule update --init --recursive
+```
+
+Install the pybindings:
+```
+cd extern/pybindings11
+cmake .. -DCMAKE_INSTALL_PREFIX=../
+make install
+```
+
+After installing the pybindings package, you can now install the pybindings for tiny-nn:
+```
+cd dpcpp_bindings
+pip install -e .
+```

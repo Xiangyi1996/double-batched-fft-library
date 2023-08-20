@@ -101,4 +101,6 @@ class DeviceMem {
 
   // Initialize memory with values according to He normal initialization
   void intitialize_he_normal(int input_width, queue q);
+
+  void initialize_test_input(queue q);
 };

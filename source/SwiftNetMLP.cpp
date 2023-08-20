@@ -7,19 +7,28 @@
 #define WG_SIZE 8 * SG_SIZE
 
 #define BATCH_CHUNK 16
-#define BATCH_SIZE 4 * 2048
 #define SHMEM_SIZE 1024
 
 #include "SwiftNetMLP.h"
 
 #include "common.h"
 #include "mkl.h"
+#include "mkl_omp_offload.h"
 #include "oneapi/mkl.hpp"
 #include "trainer.h"
 
 using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;
 using bf16 = sycl::ext::oneapi::bfloat16;
+
+template <typename T>
+void printVector(const std::vector<T>& vec) {
+  std::cout << "Vector contents: ";
+  for (const T& element : vec) {
+    std::cout << element << " ";
+  }
+  std::cout << std::endl;
+}
 
 /**
  * Execute the action made by a work-group to calculate the next layer.
@@ -1270,5 +1279,23 @@ void SwiftNetMLP<WIDTH>::backward_pass(
       .wait();
 }
 
+template <int WIDTH>
+void SwiftNetMLP<WIDTH>::set_params(std::vector<bf16> params) {
+  m_weights_matrices.copy_from_host(params, m_q);
+}
+
+template <int WIDTH>
+std::vector<bf16> SwiftNetMLP<WIDTH>::get_weights_matrices_as_vector() {
+  std::vector<bf16> list_float(m_weights_matrices.size());
+  m_weights_matrices.copy_to_host(list_float, m_q);
+  return list_float;
+}
+
+template <int WIDTH>
+std::vector<bf16> SwiftNetMLP<WIDTH>::get_weightsT_matrices_as_vector() {
+  std::vector<bf16> list_float(m_weightsT_matrices.size());
+  m_weightsT_matrices.copy_to_host(list_float, m_q);
+  return list_float;
+}
 template class SwiftNetMLP<64>;
 template class SwiftNetMLP<128>;
