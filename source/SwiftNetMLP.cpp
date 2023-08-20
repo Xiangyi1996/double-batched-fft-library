@@ -4,7 +4,11 @@
 
 #define SG_SIZE 8
 #define WG_SIZE 8*SG_SIZE
-#define BATCH_CHUNK 64
+
+#define BATCH_CHUNK 16
+#define BATCH_SIZE 4 * 2048
+#define SHMEM_SIZE 1024
+
 #include "SwiftNetMLP.h"
 #include "trainer.h"
 #include "mkl.h"
@@ -172,26 +176,22 @@ template <int WIDTH, int N_ITERS>
 void workgroup_input_layer_forward_dynamic(nd_item<1> item,
     Activation activation,
     multi_ptr<bf16, access::address_space::local_space, (access::decorated)2> a,
+    multi_ptr<float, access::address_space::local_space, (access::decorated)2> at,
     const bf16* input,
     bf16* weights_layer,
     float* out_intermediate_layer,
-    const int input_width,
-    const int batch_size) {
+    const int input_width
+)
+{
     auto sg = item.get_sub_group();
-    const int sgId = sg.get_group_id();
+    int id = item.get_local_id() % SG_SIZE;
+    int sgId = sg.get_group_id();
     const int N_BLOCKS = WIDTH / TK;
-    const int li = item.get_local_id(0);
-    const int id = item.get_local_id() % SG_SIZE;
 
     // Device pointers to memory
     device_ptr<bf16> w(weights_layer);
     device_ptr<float> o(out_intermediate_layer);
-
-    const int n_element_load = N_BLOCKS * 32 * 8;
-    const int wi_elem_idx = (li + sgId * 32) * 8;
-
-    const int n_elements_weights = WIDTH * input_width;
-
+  
     // Define matrices and load weights
     joint_matrix<sub_group, bf16, use::a, TM, TK, layout::row_major> act_matrix;
     joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix;
@@ -201,9 +201,10 @@ void workgroup_input_layer_forward_dynamic(nd_item<1> item,
     const int n_operations = input_width / TK;
 
     for (int l = 0; l < N_ITERS; l++) {
-        const int n_elems_input = TK * input_width;
-        for (int i = wi_elem_idx; i < n_elems_input; i += n_element_load) {
-            a[i] = input[l * n_element_load + i];
+        for (int j = 0; j < N_ITERS; j++) {
+            for (int k = 0; k < TM; k++) {
+                a[TN * sgId + TM * j * WIDTH + k * WIDTH + id] = input[TN * sgId + TM * j * WIDTH + k * WIDTH + id];
+            }
         }
 
         joint_matrix_fill(sg, result_matrix, 0.0f);
@@ -213,18 +214,17 @@ void workgroup_input_layer_forward_dynamic(nd_item<1> item,
 
             result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix, result_matrix);
 
-            joint_matrix_store(sg, result_matrix, o + TN * sgId + TM * l * WIDTH, WIDTH, layout::row_major);
+            joint_matrix_store(sg, result_matrix, at + TN * sgId + TM * l * WIDTH, WIDTH, layout::row_major);
         }
-    }
 
+        matrix_activation<float, bf16, SG_SIZE>(activation, at, a, TN * sgId + TM * l * WIDTH + id, WIDTH);
+    }
     for (int i = 0; i < N_ITERS; i++) {
         for (int k = 0; k < TM; k++) {
-            a[TN * sgId + TM * i * WIDTH + k * WIDTH + id] = o[TN * sgId + TM * i * WIDTH + k * WIDTH + id];
+            o[TN * sgId + TM * i * WIDTH + k * WIDTH + id] = (bf16)at[TN * sgId + TM * i * WIDTH + k * WIDTH + id];
         }
     }
 }
-
-
 
 /**
  * Performs forward computation for the last layer within a work group.
@@ -245,6 +245,7 @@ void workgroup_last_layer_forward(nd_item<1> item,
     bf16* weights_layer,
     float* out,
     const int output_stride) {
+
     auto sg = item.get_sub_group();
     int sgId = sg.get_group_id();
     const int li = item.get_local_id(0);
@@ -252,7 +253,6 @@ void workgroup_last_layer_forward(nd_item<1> item,
     device_ptr<bf16> w(weights_layer);
     device_ptr<float> o(out);
 
-    // Define matrices and load weights
     joint_matrix<sub_group, bf16, use::a, TM, TK, layout::row_major> act_matrix;
 
     joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix0;
@@ -261,8 +261,7 @@ void workgroup_last_layer_forward(nd_item<1> item,
     joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix3;
     joint_matrix<sub_group, float, use::accumulator, TM, TN> result_matrix;
 
-    const int weights_row = (8 * li) % WIDTH;
-    const int weights_col = (8 * li + 8 * 32 * sgId) / WIDTH;
+
 
     joint_matrix_load(sg, weight_matrix0, w + TN * 2 * sgId + TK / 2 * 0 * WIDTH * 2, WIDTH * 2);
     joint_matrix_load(sg, weight_matrix1, w + TN * 2 * sgId + TK / 2 * 1 * WIDTH * 2, WIDTH * 2);
@@ -272,7 +271,6 @@ void workgroup_last_layer_forward(nd_item<1> item,
     for (int l = 0; l < N_ITERS; l++) {
         joint_matrix_fill(sg, result_matrix, 0.0f);
 
-        // Load activation matrix and perform matrix multiplication and accumulation
         joint_matrix_load(sg, act_matrix, a + TK * 0 + TM * l * WIDTH, WIDTH);
         result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix0, result_matrix);
         joint_matrix_load(sg, act_matrix, a + TK * 1 + TM * l * WIDTH, WIDTH);
@@ -282,7 +280,6 @@ void workgroup_last_layer_forward(nd_item<1> item,
         joint_matrix_load(sg, act_matrix, a + TK * 3 + TM * l * WIDTH, WIDTH);
         result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix3, result_matrix);
 
-        // Store the result matrix
         joint_matrix_store(sg, result_matrix, o + TM * sgId + TN * l * WIDTH, WIDTH, layout::row_major);
     }
 }
@@ -341,18 +338,18 @@ void kernel_swift_mlp(nd_item<1> item,
     const int layer_length = WIDTH * batch_size;
 
     if (input_width == WIDTH) {
-        workgroup_load_input_static<WIDTH, N_ITERS>(item, a + elem_idx * WIDTH, input + elem_idx * WIDTH);
-        work_group_layer<WIDTH, N_ITERS, false>(item, activation, a + elem_idx * WIDTH, at + elem_idx * WIDTH, weights_layer, out_intermediate_layer + elem_idx * WIDTH);
+        workgroup_load_input_static<WIDTH, N_ITERS>(item, a, input + elem_idx * WIDTH);
+        work_group_layer<WIDTH, N_ITERS, false>(item, activation, a, at, weights_layer, !INFERENCE ? (out_intermediate_layer + elem_idx * WIDTH) : nullptr);
     }
     else {
         workgroup_input_layer_forward_dynamic<WIDTH, N_ITERS>(item,
             activation,
             a,
+            at,
             input + elem_idx * input_width,
             weights_layer,
-            out_intermediate_layer + elem_idx * WIDTH,
-            input_width,
-            batch_size);
+            !INFERENCE ? (out_intermediate_layer + elem_idx * WIDTH) : nullptr,
+            input_width);
     }
 
     // Handle hidden layers all together
@@ -360,24 +357,23 @@ void kernel_swift_mlp(nd_item<1> item,
     for (int k = 0; k < n_hidden_matmuls; k++) {
         work_group_layer<WIDTH, N_ITERS, false>(item,
             activation,
-            a + elem_idx * WIDTH,
-            at + elem_idx * WIDTH,
-            weights_layer + first_weight_length + k * hidden_weight_length,
-            out_intermediate_layer + elem_idx * WIDTH + (k + 1) * layer_length
-        );
+            a,
+            at,
+            weights_layer + first_weight_length + k * hidden_weight_lenght,
+            !INFERENCE ? (out_intermediate_layer + elem_idx * WIDTH + (k + 1) * layer_lenght) : nullptr);
     }
 
     // Handle output layer
     if (output_width > 16) {
-        // Code for handling output width > 16
+          workgroup_write_output_static<WIDTH, N_ITERS>(item, a, out_intermediate_layer + elem_idx * WIDTH + (n_hidden_matmuls + 1) * layer_lenght);
     }
     else if (out) {
-        workgroup_last_layer_forward<WIDTH, N_ITERS>(item,
+        /*workgroup_last_layer_forward<WIDTH, N_ITERS>(item,
             output_activation,
             a,
-            weights_layer + first_weight_length + hidden_weight_length * n_hidden_matmuls,
-            out + elem_idx * WIDTH + (n_hidden_matmuls + 1) * layer_length,
-            output_stride);
+            weights_layer + first_weight_length + hidden_weight_lenght * n_hidden_matmuls,
+            out + elem_idx * WIDTH,
+            output_stride);*/
     }
 }
 
@@ -401,7 +397,7 @@ void kernel_swift_mlp(nd_item<1> item,
  * @tparam WIDTH             Width of the layers.
  * @tparam activation        Type of activation for hidden layers.
  */
-template <int WIDTH, Activation activation>
+template <int WIDTH, Activation activation, bool INFERENCE>
 void mlp_swift_forward(queue q,
     Activation output_activation,
     const DeviceMem<bf16>& weights,
@@ -410,39 +406,38 @@ void mlp_swift_forward(queue q,
     DeviceMem<float>& output,
     const int output_stride,
     const int n_hidden_layers,
-    const int batch_size,
     const int input_width,
-    const int output_width) {
+    const int output_width)
+{
     const int N_BLOCKS = WIDTH / TK;
     const int N_ITERS = BATCH_CHUNK / TM;
 
-    // Submit a parallel_for kernel for batched computation
-    q.submit([&](handler& cgh) {
+    q.submit([&](handler& cgh)
+        {
+            local_accessor<bf16> act_mem = local_accessor<bf16>(range<1>(SHMEM_SIZE), cgh);
+            local_accessor<float> act_mem_temp = local_accessor<float>(range<1>(SHMEM_SIZE), cgh);
 
-        local_accessor<bf16> act_mem = local_accessor<bf16>(range<1>(SHMEM_SIZE), cgh);
-        local_accessor<float> act_mem_temp = local_accessor<float>(range<1>(SHMEM_SIZE), cgh);
+            cgh.parallel_for(
+                nd_range<1>(BATCH_SIZE * WG_SIZE / BATCH_CHUNK, WG_SIZE),
+                [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]]
+                {
+                    kernel_swift_mlp<WIDTH, N_ITERS, activation, INFERENCE>(item,
+                        output_activation,
+                        inputs.data(),
+                        weights.data(),
+                        intermediate_output,
+                        act_mem,
+                        act_mem_temp,
+                        output.data(),
+                        output_stride,
+                        input_width,
+                        output_width,
+                        n_hidden_layers - 1,
+                        layout::col_major,
+                        layout::col_major);
 
-        cgh.parallel_for(nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE),
-            [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
-                // Call the Swift MLP kernel for forward pass
-                kernel_swift_mlp<WIDTH, N_ITERS, activation>(
-                    item,
-                    output_activation,
-                    inputs.data(),
-                    weights.data(),
-                    intermediate_output,
-                    act_mem,
-                    act_mem_temp,
-                    output.data(),
-                    batch_size,
-                    output_stride,
-                    input_width,
-                    output_width,
-                    n_hidden_layers - 1,
-                    layout::col_major,
-                    layout::col_major);
-            });
-        });
+                });
+        }).wait();
 }
 
 
@@ -472,15 +467,17 @@ void kernel_swiftnet_backward(
     bf16* weights,
     float* forward,
     float* out_inter,
-    int batch_number,
     uint32_t n_hidden_matmuls
+
 ) {
     auto sg = item.get_sub_group();
+
 
     int groupId = item.get_group(0);
     int sgId = sg.get_group_id();
     int idx = 8 * groupId * N_ITERS;
-    const int layer_length = WIDTH * WIDTH * batch_number;
+    const int batch_size = BATCH_SIZE;
+    const int layer_length = WIDTH * BATCH_SIZE;
 
     workgroup_load_input_static<WIDTH, N_ITERS>(item, a, deltas + groupId * WIDTH * WIDTH);
 
@@ -493,12 +490,10 @@ void kernel_swiftnet_backward(
             at,
             weights + WIDTH * WIDTH * (n_hidden_matmuls - k),
             out_inter + groupId * WIDTH * WIDTH + (n_hidden_matmuls - k - 1) * layer_length,
-            forward + WIDTH * WIDTH * batch_number + WIDTH * WIDTH * batch_number * (n_hidden_matmuls - k - 1) + groupId * WIDTH * WIDTH
+            forward + WIDTH * batch_size + WIDTH * batch_size * (n_hidden_matmuls - k - 1) + groupId * WIDTH * WIDTH
         );
-        item.barrier();
     }
 }
-
 
 /**
  * Multiplies matrices using DGEMM for gradient calculation in the SwiftNet model.
@@ -578,16 +573,18 @@ void mlp_swiftnet_backward(
     DeviceMem<bf16>& deltas,
     DeviceMem<bf16>& grads_matrices,
     float* out_inter,
+    float* delta_temp_,
     float* forward,
     float* A_dgemm,
     float* B_dgemm,
     float* C_dgemm,
-    int batch_size,
     const uint32_t n_hidden_matmuls
 ) {
-    const int layer_lenght = WIDTH * batch_size;
+    // here, weights are already transposed and packed
+    // in deltas, the last layer has already been calculated
+
+    const int layer_lenght = WIDTH * BATCH_SIZE;
     const int N_ITERS = BATCH_CHUNK / TM;
-    int batch_number = batch_size / BATCH_CHUNK;
 
     // Execute the kernel for backward pass
     q.submit([&](handler& h) {
@@ -597,17 +594,17 @@ void mlp_swiftnet_backward(
         auto a = deltas_layers.get_pointer();
         auto at = delta_temp.get_pointer();
 
-        h.parallel_for(nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE), [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
-            kernel_swiftnet_backward<WIDTH, N_ITERS, ACTIVATION>(item, deltas.data(), a, at, grads_matrices.data(), weights_transposed.data(), forward, out_inter, batch_number, n_hidden_matmuls);
+        // Execute DGEMM multiply for each hidden layer
+        h.parallel_for(nd_range<1>(BATCH_SIZE * WG_SIZE / BATCH_CHUNK, WG_SIZE), [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
+            kernel_swiftnet_backward<WIDTH, N_ITERS, ACTIVATION>(item, deltas.data(), a, at, grads_matrices.data(), weights_transposed.data(), forward, out_inter, n_hidden_matmuls);
             });
         }).wait();
 
-        // Execute DGEMM multiply for each hidden layer
         for (int k = 0; k < n_hidden_matmuls; k++) {
-            dgemm_multiply<WIDTH, ACTIVATION>(q, grads_matrices.data(), out_inter, forward, A_dgemm, B_dgemm, C_dgemm, k, batch_size, n_hidden_matmuls);
+            dgemm_multiply<WIDTH, ACTIVATION>(q, grads_matrices.data(), out_inter, forward, A_dgemm, B_dgemm, C_dgemm, k, n_hidden_matmuls);
         }
-}
 
+}
 
 
 /**
@@ -894,31 +891,23 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input, float* forwa
     }
 
     // Handle the case when output_width is greater than 16
-    if (m_output_width > 16) {
-        // Copy intermediate forward array to A
-        m_q.parallel_for<>(range<1>(layer_length), [=](id<1> idx) {
-            A[idx] = (float)forward[idx + (n_hidden_matrices + 1) * layer_length];
-            });
-
-        // Copy weights from packed layout to B
+     if (m_output_width > 16) {
         m_q.parallel_for<>(range<1>(m_output_width * m_net_width), [=](id<1> idx) {
             B[idx] = (float)p[toPackedLayoutCoord(idx, net_width, output_width) + net_width * (inputs_width + n_hidden_matrices * net_width)];
             });
 
-        // Perform matrix multiplication using MKL BLAS
         oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
-            batch_size, m_output_width, WIDTH, 1, A, WIDTH, B, m_output_width, 0, C, m_output_width);
-
-        // Copy the result back to the output data and the forward intermediate array
+            batch_size, m_output_width, WIDTH, 1, forward + (n_hidden_matrices + 1) * layer_length, WIDTH, B, m_output_width, 0, C, m_output_width);
+         
         m_q.parallel_for<>(range<1>(m_output_width * batch_size), [=](id<1> idx) {
-            output.data()[idx] = (float)C[idx];
-            forward[intermediate_output_size + input.size() + idx] = (float)C[idx];
+            output.data()[idx] = C[idx];
+            forward[intermediate_output_size + input.size() + idx] = C[idx];
             }).wait();
     }
 }
 
 template <int WIDTH>
-void SwiftNetMLP<WIDTH>::inference(const DeviceMem<bf16>& input, bf16* act_mem, float* act_mem_temp, float* A, float* B, float* C, DeviceMem<float>& output) {
+void SwiftNetMLP<WIDTH>::inference(const DeviceMem<bf16>& input, float* forward, float* A, float* B, float* C, DeviceMem<float>& output) {
 
     const int output_stride = WIDTH;
     const int batch_size = input.size() / m_inputs_width;
@@ -936,35 +925,25 @@ void SwiftNetMLP<WIDTH>::inference(const DeviceMem<bf16>& input, bf16* act_mem, 
 
 
     switch (m_activation) {
-    case Activation::None:        mlp_swift_forward<WIDTH, Activation::None>(m_q, m_output_activation, m_weights_matrices, input, nullptr, output, output_stride, m_n_hidden_layers, batch_size, m_inputs_width, m_output_width); break;
-    case Activation::Exponential: mlp_swift_forward<WIDTH, Activation::Exponential>(m_q, m_output_activation, m_weights_matrices, input, nullptr, output, output_stride, m_n_hidden_layers, batch_size, m_inputs_width, m_output_width); break;
-    case Activation::Sigmoid:     mlp_swift_forward<WIDTH, Activation::Sigmoid>(m_q, m_output_activation, m_weights_matrices, input, nullptr, output, output_stride, m_n_hidden_layers, batch_size, m_inputs_width, m_output_width); break;
-    case Activation::ReLU:        mlp_swift_forward<WIDTH, Activation::ReLU>(m_q, m_output_activation, m_weights_matrices, input, nullptr, output, output_stride, m_n_hidden_layers, batch_size, m_inputs_width, m_output_width); break;
-    case Activation::LeakyReLU:   mlp_swift_forward<WIDTH, Activation::LeakyReLU>(m_q, m_output_activation, m_weights_matrices, input, nullptr, output, output_stride, m_n_hidden_layers, batch_size, m_inputs_width, m_output_width); break;
-    case Activation::Squareplus:  mlp_swift_forward<WIDTH, Activation::Squareplus>(m_q, m_output_activation, m_weights_matrices, input, nullptr, output, output_stride, m_n_hidden_layers, batch_size, m_inputs_width, m_output_width); break;
-    case Activation::Softplus:    mlp_swift_forward<WIDTH, Activation::Softplus>(m_q, m_output_activation, m_weights_matrices, input, nullptr, output, output_stride, m_n_hidden_layers, batch_size, m_inputs_width, m_output_width); break;
-    case Activation::Tanh:        mlp_swift_forward<WIDTH, Activation::Tanh>(m_q, m_output_activation, m_weights_matrices, input, nullptr, output, output_stride, m_n_hidden_layers, batch_size, m_inputs_width, m_output_width); break;
+    case Activation::None:        mlp_swift_forward<WIDTH, Activation::None, true>(m_q, m_output_activation, m_weights_matrices, input, forward, output, output_stride, m_n_hidden_layers, m_inputs_width, m_output_width); break;
+    case Activation::Exponential: mlp_swift_forward<WIDTH, Activation::Exponential, true>(m_q, m_output_activation, m_weights_matrices, input, forward, output, output_stride, m_n_hidden_layers, m_inputs_width, m_output_width); break;
+    case Activation::Sigmoid:     mlp_swift_forward<WIDTH, Activation::Sigmoid, true>(m_q, m_output_activation, m_weights_matrices, input, forward, output, output_stride, m_n_hidden_layers, m_inputs_width, m_output_width); break;
+    case Activation::ReLU:        mlp_swift_forward<WIDTH, Activation::ReLU, true>(m_q, m_output_activation, m_weights_matrices, input, forward, output, output_stride, m_n_hidden_layers, m_inputs_width, m_output_width); break;
+    case Activation::LeakyReLU:   mlp_swift_forward<WIDTH, Activation::LeakyReLU, true>(m_q, m_output_activation, m_weights_matrices, input, forward, output, output_stride, m_n_hidden_layers, m_inputs_width, m_output_width); break;
+    case Activation::Squareplus:  mlp_swift_forward<WIDTH, Activation::Squareplus, true>(m_q, m_output_activation, m_weights_matrices, input, forward, output, output_stride, m_n_hidden_layers, m_inputs_width, m_output_width); break;
+    case Activation::Softplus:    mlp_swift_forward<WIDTH, Activation::Softplus, true>(m_q, m_output_activation, m_weights_matrices, input, forward, output, output_stride, m_n_hidden_layers, m_inputs_width, m_output_width); break;
+    case Activation::Tanh:        mlp_swift_forward<WIDTH, Activation::Tanh, true>(m_q, m_output_activation, m_weights_matrices, input, forward, output, output_stride, m_n_hidden_layers, m_inputs_width, m_output_width); break;
     default: throw std::runtime_error{"Unsupported activation."};
     }
 
     if (m_output_width > 16) {
-        m_q.parallel_for<>(range<1>(layer_length), [=](id<1> idx) {
-            A[idx] = (float)output.data()[idx];
-            });
-
         m_q.parallel_for<>(range<1>(m_output_width * m_net_width), [=](id<1> idx) {
-            B[idx] = (float)p[toPackedLayoutCoord(idx, net_width, output_width) + net_width * (inputs_width + n_hidden_matrices * net_width)];
+            B[idx] = p[toPackedLayoutCoord(idx, net_width, output_width) + net_width * (inputs_width + n_hidden_matrices * net_width)];
             });
 
         oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
-            batch_size, m_output_width, WIDTH, 1, A, WIDTH, B, m_output_width, 0, C, m_output_width);
-
-
-        m_q.parallel_for<>(range<1>(m_output_width * batch_size), [=](id<1> idx) {
-            output.data()[idx] = (float)C[idx];
-            }).wait();
+            batch_size, m_output_width, WIDTH, 1, A, WIDTH, B, m_output_width, 0, output.data(), m_output_width);
     }
-
 }
 
 /**
@@ -982,56 +961,61 @@ void SwiftNetMLP<WIDTH>::inference(const DeviceMem<bf16>& input, bf16* act_mem, 
  * @param F Temporary array F for matrix multiplication.
  */
 template <int WIDTH>
-void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads, float* forward, DeviceMem<bf16>& loss, int batch_size, float* A, float* B, float* C, float* D, float* E, float* F) {
-    // Get pointers to weights matrices data
+void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads,
+    float* forward,
+    DeviceMem<bf16>& loss,
+    int batch_size,
+    float* A,
+    float* B,
+    float* C,
+    float* D,
+    float* E,
+    float* F) {
+
     auto p_w = m_weightsT_matrices.data();
     auto p_g = m_grads_matrices.data();
-
-    // Offsets for weights matrices and forward intermediate array
     const int offset_w = m_n_hidden_matrices * m_net_width * m_net_width + m_net_width * m_inputs_width;
-    const int offset_f = (m_inputs_width + (m_n_hidden_matrices - 1) * batch_size) * m_net_width;
     const int offset_g = m_inputs_width * m_net_width + (m_n_hidden_matrices - 1) * m_net_width * m_net_width;
-
-    // Constants
+    const int offset_f = (m_inputs_width + (m_n_hidden_matrices - 1) * batch_size) * m_net_width;
     const int output_width = m_output_width;
     const int net_width = m_net_width;
-    const auto activation = m_activation;
 
-    // Copy loss gradients to array A
+    int i = 0;
+    int j = 0;
+    auto activation = m_activation;
+
+
+
     m_q.parallel_for<>(range<1>(grads.size()), [=](id<1> idx) {
         A[idx] = (float)loss.data()[idx];
         }).wait();
 
-        // Copy weights from packed layout to array B
         m_q.parallel_for<>(range<1>(m_output_width * WIDTH), [=](id<1> idx) {
-            B[idx] = (float)p_w[offset_w + toPackedLayoutCoord(idx, output_width, net_width)];
+            B[idx] = p_w[offset_w + toPackedLayoutCoord(idx, output_width, net_width)];
             }).wait();
 
-            // Perform matrix multiplication using MKL BLAS
             oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
                 batch_size, m_net_width, m_output_width, 1, A, m_output_width, B, m_net_width, 0, C, m_net_width);
 
-            // Compute activation backpropagation using parallel_for
             m_q.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
                 int i = idx / batch_size;
                 int j = idx % batch_size;
-                D[i * batch_size + j] = (float)elt_activation_ret<float>(activation, forward[offset_f + j * net_width + i]);
+                D[i * batch_size + j] = elt_activation_ret<float>(activation, forward[offset_f + j * net_width + i]);
                 }).wait();
 
-                // Compute activation backpropagation using parallel_for and copy to loss array
                 m_q.parallel_for<>(range<1>(m_net_width * batch_size), [=](id<1> idx) {
                     elt_activation_bwd<float, float, float>(activation, C[idx], forward[offset_f + idx], E[idx]);
                     loss.data()[idx] = (bf16)E[idx];
                     }).wait();
 
-                    // Perform matrix multiplication using MKL BLAS
+
                     oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
                         m_net_width, m_net_width, batch_size, 1, D, batch_size, E, m_net_width, 0, F, m_net_width);
 
-                    // Copy the result back to the gradients matrix
                     m_q.parallel_for<>(range<1>(m_net_width * m_net_width), [=](id<1> idx) {
                         p_g[idx + offset_g] = (float)F[idx];
                         }).wait();
+
 }
 
 
@@ -1057,6 +1041,77 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads, float
  * @param C_dgemm Temporary array C for DGEMM.
  * @param forward Pointer to the forward intermediate array.
  */
+template <int WIDTH>
+void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input,
+    DeviceMem<bf16>& grads,
+    float* out_inter,
+    float* delta_temp,
+    DeviceMem<bf16> loss,
+    float* A,
+    float* B,
+    float* C,
+    float* A_backward_last_layer,
+    float* B_backward_last_layer,
+    float* C_backward_last_layer,
+    float* D_backward_last_layer,
+    float* E_backward_last_layer,
+    float* F_backward_last_layer,
+    float* A_dgemm,
+    float* B_dgemm,
+    float* C_dgemm,
+    float* forward) {
+
+    int batch_size = input.size() / m_inputs_width;
+    auto p = m_grads_matrices.data();
+    int s = m_grads_matrices.size();
+    auto activation = m_activation;
+    auto output_activation = m_output_activation;
+    const int offset_grad = m_n_hidden_matrices * m_net_width * m_net_width + m_inputs_width * m_net_width;
+    const int offset_f = m_inputs_width * batch_size + m_n_hidden_matrices * m_net_width * batch_size;
+
+    const size_t alignment = 1024;
+
+    // Compute activation backpropagation using parallel_for
+    m_q.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
+        int i = idx / batch_size;
+        int j = idx % batch_size;
+        A[i * batch_size + j] = elt_activation_ret<float>(activation, forward[offset_f + j * WIDTH + i]);
+        }).wait();
+
+    // Compute output activation backpropagation using parallel_for and copy to loss array
+    m_q.parallel_for<>(range<1>(batch_size * m_output_width), [=](id<1> idx) {
+            elt_activation_bwd<bf16, float, float>(output_activation, grads.data()[idx], forward[offset_f + batch_size * WIDTH + idx], B[idx]);
+            loss.data()[idx] = (bf16)B[idx];
+            }).wait();
+
+    // Perform matrix multiplication using MKL BLAS
+    oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
+                m_net_width, m_output_width, batch_size, 1, A, batch_size, B, m_output_width, 0, C, m_output_width);
+    
+    // Copy the result back to the gradients matrix
+    m_q.parallel_for<>(range<1>(m_net_width * m_output_width), [=](id<1> idx) {
+                p[idx + offset_grad] = (float)C[idx];
+                }).wait();
+
+                // Backpropagation through last layer using dgemm_last_layer_backward
+                dgemm_last_layer_backward(grads, forward, loss, batch_size, A_backward_last_layer, B_backward_last_layer, C_backward_last_layer, D_backward_last_layer, E_backward_last_layer, F_backward_last_layer);
+
+                // Choose appropriate mlp_swiftnet_backward based on activation
+                switch (m_activation) {
+                case Activation::None: mlp_swiftnet_backward<WIDTH, Activation::None>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, forward, A_dgemm, B_dgemm, C_dgemm, batch_size, m_n_hidden_matrices); break;
+                case Activation::ReLU: mlp_swiftnet_backward<WIDTH, Activation::ReLU>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, forward, A_dgemm, B_dgemm, C_dgemm, batch_size, m_n_hidden_matrices); break;
+                case Activation::LeakyReLU: mlp_swiftnet_backward<WIDTH, Activation::LeakyReLU>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, forward, A_dgemm, B_dgemm, C_dgemm, batch_size, m_n_hidden_matrices); break;
+                case Activation::Exponential: mlp_swiftnet_backward<WIDTH, Activation::Exponential>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, forward, A_dgemm, B_dgemm, C_dgemm, batch_size, m_n_hidden_matrices); break;
+                case Activation::Sigmoid: mlp_swiftnet_backward<WIDTH, Activation::Sigmoid>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, forward, A_dgemm, B_dgemm, C_dgemm, batch_size, m_n_hidden_matrices); break;
+                case Activation::Tanh: mlp_swiftnet_backward<WIDTH, Activation::Tanh>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, forward, A_dgemm, B_dgemm, C_dgemm, batch_size, m_n_hidden_matrices); break;
+                default: return;
+                }
+
+                // Normalize gradients
+                m_q.parallel_for<>(range<1>(s), [=](id<1> idx) {
+                    p[idx] /= batch_size;
+                    }).wait();
+}
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<bf16>& grads, float* out_inter, float* delta_temp, DeviceMem<bf16> loss, float* A, float* B, float* C, float* A_backward_last_layer, float* B_backward_last_layer, float* C_backward_last_layer, float* D_backward_last_layer, float* E_backward_last_layer, float* F_backward_last_layer, float* A_dgemm, float* B_dgemm, float* C_dgemm, float* forward) {
     int batch_size = input.size() / m_inputs_width;
