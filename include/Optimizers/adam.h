@@ -11,6 +11,8 @@ public:
     void set_learning_rate(const float learning_rate);
 
 private:
+    DeviceMem<float> m_first_moments;
+    DeviceMem<float> m_second_moments;
 
     int m_output_rows;
     int m_n_hidden_layers;
