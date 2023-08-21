@@ -6,8 +6,6 @@
 class AdamOptimizer : public Optimizer {
 public:
 
-    AdamOptimizer(int output_rows, int n_hidden_layers, float learning_rate, float l2_reg);
-
     void step(queue q, float loss_scale, DeviceMem<bf16>& weights, DeviceMem<bf16>& weightsT, DeviceMem<bf16>& gradients, int WIDTH) override;
 
     void set_learning_rate(const float learning_rate);
