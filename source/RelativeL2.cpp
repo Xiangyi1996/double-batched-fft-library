@@ -1,5 +1,3 @@
-#pragma once
-
 #include "RelativeL2.h"
 
 void Relative_L2_loss(id<1> idx,
