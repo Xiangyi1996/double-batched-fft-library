@@ -1,5 +1,3 @@
-#pragma once
-
 #include "L1.h"
 
 void L1_loss(
