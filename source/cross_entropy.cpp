@@ -1,5 +1,3 @@
-#pragma once
-
 #include "cross_entropy.h"
 
 void cross_entropy_loss(id<1> idx,
