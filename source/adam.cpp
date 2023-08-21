@@ -1,6 +1,4 @@
-#pragma once
 #include "adam.h"
-#include <vector>
 
 void adam_step(id<1> idx,
 	const int n_elements,
