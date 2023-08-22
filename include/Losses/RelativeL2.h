@@ -3,7 +3,7 @@
 #include "loss.h"
 
 
-class CrossEntropyLoss : public Loss {
+class RelativeL2 : public Loss {
 public:
     void evaluate(
         queue q,
