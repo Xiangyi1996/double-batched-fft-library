@@ -13,7 +13,7 @@ clean:
 
 pvc_build:
         tail -n +10 source/SwiftNetMLP.cpp > temp && mv temp source/SwiftNetMLP.cpp
-        cat pvc_header | cat - SwiftNetMLP.cpp > temp && mv temp source/SwiftNetMLP.cpp
+        cat pvc_header | cat - source/SwiftNetMLP.cpp > temp && mv temp source/SwiftNetMLP.cpp
 
 dg2_build:
         tail -n +10 source/SwiftNetMLP.cpp > temp && mv temp source/SwiftNetMLP.cpp
