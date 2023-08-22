@@ -20,19 +20,19 @@ static constexpr float PI = 3.14159265358979323846f;
 
 template<typename T, typename resT>
 void elt_activation(Activation activation, T& elt, resT& res) {
-	float q = ((float)elt / (2 * PI));
+	float q = (elt / (2 * PI));
 	switch (activation) {
 	case Activation::ReLU:
 		if (elt < (T)0.0f) {
-			res = (resT)0.0f;
+			res = 0.0f;
 		}
 		else {
-			res = (resT)elt;
+			res = elt;
 		}
 		break;
 	case Activation::LeakyReLU:
 		if (elt >= 0) {
-			res = (resT)elt;
+			res = elt;
 		}
 		else {
 			res = (resT)0.01f * (resT)elt;
@@ -43,17 +43,17 @@ void elt_activation(Activation activation, T& elt, resT& res) {
 
 		break;
 	case Activation::Sine:
-		res = (resT)((elt)-floor(q) * 2 * PI);
-		res = (resT)sinf((float)elt);
+		res = (-floor(q) * 2 * PI);
+		res = sinf(elt);
 		break;
 	case Activation::Sigmoid:
-		res = (resT)(1.0f / (1.0f + expf((float)-elt)));
+		res = (1.0f / (1.0f + expf(-elt)));
 		break;
 	case Activation::None:
-		res = (resT)elt;
+		res = elt;
 		break;
 	case Activation::Tanh:
-		res = (resT)(tanhf((float)elt));
+		res = (tanhf(elt));
 		break;
 	default:
 		break;
