@@ -1,10 +1,10 @@
 #pragma once
 
-#include "SwiftNetMLP.h"
-#include "L2.h"
 #include "DeviceMem.h"
-#include "optimizer.h"
+#include "loss.h"
 #include "Network.h"
+#include "optimizer.h"
+#include "L2.h"
 
 class Trainer {
 public:
@@ -17,12 +17,10 @@ public:
 
 	void training_step(DeviceMem<bf16>& input,
 		float* forward,
-		bf16* act_mem,
-		float* act_mem_temp,
 		float* A_forward,
 		float* B_forward,
-		float* C_forward, 
-		float* out_inter, 
+		float* C_forward,
+		float* out_inter,
 		float* delta_temp,
 		DeviceMem<bf16> loss,
 		float* A_backward,
@@ -30,8 +28,8 @@ public:
 		float* C_backward,
 		float* A_backward_last_layer,
 		float* B_backward_last_layer,
-		float* C_backward_last_layer, 
-		float* D_backward_last_layer, 
+		float* C_backward_last_layer,
+		float* D_backward_last_layer,
 		float* E_backward_last_layer,
 		float* F_backward_last_layer,
 		float* A_dgemm,
@@ -48,10 +46,10 @@ public:
 
 
 		m_network->get_queue().parallel_for<>(range<1>(input.size()), [=](id<1> idx) {
-			forward[idx] = (float)input.data()[idx];
+			forward[idx] = input.data()[idx];
 			});
 
-		m_network->forward_pass(input, forward, act_mem, act_mem_temp, A_forward, B_forward, C_forward, output);
+		m_network->forward_pass(input, forward, A_forward, B_forward, C_forward, output);
 
 		m_loss->evaluate(m_network->get_queue(), WIDTH, WIDTH, scale, output, target, grads, losses);
 
@@ -76,7 +74,11 @@ public:
 
 		m_optim->step(m_network->get_queue(), scale, m_network->m_weights_matrices, m_network->m_weightsT_matrices, m_network->m_grads_matrices, WIDTH);
 
+
 	}
+	Network* m_network;
+	Loss* m_loss;
+	Optimizer* m_optim;
 
 	void initialize_params() {
 		m_network->initialize_params();
@@ -84,7 +86,4 @@ public:
 
 private:
 
-	Network* m_network;
-	Loss* m_loss;
-	Optimizer* m_optim;
 };
