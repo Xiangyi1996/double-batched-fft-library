@@ -20,42 +20,48 @@ static constexpr float PI = 3.14159265358979323846f;
 
 template<typename T, typename resT>
 void elt_activation(Activation activation, T& elt, resT& res) {
-	float q = (elt / (2 * PI));
 	switch (activation) {
 	case Activation::ReLU:
 		if (elt < (T)0.0f) {
-			res = 0.0f;
+			res = (resT)0.0f;
 		}
 		else {
-			res = elt;
+			res = (resT)elt;
 		}
+		return;
 		break;
 	case Activation::LeakyReLU:
 		if (elt >= 0) {
-			res = elt;
+			res = (resT)elt;
 		}
 		else {
 			res = (resT)0.01f * (resT)elt;
 		}
+		return;
 		break;
 	case Activation::Exponential:
 		res = (resT)exp((float)elt);
-
+		return;
 		break;
 	case Activation::Sine:
-		res = (-floor(q) * 2 * PI);
-		res = sinf(elt);
+		res = (resT)((elt)-floor(elt / (2 * PI)) * 2 * PI);
+		res = (resT)sinf((float)res);
+		return;
 		break;
 	case Activation::Sigmoid:
-		res = (1.0f / (1.0f + expf(-elt)));
+		res = (resT)(1.0f / (1.0f + expf((float)-elt)));
+		return;
 		break;
 	case Activation::None:
 		res = elt;
+		return;
 		break;
 	case Activation::Tanh:
-		res = (tanhf(elt));
+		res = (resT)(((expf((float)elt) - expf((float)-elt))) / (expf((float)elt) + expf((float)-elt)));
+		return;
 		break;
 	default:
+		return;
 		break;
 	}
 }
@@ -203,8 +209,8 @@ void matrix_activation(Activation activation, multi_ptr<T, access::address_space
 
 	for (int i = 0; i < 8; i++) {
 		elt_activation<T, resT>(activation, elt[offset + i * stride],  res[offset + i * stride]);
+
 	}
-	return;
 }
 
 template<typename outT, typename fwdT, typename resT, int SG_SZ>
