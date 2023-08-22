@@ -1143,12 +1143,12 @@ void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>& input, DeviceMem<b
 
                 // Choose appropriate mlp_swiftnet_backward based on activation
                 switch (m_activation) {
-                case Activation::None: mlp_swiftnet_backward<WIDTH, Activation::None>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, forward, A_dgemm, B_dgemm, C_dgemm, m_n_hidden_matrices); break;
-                case Activation::ReLU: mlp_swiftnet_backward<WIDTH, Activation::ReLU>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, forward, A_dgemm, B_dgemm, C_dgemm, m_n_hidden_matrices); break;
-                case Activation::LeakyReLU: mlp_swiftnet_backward<WIDTH, Activation::LeakyReLU>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, forward, A_dgemm, B_dgemm, C_dgemm, m_n_hidden_matrices); break;
-                case Activation::Exponential: mlp_swiftnet_backward<WIDTH, Activation::Exponential>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, forward, A_dgemm, B_dgemm, C_dgemm, m_n_hidden_matrices); break;
-                case Activation::Sigmoid: mlp_swiftnet_backward<WIDTH, Activation::Sigmoid>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, forward, A_dgemm, B_dgemm, C_dgemm, m_n_hidden_matrices); break;
-                case Activation::Tanh: mlp_swiftnet_backward<WIDTH, Activation::Tanh>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, forward, A_dgemm, B_dgemm, C_dgemm, m_n_hidden_matrices); break;
+                case Activation::None: mlp_swiftnet_backward<WIDTH, Activation::None>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, delta_temp, forward, A_dgemm, B_dgemm, C_dgemm, m_n_hidden_matrices); break;
+                case Activation::ReLU: mlp_swiftnet_backward<WIDTH, Activation::ReLU>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, delta_temp, forward, A_dgemm, B_dgemm, C_dgemm, m_n_hidden_matrices); break;
+                case Activation::LeakyReLU: mlp_swiftnet_backward<WIDTH, Activation::LeakyReLU>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, delta_temp, forward, A_dgemm, B_dgemm, C_dgemm, m_n_hidden_matrices); break;
+                case Activation::Exponential: mlp_swiftnet_backward<WIDTH, Activation::Exponential>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, delta_temp, forward, A_dgemm, B_dgemm, C_dgemm, m_n_hidden_matrices); break;
+                case Activation::Sigmoid: mlp_swiftnet_backward<WIDTH, Activation::Sigmoid>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, delta_temp, forward, A_dgemm, B_dgemm, C_dgemm, m_n_hidden_matrices); break;
+                case Activation::Tanh: mlp_swiftnet_backward<WIDTH, Activation::Tanh>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter, delta_temp, forward, A_dgemm, B_dgemm, C_dgemm, m_n_hidden_matrices); break;
                 default: return;
                 }
 
