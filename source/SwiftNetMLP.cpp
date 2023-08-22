@@ -623,14 +623,15 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
     int output_width,
     int n_hidden_layers,
     Activation activation,
-    Activation output_activation
+    Activation output_activation,
+    int batch_size
 ) :
     m_inputs_width{ input_width },
     m_net_width{ WIDTH },
     m_output_width{ output_width },
     m_n_hidden_layers{ n_hidden_layers },
     m_activation{ activation },
-    m_output_activation{ output_activation }
+    m_output_activation{ output_activation },
     m_batch_size{ batch_size }
 {
     // Store provided parameters
