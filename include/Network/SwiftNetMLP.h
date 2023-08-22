@@ -22,7 +22,7 @@ using json = nlohmann::json;
 template <int WIDTH>
 class SwiftNetMLP : public Network {
 public:
-    SwiftNetMLP(queue q, int input_width, int output_width, int n_hidden_layers, Activation activation, Activation output_activation, batch_size);
+    SwiftNetMLP(queue q, int input_width, int output_width, int n_hidden_layers, Activation activation, Activation output_activation, int batch_size);
     ~SwiftNetMLP();
     void forward_pass(const DeviceMem<bf16>& input, float* forward, float* A, float* B, float* C, DeviceMem<float>& output) override;
 
