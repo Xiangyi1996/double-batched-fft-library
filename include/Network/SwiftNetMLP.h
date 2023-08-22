@@ -82,6 +82,7 @@ private:
     int m_net_width;
     int m_output_width;
     int m_padded_output_width;
+    int m_batch_size;
 
     Activation m_activation;
     Activation m_output_activation;
