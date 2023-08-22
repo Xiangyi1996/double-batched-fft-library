@@ -679,6 +679,10 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
     m_C_dgemm = sycl::aligned_alloc_device<float>(m_alignment, WIDTH * WIDTH, q);
 }
 
+template<int WIDTH>
+SwiftNetMLP<WIDTH>::~SwiftNetMLP(){
+    
+}
 /**
  * Get a pointer to the gradients matrices.
  *
