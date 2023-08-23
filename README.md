@@ -49,6 +49,7 @@ nlohmann::json config = {
 		{"output_activation", "None"},
 		{"n_neurons", 64},
 		{"n_hidden_layers", 2},
+		{"batch_size", 256}
 	}},
 	};
 
@@ -57,14 +58,17 @@ auto model = create_from_config<64>(q, config);
 model.trainer.initialize_params();
 
 for (int i =0; i< n_iterations; i++){
+	// fill input here with your code
+	
 	model.train.training_step(inputs, output, target, grads, losses, scale);
+
 }
 
 ```
 
 ## Build
 
-To build the tiny-nn librairy, currently you need to upload all the files from the repos inside a unique folder and run the following command :
+To build the tiny-nn librairy, you can clone the github repo on your machine and then your code inside a main function in the source folder, then you can build the library using :
 
 source /opt/intel/oneapi/setvars.sh intel64
 make <options>
