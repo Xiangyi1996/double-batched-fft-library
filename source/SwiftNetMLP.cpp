@@ -362,7 +362,9 @@ void kernel_swift_mlp(nd_item<1> item,
 
     // Handle output layer
     if (output_width > 16) {
+        if (INFERENCE){
           workgroup_write_output_static<WIDTH, N_ITERS>(item, a, out_intermediate_layer + elem_idx * WIDTH + (n_hidden_matmuls + 1) * layer_lenght);
+        }
     }
     else if (out) {
         /*workgroup_last_layer_forward<WIDTH, N_ITERS>(item,
