@@ -107,6 +107,7 @@ void test1() {
             {"output_activation", "None"},
             {"n_neurons", 64},
             {"n_hidden_layers", 2},
+            {"batch_size", 256}
     }},
     };
 
@@ -114,7 +115,7 @@ void test1() {
 
     L2Loss loss;
     SGDOptimizer optim = SGDOptimizer(128, 2, 1e-3f, 1e-8f);
-    SwiftNetMLP<64> network = SwiftNetMLP<64>(q, 64, 128, 2, Activation::None, Activation::None);
+    SwiftNetMLP<64> network = SwiftNetMLP<64>(q, 64, 128, 2, Activation::None, Activation::None, batch_size);
     Trainer train(network, loss, optim);
 
     train.initialize_params();
@@ -127,8 +128,6 @@ void test1() {
         std::cout << i << std::endl;
         train.training_step(inputs,
             forward,
-            act_mem,
-            act_mem_temp,
             A_forward,
             B_forward,
             C_forward,
@@ -154,32 +153,6 @@ void test1() {
             scale,
             64);
     }
-
-    inputs.free_mem(q);
-    output.free_mem(q);
-    target.free_mem(q);
-    grads.free_mem(q);
-    losses.free_mem(q);
-    free(act_mem, q);
-    free(act_mem_temp, q);
-    free(out_inter, q);
-    free(deltas_temp, q);
-    free(A_forward, q);
-    free(B_forward, q);
-    free(C_forward, q);
-    deltas.free_mem(q);
-    free(A_backward, q);
-    free(B_backward, q);
-    free(C_backward, q);
-    free(A_backward_last_layer, q);
-    free(B_backward_last_layer, q);
-    free(C_backward_last_layer, q);
-    free(D_backward_last_layer, q);
-    free(E_backward_last_layer, q);
-    free(F_backward_last_layer, q);
-    free(A_dgemm, q);
-    free(B_dgemm, q);
-    free(C_dgemm, q);
 }
 
 int main() {
