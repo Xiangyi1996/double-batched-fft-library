@@ -40,26 +40,26 @@ void elt_activation(Activation activation, T& elt, resT& res) {
 		return;
 		break;
 	case Activation::Exponential:
-		res = (resT)exp((float)elt);
+		res = (resT)exp(elt);
 		return;
 		break;
 	case Activation::Sine:
 		res = (resT)((elt)-floor(elt / (2 * PI)) * 2 * PI);
-		res = (resT)sinf((float)res);
+		res = (resT)sinf(res);
 		return;
 		break;
 	case Activation::Sigmoid:
-		res = (resT)(1.0f / (1.0f + expf((float)-elt)));
+		res = (resT)(1.0f / (1.0f + expf(-elt)));
 		return;
 		break;
 	case Activation::None:
 		res = elt;
 		return;
 		break;
-	case Activation::Tanh:
-		res = (resT)(((expf((float)elt) - expf((float)-elt))) / (expf((float)elt) + expf((float)-elt)));
+	/*case Activation::Tanh:
+		res = (resT)(((expf(elt) - expf(-elt))) / (expf(elt) + expf(-elt)));
 		return;
-		break;
+		break;*/
 	default:
 		return;
 		break;
@@ -209,7 +209,6 @@ void matrix_activation(Activation activation, multi_ptr<T, access::address_space
 
 	for (int i = 0; i < 8; i++) {
 		elt_activation<T, resT>(activation, elt[offset + i * stride],  res[offset + i * stride]);
-
 	}
 }
 
