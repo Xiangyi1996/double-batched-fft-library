@@ -92,7 +92,7 @@ void work_group_layer(nd_item<1> item, Activation activation, multi_ptr<bf16, ac
         }
         else {
             // Apply forward activation matrix
-            matrix_activation<float, bf16, SG_SIZE>(activation, at, a, TN * sgId + (WIDTH + SKEW) * TM * i + id, (WIDTH + SKEW));
+           matrix_activation<float, bf16, SG_SIZE>(activation, at, a, TN * sgId + (WIDTH + SKEW) * TM * i + id, (WIDTH + SKEW));
         }
     }
 
@@ -101,7 +101,7 @@ void work_group_layer(nd_item<1> item, Activation activation, multi_ptr<bf16, ac
         for (int i = 0; i < N_ITERS; i++) {
             for (int k = 0; k < TM; k++) {
                // Copy results to the output intermediate matrix
-                out_inter[TN * sgId + WIDTH * TM * i + k * WIDTH + id] = at[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id];
+               out_inter[TN * sgId + WIDTH * TM * i + k * WIDTH + id] = at[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id];
             }
         }
     }
@@ -130,14 +130,14 @@ void workgroup_load_input_static(nd_item<1> item, multi_ptr<bf16, access::addres
     for (int i = 0; i < N_ITERS; i++) {
         for (int k = 0; k < TM; k++) {
             // Copy input data to activation memory
-            a[TN * sgId + ( WIDTH + SKEW ) * TM * i + k * (WIDTH + SKEW) + id] = input[TN * sgId + WIDTH * TM * i + k * WIDTH + id];
+            //a[TN * sgId + ( WIDTH + SKEW ) * TM * i + k * (WIDTH + SKEW) + id] = input[TN * sgId + WIDTH * TM * i + k * WIDTH + id];
         }
     }
 }
 
 
 
-/**
+/*
  * Writes data from shared memory to the output thread block using a static pattern for work groups.
  *
  * @param item              The SYCL nd_item representing the work item.
@@ -370,7 +370,7 @@ void kernel_swift_mlp(nd_item<1> item,
     // Handle output layer
     if (output_width > 16) {
         if (INFERENCE) {
-            workgroup_write_output_static<WIDTH, N_ITERS>(item, a, out_intermediate_layer + elem_idx * WIDTH + (n_hidden_matmuls + 1) * layer_lenght);
+           workgroup_write_output_static<WIDTH, N_ITERS>(item, a, out_intermediate_layer + elem_idx * WIDTH + (n_hidden_matmuls + 1) * layer_lenght);
         }
     }
     else if (out) {
