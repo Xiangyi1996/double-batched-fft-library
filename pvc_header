@@ -5,5 +5,5 @@
 #define SG_SIZE 16
 #define WG_SIZE 4*SG_SIZE
 
-#define BATCH_CHUNK 16
-#define SHMEM_SIZE 1024
+#define BATCH_CHUNK 32
+#define SHMEM_SIZE 2048
