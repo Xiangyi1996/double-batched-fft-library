@@ -12,11 +12,11 @@ clean:
         rm -fr *.o
 
 pvc_build:
-        tail -n +10 source/SwiftNetMLP.cpp > temp && mv temp source/SwiftNetMLP.cpp
+        tail -n +11 source/SwiftNetMLP.cpp > temp && mv temp source/SwiftNetMLP.cpp
         cat pvc_header | cat - source/SwiftNetMLP.cpp > temp && mv temp source/SwiftNetMLP.cpp
 
 dg2_build:
-        tail -n +10 source/SwiftNetMLP.cpp > temp && mv temp source/SwiftNetMLP.cpp
+        tail -n +11 source/SwiftNetMLP.cpp > temp && mv temp source/SwiftNetMLP.cpp
         cat dg2_header | cat - source/SwiftNetMLP.cpp > temp && mv temp source/SwiftNetMLP.cpp
         $(eval GPU = dg2-g12)
         @echo "$(GPU)"
