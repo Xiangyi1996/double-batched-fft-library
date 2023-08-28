@@ -23,7 +23,7 @@ DeviceMem<T>::DeviceMem(int size, queue q) {
         return;
     }
     m_size = size;
-    m_data = (T*)malloc_device(size, q);
+    m_data = malloc_device<T>(size, q);
 }
 
 /**
@@ -38,7 +38,7 @@ void DeviceMem<T>::allocate(int size, queue q) {
         return;
     }
     m_size = size;
-    m_data = (T*)malloc_device(size, q);
+    m_data = malloc_device<T>(size, q);
 }
 
 /**
@@ -72,6 +72,7 @@ void DeviceMem<T>::free_mem() {
 template<typename T>
 void DeviceMem<T>::copy_from_host(std::vector<T>& data, int n, queue q) {
     q.memcpy(m_data, data.data(), n * sizeof(T));
+    q.wait();
 }
 
 /**
@@ -84,6 +85,7 @@ void DeviceMem<T>::copy_from_host(std::vector<T>& data, int n, queue q) {
 template<typename T>
 void DeviceMem<T>::copy_to_host(std::vector<T>& data, int n, queue q) {
     q.memcpy(data.data(), m_data, n * sizeof(T));
+    q.wait();
 }
 
 /**
