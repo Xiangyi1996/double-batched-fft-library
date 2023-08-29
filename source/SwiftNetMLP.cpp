@@ -40,8 +40,6 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 template <int WIDTH, int N_ITERS, bool BACKWARD = false>
 void work_group_layer(nd_item<1> item, Activation activation, multi_ptr<bf16, access::address_space::local_space, (access::decorated)2> a, multi_ptr<float, access::address_space::local_space, (access::decorated)2> at, bf16* weights_layer, float* out_inter, float* forward_act = nullptr) {
    
-    constexpr int SKEW = WIDTH % 16 == 0 ? 8 : 0;
-    
     // Get sub-group and local IDs
     auto sg = item.get_sub_group();
     int id = item.get_local_id() % SG_SIZE;
@@ -119,7 +117,6 @@ void work_group_layer(nd_item<1> item, Activation activation, multi_ptr<bf16, ac
  */
 template <int WIDTH, int N_ITERS>
 void workgroup_load_input_static(nd_item<1> item, multi_ptr<bf16, access::address_space::local_space, (access::decorated)2> a, const bf16* input) {
-    constexpr int SKEW = WIDTH % 16 == 0 ? 8 : 0;
     
     // Get local ID and sub-group information
     int id = item.get_local_id() % SG_SIZE;
@@ -130,7 +127,7 @@ void workgroup_load_input_static(nd_item<1> item, multi_ptr<bf16, access::addres
     for (int i = 0; i < N_ITERS; i++) {
         for (int k = 0; k < TM; k++) {
             // Copy input data to activation memory
-            //a[TN * sgId + ( WIDTH + SKEW ) * TM * i + k * (WIDTH + SKEW) + id] = input[TN * sgId + WIDTH * TM * i + k * WIDTH + id];
+            a[TN * sgId + ( WIDTH + SKEW ) * TM * i + k * (WIDTH + SKEW) + id] = input[TN * sgId + WIDTH * TM * i + k * WIDTH + id];
         }
     }
 }
@@ -148,7 +145,6 @@ void workgroup_load_input_static(nd_item<1> item, multi_ptr<bf16, access::addres
  */
 template <int WIDTH, int N_ITERS>
 void workgroup_write_output_static(nd_item<1> item, multi_ptr<bf16, access::address_space::local_space, (access::decorated)2> a, float* output_threadblock) {
-    constexpr int SKEW = WIDTH % 16 == 0 ? 8 : 0;
     
     // Get local ID and sub-group information
     int id = item.get_local_id() % SG_SIZE;
@@ -416,7 +412,6 @@ void mlp_swift_forward(queue q,
     const int output_width,
     int batch_size)
 {
-    constexpr int SKEW = WIDTH % 16 == 0 ? 8 : 0;
 
     const int N_BLOCKS = WIDTH / TK;
     const int N_ITERS = BATCH_CHUNK / TM;
@@ -587,8 +582,6 @@ void mlp_swiftnet_backward(
     const uint32_t n_hidden_matmuls,
     int batch_size
 ) {
-
-    constexpr int SKEW = WIDTH % 16 == 0 ? 8 : 0;
 
     // here, weights are already transposed and packed
     // in deltas, the last layer has already been calculated
