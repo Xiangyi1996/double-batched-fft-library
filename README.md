@@ -6,7 +6,7 @@ Because this network is tight, we are able to load both the activation matrices 
 The computation of the product of matrices is realised thanks to an Intel extension called joint_matrix, that is a high-level wrapper to realise systolic array operations. We also use OneMKL to realise matrices product with bigger dimension when to input or the output are too large to fit the matrix in the L1 memory and use joint_matrix.
 
 ## Performance on DG2
-![Image](data/train_throughput.png)
+![Image](data/train_throughput.png = 100x)
 ![Image](data/inf_throughput.png)
 
 ## Usage 
