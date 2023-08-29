@@ -1,35 +1,35 @@
 #pragma once
 
-#include<iostream>
-#include<vector>
+#include <iostream>
+#include <vector>
 #include <CL/sycl.hpp>
 
-int toPackedLayoutCoord(int idx, int rows, int cols) {
-    int i = idx / cols;
-    int j = idx % cols;
-    if (i % 2 == 0) {
-        return i * cols + 2 * j;
-    }
-    else {
-        return (i - 1) * cols + 2 * j + 1;
-    }
-}
-// Row et cols correspondent au nombre de rows et cols de la matrice d'origine pas celle en packec layout ( qui est donc cols*2 rows/2)
-int fromPackedLayoutCoord(int idx, int rows, int cols) {
-    int i = idx / (cols * 2);
-    int j = idx % (cols * 2);
-    if (j % 2 == 0) {
-        return (i * 2) * cols + j / 2;
-    }
-    else {
-        return (i * 2 + 1) * cols + (j - 1) / 2;
-    }
-}
+/**
+ * @brief Convert index from original matrix layout to packed layout
+ *
+ * @param idx Index in packed layout
+ * @param rows Number of rows in original matrix
+ * @param cols Number of columns in original matrix
+ * @return Index in packed matrix layout
+ */
+extern SYCL_EXTERNAL int toPackedLayoutCoord(int idx, int rows, int cols);
 
-bool isequalstring(const std::string& str1, const std::string& str2) {
-    if (str1.length() != str2.length()) { return false; }
-    for (int i = 0; i < str1.length(); i++) {
-        if (std::tolower(str1[i]) != std::tolower(str2[i])) { return false; }
-    }
-    return true;
-}
+/**
+ * @brief Convert index from packed layout to original matrix layout
+ *
+ * @param idx Index in original matrix layout
+ * @param rows Number of rows in original matrix
+ * @param cols Number of columns in original matrix
+ * @return Index in original matrix layout
+ */
+extern SYCL_EXTERNAL int fromPackedLayoutCoord(int idx, int rows, int cols);
+
+/**
+ * @brief Compare two strings case-insensitively
+ *
+ * @param str1 First string
+ * @param str2 Second string
+ * @return True if the strings are equal, false otherwise
+ */
+extern SYCL_EXTERNAL bool isequalstring(const std::string& str1, const std::string& str2);
+

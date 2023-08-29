@@ -3,7 +3,7 @@
 #include "loss.h"
 
 
-class L2Loss : public Loss {
+class RelativeL2Loss : public Loss {
 public:
     void evaluate(
         queue q,

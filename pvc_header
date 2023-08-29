@@ -1,0 +1,10 @@
+#define TM 8
+#define TK 16
+#define TN 16
+#define SKEW 8
+
+#define SG_SIZE 16
+#define WG_SIZE 4*SG_SIZE
+
+#define BATCH_CHUNK 32
+#define SHMEM_SIZE 2048

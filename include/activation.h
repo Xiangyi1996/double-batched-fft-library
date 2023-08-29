@@ -19,8 +19,7 @@ enum class Activation {
 static constexpr float PI = 3.14159265358979323846f;
 
 template<typename T, typename resT>
-void elt_activation(Activation activation, T& elt, resT& res){
-	float q = ((float)elt / (2 * PI));
+void elt_activation(Activation activation, T& elt, resT& res) {
 	switch (activation) {
 	case Activation::ReLU:
 		if (elt < (T)0.0f) {
@@ -29,6 +28,7 @@ void elt_activation(Activation activation, T& elt, resT& res){
 		else {
 			res = (resT)elt;
 		}
+		return;
 		break;
 	case Activation::LeakyReLU:
 		if (elt >= 0) {
@@ -37,25 +37,31 @@ void elt_activation(Activation activation, T& elt, resT& res){
 		else {
 			res = (resT)0.01f * (resT)elt;
 		}
+		return;
 		break;
 	case Activation::Exponential:
-		res = (resT)exp((float)elt);
-
+		res = (resT)exp(elt);
+		return;
 		break;
 	case Activation::Sine:
-		res = (resT)((elt)-floor(q) * 2 * PI);
-		res = (resT)sinf((float)elt);
+		res = (resT)((elt)-floor(elt / (2 * PI)) * 2 * PI);
+		res = (resT)sinf(res);
+		return;
 		break;
 	case Activation::Sigmoid:
-		res = (resT)(1.0f / (1.0f + expf((float)-elt)));
+		res = (resT)(1.0f / (1.0f + expf(-elt)));
+		return;
 		break;
 	case Activation::None:
-		res = (resT)elt;
+		res = elt;
+		return;
 		break;
-	case Activation::Tanh:
-		res = (resT)(tanhf((float)elt));
-		break;
+	/*case Activation::Tanh:
+		res = (resT)(((expf(elt) - expf(-elt))) / (expf(elt) + expf(-elt)));
+		return;
+		break;*/
 	default:
+		return;
 		break;
 	}
 }
@@ -158,8 +164,8 @@ void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd, resT& res) {
 		else {
 			res = (resT)elt;
 		}
-			return;
-			break;
+		return;
+		break;
 
 	case Activation::LeakyReLU:
 		if (fwd >= 0) {
@@ -194,25 +200,24 @@ void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd, resT& res) {
 	default:
 		return;
 		break;
-		}
+	}
 }
 
 template<typename T, typename resT, int SG_SZ>
-void matrix_activation( Activation activation, device_ptr<T> out, resT* res, int stride) {
+void matrix_activation(Activation activation, multi_ptr<T, access::address_space::local_space, (access::decorated)2>  elt,  multi_ptr<resT, access::address_space::local_space, (access::decorated)2> res, int offset,  int stride) {
 
 
 	for (int i = 0; i < 8; i++) {
-		elt_activation<T, resT>(activation, out[i * stride], res[i * stride]);
+		elt_activation<T, resT>(activation, elt[offset + i * stride],  res[offset + i * stride]);
 	}
-	return;
 }
 
 template<typename outT, typename fwdT, typename resT, int SG_SZ>
-void matrix_activation_backward( Activation activation, device_ptr<outT> out, device_ptr<fwdT> fwd, resT* res, int stride) {
+void matrix_activation_backward(Activation activation, multi_ptr<outT, access::address_space::local_space, (access::decorated)2> out, device_ptr<fwdT> fwd, multi_ptr<resT, access::address_space::local_space, (access::decorated)2> res,int offset,  int stride) {
 
 	for (int i = 0; i < 8; i++) {
 
-		elt_activation_bwd<outT, fwdT, resT>(activation, out[i * stride], fwd[i * stride ], res[i * stride]);
+		elt_activation_bwd<outT, fwdT, resT>(activation, out[offset + i * stride], fwd[offset + i * stride], res[offset + i * stride]);
 
 	}
 }

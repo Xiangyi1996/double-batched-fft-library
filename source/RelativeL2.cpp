@@ -1,6 +1,4 @@
-#pragma once
-
-#include "loss.h"
+#include "RelativeL2.h"
 
 void Relative_L2_loss(id<1> idx,
 	const int n_elements,
@@ -28,31 +26,28 @@ void Relative_L2_loss(id<1> idx,
 	grads[idx] = bf16(scale * 2 * difference / var / N_total_elements);
 }
 
-class RelativeL2Loss : public Loss {
-public:
-	void evaluate(
-		queue q, 
-		const int dims,
-		const int stride,
-		const float scale,
-		DeviceMem<float>& preds,
-		DeviceMem<float>& targets,
-		DeviceMem<bf16>& grads,
-		DeviceMem<float>& values
-	) const override {
+void RelativeL2Loss::evaluate(
+	queue q,
+	const int dims,
+	const int stride,
+	const float scale,
+	DeviceMem<float>& preds,
+	DeviceMem<float>& targets,
+	DeviceMem<bf16>& grads,
+	DeviceMem<float>& values
+) {
 
-		int n_elements = preds.size();
+	int n_elements = preds.size();
 
-		q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
-			Relative_L2_loss(idx,
-			n_elements,
-			dims,
-			stride,
-			scale,
-			preds.data(),
-			targets.data(),
-			grads.data(),
-			values.data());
-			}).wait();
-	}
-};
+	q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
+		Relative_L2_loss(idx,
+		n_elements,
+		dims,
+		stride,
+		scale,
+		preds.data(),
+		targets.data(),
+		grads.data(),
+		values.data());
+		}).wait();
+}

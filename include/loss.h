@@ -20,7 +20,6 @@ public:
 		DeviceMem<float>& target,
 		DeviceMem<bf16>& grads,
 		DeviceMem<float>& values
-	) const = 0;
+	) = 0;
 
 };
-

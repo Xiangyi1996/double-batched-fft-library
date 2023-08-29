@@ -4,12 +4,18 @@
 
 using bf16 = sycl::ext::oneapi::bfloat16;
 
+// Base class for neural network
 class Network {
 public:
 
-    virtual void forward_pass(const DeviceMem<bf16>& input, float* forward, bf16* act_mem, float* act_mem_temp, float* A, float* B, float* C, DeviceMem<float>& output) = 0;
+    // Perform forward pass through the network
+    virtual void forward_pass(const DeviceMem<bf16>& input, float* forward, float* A, float* B, float* C, DeviceMem<float>& output) = 0;
 
-    virtual void backward_pass(
+    // Perform inference through the network
+    virtual void inference(const DeviceMem<bf16>& input, float* forward, float* A, float* B, float* C, DeviceMem<float>& output) = 0;
+
+    // Perform backward pass through the network
+     virtual void backward_pass(
         const DeviceMem<bf16>& input,
         DeviceMem<bf16>& grads,
         float* out_inter,
@@ -30,15 +36,18 @@ public:
         float* forward
     ) = 0;
 
+    // Initialize network parameters
     virtual void initialize_params() = 0;
 
+    // Free memory allocated by the network
     virtual void free_mem(queue q) = 0;
 
+    // Get the SYCL queue associated with the network
     queue get_queue() {
         return m_q;
     }
 
-
+    // Data members
     float* m_forward;
     int m_shmem_size;
     size_t m_alignment;
@@ -73,6 +82,4 @@ public:
     DeviceMem<bf16> m_grads_matrices;
     DeviceMem<bf16> m_weights_matrices;
     DeviceMem<bf16> m_weightsT_matrices;
-
-
 };
