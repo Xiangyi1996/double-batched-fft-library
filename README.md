@@ -132,7 +132,8 @@ user$ source /opt/intel/oneapi/setvars.sh intel64
 user$ make <options>
 ```
 
-options can be dg2 or pvc depending on the hardware you want to build for.
+
+<options> can be dg2 or pvc depending on the hardware you want to build for.
 
 ## Required Hardware and Framework
 XMX hardware on GPU or AMX on CPU.
