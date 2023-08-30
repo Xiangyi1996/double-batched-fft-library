@@ -136,8 +136,8 @@ user$ make <options>
 <options> can be dg2 or pvc depending on the hardware you want to build for.
 
 ## Required Hardware and Framework
-XMX hardware on GPU or AMX on CPU.
-DPC++ with level zero.
+Preferred DG2 or PVC with last version of oneAPI.
+Mandatory : XMX hardware ( if not DG2 or PVC, pay attention to SG_SIZE and tile sizes ).
 
 
 
