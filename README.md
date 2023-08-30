@@ -7,6 +7,7 @@ The computation of the product of matrices is realised thanks to an Intel extens
 
 ## Performance on DG2
 ![Image](data/performances.png)
+We benchmarked the thoughput of our network in training and inference on DG2 GPU. We compared our network with tensorflow with oneDNN operations activated.
 
 ## Usage 
 ```cpp
