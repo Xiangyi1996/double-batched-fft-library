@@ -56,10 +56,10 @@ void elt_activation(Activation activation, T& elt, resT& res) {
 		res = elt;
 		return;
 		break;
-	/*case Activation::Tanh:
-		res = (resT)(((expf(elt) - expf(-elt))) / (expf(elt) + expf(-elt)));
-		return;
-		break;*/
+		/*case Activation::Tanh:
+			res = (resT)(((expf(elt) - expf(-elt))) / (expf(elt) + expf(-elt)));
+			return;
+			break;*/
 	default:
 		return;
 		break;
@@ -204,20 +204,17 @@ void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd, resT& res) {
 }
 
 template<typename T, typename resT, int SG_SZ>
-void matrix_activation(Activation activation, multi_ptr<T, access::address_space::local_space, (access::decorated)2>  elt,  multi_ptr<resT, access::address_space::local_space, (access::decorated)2> res, int offset,  int stride) {
-
+void matrix_activation(Activation activation, multi_ptr<T, access::address_space::local_space, (access::decorated)2>  elt, multi_ptr<resT, access::address_space::local_space, (access::decorated)2> res, int offset, int stride) {
 
 	for (int i = 0; i < 8; i++) {
-		elt_activation<T, resT>(activation, elt[offset + i * stride],  res[offset + i * stride]);
+		elt_activation<T, resT>(activation, elt[offset + i * stride], res[offset + i * stride]);
 	}
 }
 
 template<typename outT, typename fwdT, typename resT, int SG_SZ>
-void matrix_activation_backward(Activation activation, multi_ptr<outT, access::address_space::local_space, (access::decorated)2> out, device_ptr<fwdT> fwd, multi_ptr<resT, access::address_space::local_space, (access::decorated)2> res,int offset,  int stride) {
+void matrix_activation_backward(Activation activation, multi_ptr<outT, access::address_space::local_space, (access::decorated)2> out, device_ptr<fwdT> fwd, multi_ptr<resT, access::address_space::local_space, (access::decorated)2> res, int offset, int stride) {
 
 	for (int i = 0; i < 8; i++) {
-
 		elt_activation_bwd<outT, fwdT, resT>(activation, out[offset + i * stride], fwd[offset + i * stride], res[offset + i * stride]);
-
 	}
 }
