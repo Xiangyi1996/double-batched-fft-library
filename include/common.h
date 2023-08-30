@@ -32,4 +32,3 @@ extern SYCL_EXTERNAL int fromPackedLayoutCoord(int idx, int rows, int cols);
  * @return True if the strings are equal, false otherwise
  */
 extern SYCL_EXTERNAL bool isequalstring(const std::string& str1, const std::string& str2);
-
