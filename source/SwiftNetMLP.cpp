@@ -25,8 +25,8 @@ using bf16 = sycl::ext::oneapi::bfloat16;
  *
  * @param item          The SYCL nd_item representing the work item.
  * @param activation    The type of activation to be applied.
- * @param act_mem       Pointer to activation memory.
- * @param act_mem_temp  Pointer to temporary activation memory.
+ * @param a             Pointer to activation memory.
+ * @param a             Pointer to temporary activation memory.
  * @param weights_layer Pointer to weights for the layer.
  * @param out_inter     Pointer to output intermediate memory.
  * @param out           Pointer to final output memory.
@@ -108,7 +108,7 @@ void matmul_act_layer(nd_item<1> item, Activation activation, multi_ptr<bf16, ac
  * Loads input data into the activation memory using a static pattern for work groups.
  *
  * @param item      The SYCL nd_item representing the work item.
- * @param act_mem   Pointer to the activation memory.
+ * @param a   Pointer to the activation memory.
  * @param input     Pointer to the input data.
  * @tparam WIDTH    Width of the data.
  * @tparam N_ITERS  Number of iterations.
@@ -135,11 +135,11 @@ void workgroup_prefetch(nd_item<1> item, multi_ptr<bf16, access::address_space::
 /*
  * Writes data from shared memory to the output thread block using a static pattern for work groups.
  *
- * @param item              The SYCL nd_item representing the work item.
- * @param act_shmem         Pointer to the shared memory containing activation data.
+ * @param item               The SYCL nd_item representing the work item.
+ * @param a                  Pointer to the shared memory containing activation data.
  * @param output_threadblock Pointer to the output thread block.
- * @tparam WIDTH            Width of the data.
- * @tparam N_ITERS          Number of iterations.
+ * @tparam WIDTH             Width of the data.
+ * @tparam N_ITERS           Number of iterations.
  */
 template <int WIDTH, int N_ITERS>
 void workgroup_write_output_static(nd_item<1> item, multi_ptr<bf16, access::address_space::local_space, (access::decorated)2> a, float* output_threadblock) {
@@ -164,12 +164,12 @@ void workgroup_write_output_static(nd_item<1> item, multi_ptr<bf16, access::addr
  *
  * @param item                  The SYCL nd_item representing the work item.
  * @param activation            The type of activation to be applied.
- * @param act_shmem             Pointer to the shared memory containing activation data.
+ * @param a                     Pointer to the shared memory containing activation data.
+ * @param at                    Pointer to the shared memory containing temporary activation data.
  * @param input                 Pointer to the input data.
  * @param weights_layer         Pointer to weights for the layer.
  * @param out_intermediate_layer Pointer to output intermediate memory for the layer.
  * @param input_width           Width of the input data.
- * @param batch_size            Batch size of the data.
  * @tparam WIDTH                Width of the layer.
  * @tparam N_ITERS              Number of iterations.
  */
@@ -232,7 +232,7 @@ void workgroup_matmul_act_dynamic(nd_item<1> item,
  *
  * @param item              The SYCL nd_item representing the work item.
  * @param activation        The type of activation to be applied.
- * @param act_mem           Pointer to activation memory.
+ * @param a                 Pointer to activation memory.
  * @param weights_layer     Pointer to weights for the layer.
  * @param out               Pointer to the output memory.
  * @param output_stride     The stride for the output memory.
@@ -441,14 +441,15 @@ void mlp_swift_forward(queue q,
  * Kernel function for backpropagation in the SwiftNet model.
  *
  * @param item             The SYCL nd_item representing the work item.
- * @param loss_gradients   Pointer to loss gradients for backpropagation.
- * @param loss_gradients_temp Pointer to temporary loss gradients memory.
+ * @param deltas           Pointer to the losses deltas from where the backpropagation starts.
+ * @param a                Pointer to loss gradients for backpropagation.
+ * @param at               Pointer to temporary loss gradients memory.
  * @param grads            Pointer to gradients for weight updates.
  * @param weights          Pointer to weights of the model.
  * @param forward          Pointer to forward pass intermediate outputs.
  * @param out_inter        Pointer to intermediate output memory.
  * @param n_hidden_matmuls Number of hidden matrix multiplications.
- * @param batch_size         Batch size of the data.
+ * @param batch_size       Batch size of the data.
  * @tparam WIDTH           Width of the layers.
  * @tparam N_ITERS         Number of iterations.
  * @tparam ACTIVATION      Type of activation for hidden layers.
