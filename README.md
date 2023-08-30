@@ -125,14 +125,14 @@ const int batch_size = std::pow(2, 17);
 ## Build
 
 To build the tiny-nn librairy, you can clone the github repo on your machine and put your code in the source folder.
-Then you can build the library
+Then you can build the library using :
 
 ```sh
 user$ source /opt/intel/oneapi/setvars.sh intel64
 user$ make <options>
 ```
 
-<options> can be dg2 or pvc depending on the hardware you want to build for.
+options can be dg2 or pvc depending on the hardware you want to build for.
 
 ## Required Hardware and Framework
 XMX hardware on GPU or AMX on CPU.
