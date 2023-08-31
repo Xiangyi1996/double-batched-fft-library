@@ -70,7 +70,51 @@ void adam_step(id<1> idx,
 
 	weights[T_idx] = (bf16)new_weight;
 }
+void adam_stepT(id<1> idx,
+	const int n_elements,
+	const float relative_weight_decay,
+	const float absolute_weight_decay,
+	const float weight_clipping_magnitude,
+	const float loss_scale,
+	float learning_rate,
+	const float non_matrix_learning_rate_factor,
+	const float beta1,
+	const float beta2,
+	const float epsilon,
+	const float lower_lr_bound,
+	const float upper_lr_bound,
+	const float l2_reg,
+	bf16* weightsT,
+	const bf16* gradients,
+	float* first_moments,
+	float* second_moments,
+	int WIDTH
+) {
+	const int i = idx / WIDTH;
+	const int j = idx % WIDTH;
 
+	const int T_idx = WIDTH * j + i;
+
+	const bf16 weight = weightsT[T_idx];
+	bf16 gradient = gradients[T_idx] / loss_scale;
+
+	gradient += l2_reg * weight;
+
+	const float gradient_sq = gradient * gradient;
+
+	float first_moment = first_moments[T_idx] = beta1 * first_moments[T_idx] + (1 - beta1) * gradient;
+	const float second_moment = second_moments[T_idx] = beta2 * second_moments[T_idx] + (1 - beta2) * gradient_sq;
+
+	const float effective_learning_rate = fminf(fmaxf(learning_rate / (sqrtf(second_moment) + epsilon), lower_lr_bound), upper_lr_bound);
+
+	float new_weight = effective_learning_rate * first_moment;
+
+	if (weight_clipping_magnitude != 0.0f) {
+		new_weight = clamp(new_weight, -weight_clipping_magnitude, weight_clipping_magnitude);
+	}
+
+	weightsT[T_idx] = (bf16)new_weight;
+}
 /**
  * Perform Adam optimizer steps on a batch of elements.
  *
