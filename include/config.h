@@ -79,31 +79,26 @@ TrainableModel create_from_config(
 	else {
 		throw std::runtime_error{"Invalid loss type: "};
 	}
-	
+
 	if (isequalstring(optimizer_type, "Adam")) {
 		optimizer = new AdamOptimizer();
 	}
 
 	else if (isequalstring(optimizer_type, "SGD")) {
-		optimizer = new SGDOptimizer(config.value("optimizer", json::object()).value("output_width", 64) , config.value("optimizer", json::object()).value("n_hidden_layer", 2) , config.value("optimizer", json::object()).value("learning_rate", 1e-3f) , config.value("optimizer", json::object()).value("l2_reg", 1e-8f) );
+		optimizer = new SGDOptimizer(config.value("optimizer", json::object()).value("output_width", 64), config.value("optimizer", json::object()).value("n_hidden_layer", 2), config.value("optimizer", json::object()).value("learning_rate", 1e-3f), config.value("optimizer", json::object()).value("l2_reg", 1e-8f));
 	}
 	else {
 		throw std::runtime_error{"Invalid optimizer type: "};
 	}
 
 	switch (WIDTH) {
-	case  16:  network = new SwiftNetMLP<16>( q, config.value("network", json::object()).value("n_input_dims", 16), config.value("network", json::object()).value("n_output_dims",16), config.value("network", json::object()).value("n_hidden_layers",2), string_to_activation(config.value("network", json::object()).value("activation", "ReLU")),string_to_activation(config.value("network", json::object()).value("output_activation", "None")), config.value("network", json::object()).value("batch_size", 256));
-			break;
-	case  32:  network = new SwiftNetMLP<32>(q, config.value("network", json::object()).value("n_input_dims", 32), config.value("network", json::object()).value("n_output_dims", 32), config.value("network", json::object()).value("n_hidden_layers", 2), string_to_activation(config.value("network", json::object()).value("activation", "ReLU")), string_to_activation(config.value("network", json::object()).value("output_activation", "None")), config.value("network", json::object()).value("batch_size", 256));
-			break;
-	case  64:  network = new SwiftNetMLP<64>( q, config.value("network", json::object()).value("n_input_dims", 64), config.value("network", json::object()).value("n_output_dims",64), config.value("network", json::object()).value("n_hidden_layers",2), string_to_activation(config.value("network", json::object()).value("activation", "ReLU")),string_to_activation(config.value("network", json::object()).value("output_activation", "None")), config.value("network", json::object()).value("batch_size", 256));
-			break;
-	case 128:  network = new SwiftNetMLP<128>( q, config.value("network", json::object()).value("n_input_dims", 128), config.value("network", json::object()).value("n_output_dims",128), config.value("network", json::object()).value("n_hidden_layers",2), string_to_activation(config.value("network", json::object()).value("activation", "ReLU")),string_to_activation(config.value("network", json::object()).value("output_activation", "None")), config.value("network", json::object()).value("batch_size", 256));
-			break;
-	default: throw std::runtime_error{"SwiftNetMLP only supports 16, 32, 64, and 128 neurons, but got ..."};
+	case  64:  network = new SwiftNetMLP<64>(q, config.value("network", json::object()).value("n_input_dims", 64), config.value("network", json::object()).value("n_output_dims", 64), config.value("network", json::object()).value("n_hidden_layers", 2), string_to_activation(config.value("network", json::object()).value("activation", "ReLU")), string_to_activation(config.value("network", json::object()).value("output_activation", "None")), config.value("network", json::object()).value("batch_size", 8192));
+		break;
+	case 128:  network = new SwiftNetMLP<128>(q, config.value("network", json::object()).value("n_input_dims", 128), config.value("network", json::object()).value("n_output_dims", 128), config.value("network", json::object()).value("n_hidden_layers", 2), string_to_activation(config.value("network", json::object()).value("activation", "ReLU")), string_to_activation(config.value("network", json::object()).value("output_activation", "None")), config.value("network", json::object()).value("batch_size", 8192));
+		break;
+	default: throw std::runtime_error{"SwiftNetMLP only supports 64, and 128 neurons, but got ..."};
 	}
 	auto trainer = Trainer(*network, *loss, *optimizer);
 	return { m_q, loss, optimizer,network,  trainer };
 
 }
-
