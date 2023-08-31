@@ -207,6 +207,7 @@ void DeviceMem<T>::initialize_normal(double dev, queue q) {
   std::vector<T> data(m_size);
   for (int i = 0; i < m_size; i++) {
     data[i] = (T)distrib(gen);
+    // std:dat:cout << "data: " << data[i] << std::endl;
   }
   q.memcpy(m_data, data.data(), m_size * sizeof(T)).wait();
 }
@@ -229,6 +230,7 @@ template <typename T>
 void DeviceMem<T>::initialize_uniform(double scale, DeviceMem<T>& transposed,
                                       int input_width, int width,
                                       int output_width, int n_hidden, queue q) {
+  //   std::cout << "WRONG" << std::endl;
   auto p = m_data;
   std::default_random_engine gen;
   std::uniform_real_distribution<double> distrib(0.0, scale);
@@ -242,9 +244,16 @@ void DeviceMem<T>::initialize_uniform(double scale, DeviceMem<T>& transposed,
       rnd = (T)distrib(gen);
       data[toPackedLayoutCoord(i * width + j, input_width, width)] = rnd;
       dataT[toPackedLayoutCoord(j * width + i, width, input_width)] = rnd;
+
+      //   std::cout << "data: "
+      //             << toPackedLayoutCoord(i * width + j, input_width, width)
+      //             << std::endl;
+      //   std::cout << "dataT: "
+      //             << toPackedLayoutCoord(j * width + i, width, input_width)
+      //             << std::endl;
     }
   }
-
+  //   std::cout << "+++++++++" << std::endl;
   for (int k = 0; k < n_hidden; k++) {
     for (int i = 0; i < width; i++) {
       for (int j = 0; j < width; j++) {
@@ -253,9 +262,20 @@ void DeviceMem<T>::initialize_uniform(double scale, DeviceMem<T>& transposed,
              toPackedLayoutCoord(i * width + j, width, width)] = rnd;
         dataT[input_width * width + k * width * width +
               toPackedLayoutCoord(j * width + i, width, width)] = rnd;
+
+        // std::cout << "data: "
+        //   << input_width * width + k * width * width +
+        //  toPackedLayoutCoord(i * width + j, width, width)
+        //   << std::endl;
+        // std::cout << "dataT: "
+        //           << input_width * width + k * width * width +
+        //                  toPackedLayoutCoord(j * width + i, width, width)
+        //           << std::endl;
       }
     }
   }
+  //   std::cout << "+++++++++" << std::endl;
+
   for (int i = 0; i < width; i++) {
     for (int j = 0; j < output_width; j++) {
       rnd = (T)distrib(gen);
@@ -264,10 +284,39 @@ void DeviceMem<T>::initialize_uniform(double scale, DeviceMem<T>& transposed,
           rnd;
       dataT[input_width * width + n_hidden * width * width +
             toPackedLayoutCoord(j * width + i, output_width, width)] = rnd;
+      //   std::cout << "data: "
+      //             << input_width * width + n_hidden * width * width +
+      //                    toPackedLayoutCoord(i * output_width + j, width,
+      //                                        output_width)
+      //             << std::endl;
+      //   std::cout << "dataT: "
+      //             << input_width * width + n_hidden * width * width +
+      //                    toPackedLayoutCoord(j * width + i, output_width,
+      //                    width)
+      //             << std::endl;
     }
   }
+  //   std::cout << "NO ISSUE" << std::endl;
+  //   std::cout << "Data size " << data.size() << ", " << dataT.size() <<
+  //   std::endl; std::cout << "m size " << m_size << std::endl; std::cout <<
+  //   "Transposed size " << transposed.size() << std::endl; std::cout << "data
+  //   size " << data.size() << std::endl;
+
+  //   for (int i = 0; i < data.size(); ++i) {
+  //     std::cout << "data[" << i << "] = " << data[i] << std::endl;
+  //   }
+  //   std::cout << "dataT size " << dataT.size() << std::endl;
+  //   // Before submitting the kernel
+  //   for (int i = 0; i < dataT.size(); ++i) {
+  //     std::cout << "dataT[" << i << "] = " << dataT[i] << std::endl;
+  //   }
+
+  //   std::cout << "Crashes here0" << std::endl;
   buffer<T, 1> buf(data.data(), data.size());
+
+  //   std::cout << "Crashes here1" << std::endl;
   buffer<T, 1> bufT(dataT.data(), dataT.size());
+  //   std::cout << "Crashes here2" << std::endl;
   q.submit([&](handler& h) {
     auto acc = buf.get_access(h);
     auto accT = bufT.get_access(h);
@@ -276,6 +325,7 @@ void DeviceMem<T>::initialize_uniform(double scale, DeviceMem<T>& transposed,
       transposed.data()[idx] = accT[idx];
     });
   });
+  //   std::cout << "NO ISSUE2" << std::endl;
 }
 
 /**
@@ -353,9 +403,12 @@ void DeviceMem<T>::make_transposed(DeviceMem<T>& transposed, int input_width,
  */
 template <typename T>
 void DeviceMem<T>::initialize_uniform(queue q, double scale) {
+  std::cout << "HERE2" << std::endl;
   std::default_random_engine gen;
   std::uniform_real_distribution<double> distrib(0.0, scale);
   std::vector<T> data(m_size);
+  std::cout << "msize" << m_size << std::endl;
+
   for (int i = 0; i < m_size; i++) {
     data[i] = (T)distrib(gen);
   }

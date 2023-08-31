@@ -45,7 +45,6 @@ class Module {
   torch::Tensor initial_params() {
     torch::Tensor output = torch::zeros(
         {n_params()}, torch::TensorOptions().dtype(torch::kFloat32));
-    // std::cout << "Tensor first" << output << std::endl;
     m_module->initialize_params(output.data_ptr<float>());
     return output;
   }

@@ -32,23 +32,47 @@ class _module_function(torch.autograd.Function):
         return None, None, grad
 
 
+class Embedding(torch.nn.Module):
+    def __init__(self, input_dim, output_dim, requires_grad=False):
+        super(Embedding, self).__init__()
+
+        self.embedding = torch.nn.Linear(input_dim, output_dim)
+        if not requires_grad:
+            # Initialize the parameters with the specified value
+            torch.nn.init.constant_(self.embedding.weight, 0.1)
+            torch.nn.init.constant_(self.embedding.bias, 0.0)
+
+        for param in self.embedding.parameters():
+            # param.requires_grad = True
+            param.requires_grad = requires_grad
+
+    def forward(self, x):
+        x = self.embedding(x)
+        return x
+
+
 class Module(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, device="xpu"):
         super(Module, self).__init__()
 
         self.tnn_module = self.create_module()
-
         initial_params = self.tnn_module.initial_params()
         # self.params = torch.nn.Parameter(initial_params.to("xpu"), requires_grad=True)
 
         self.params = torch.nn.Parameter(initial_params, requires_grad=True)
-        # self.register_parameter(name="model_params", param=self.params)
+
+        self.embedding = Embedding(
+            self.input_width, self.input_swiftnet_width, requires_grad=False
+        ).to(device)
+        self.decoder = Embedding(
+            self.out_swiftnet_width, self.output_width, requires_grad=False
+        ).to(device)
 
     def create_module(self):
         return tnn.create_network(
             self.width,
-            self.input_width,
-            self.output_width,
+            self.input_swiftnet_width,
+            self.out_swiftnet_width,
             self.n_hidden_layers,
             self.activation,
             self.output_activation,
@@ -56,12 +80,21 @@ class Module(torch.nn.Module):
         )
 
     def forward(self, x):
-        # return self.tnn_module.fwd(x, self.params)
+        x = self.embedding(x)
+        x = x.reshape(-1, 1)  # flatten for tiny nn
         output = _module_function.apply(
             self.tnn_module,
             x,
             self.params,
         )
+
+        output = output.reshape(self.batch_size, -1)
+        output = self.decoder(output)
+
+        zero_vals = int((output == 0).sum())
+        if zero_vals > 2:
+            print(f"{zero_vals} values are exactly zero. Check if intended behaviour.")
+
         return output
 
     def free_memory(self):
@@ -69,6 +102,7 @@ class Module(torch.nn.Module):
 
 
 class SwiftNet(Module):
+    # TODO: Add Swiftnet with Encoder here, which has a different native module (makign it faster than inputing an embedding in python)
     def __init__(
         self,
         batch_size=64,  # needs to be % 64 == 0
@@ -78,6 +112,9 @@ class SwiftNet(Module):
         n_hidden_layers=1,
         activation=Activation.ReLU,
         output_activation=Activation.ReLU,
+        out_swiftnet_width=64,
+        input_swiftnet_width=64,
+        device="xpu"
     ):
         self.batch_size = batch_size
         self.width = width
@@ -86,4 +123,7 @@ class SwiftNet(Module):
         self.n_hidden_layers = n_hidden_layers
         self.activation = activation
         self.output_activation = output_activation
-        super().__init__()
+        self.input_swiftnet_width = input_swiftnet_width
+        self.out_swiftnet_width = out_swiftnet_width
+
+        super().__init__(device=device)

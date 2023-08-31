@@ -779,6 +779,10 @@ void SwiftNetMLP<WIDTH>::initialize_params() {
       0.01, m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width,
       m_n_hidden_matrices, m_q);
 };
+//   std::cout << "HERE" << std::endl;
+//   m_weights_matrices.initialize_uniform(m_q, 0.01);
+// }
+;
 
 /**
  * Save the neural network parameters to a file.
@@ -965,27 +969,27 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input,
   }
 
   // Handle the case when output_width is greater than 16
-  if (m_output_width > 16) {
-    m_q.parallel_for<>(range<1>(m_output_width * m_net_width), [=](id<1> idx) {
-      B[idx] =
-          (float)p[toPackedLayoutCoord(idx, net_width, output_width) +
-                   net_width * (inputs_width + n_hidden_matrices * net_width)];
-    });
+  //   if (m_output_width > 16) {
+  m_q.parallel_for<>(range<1>(m_output_width * m_net_width), [=](id<1> idx) {
+    B[idx] =
+        (float)p[toPackedLayoutCoord(idx, net_width, output_width) +
+                 net_width * (inputs_width + n_hidden_matrices * net_width)];
+  });
 
-    oneapi::mkl::blas::row_major::gemm(
-        m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
-        m_batch_size, m_output_width, WIDTH, 1,
-        forward + (n_hidden_matrices + 1) * layer_length, WIDTH, B,
-        m_output_width, 0, C, m_output_width);
+  oneapi::mkl::blas::row_major::gemm(
+      m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
+      m_batch_size, m_output_width, WIDTH, 1,
+      forward + (n_hidden_matrices + 1) * layer_length, WIDTH, B,
+      m_output_width, 0, C, m_output_width);
 
-    m_q.parallel_for<>(
-           range<1>(m_output_width * m_batch_size),
-           [=](id<1> idx) {
-             output.data()[idx] = C[idx];
-             forward[intermediate_output_size + input.size() + idx] = C[idx];
-           })
-        .wait();
-  }
+  m_q.parallel_for<>(range<1>(m_output_width * m_batch_size),
+                     [=](id<1> idx) {
+                       output.data()[idx] = C[idx];
+                       forward[intermediate_output_size + input.size() + idx] =
+                           C[idx];
+                     })
+      .wait();
+  //   }
 }
 
 template <int WIDTH>

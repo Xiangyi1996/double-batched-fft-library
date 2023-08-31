@@ -135,3 +135,11 @@ After installing the pybindings package, you can now install the pybindings for 
 cd dpcpp_bindings
 pip install -e .
 ```
+
+## Benchmark
+
+For the benchmark, tensorflow with XPU support is required:
+```
+pip install tensorflow==2.13.0
+pip install --upgrade intel-extension-for-tensorflow[xpu]
+```
