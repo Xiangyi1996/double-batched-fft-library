@@ -14,6 +14,10 @@ int main() {
 
     queue q = queue();
 
+    const int batch_size = 128; // POur l'istant on teste avec un batch size de 1 ( 'est à dire que les 64 éléments sont tous les mêmes)
+    const int output_width = 64;
+    const int WIDTH = 64;
+
     DeviceMem<bf16> inputs = DeviceMem<bf16>(batch_size * WIDTH, q);
     DeviceMem<float> output = DeviceMem<float>(batch_size * output_width, q);
     DeviceMem<float> target = DeviceMem<float>(batch_size * output_width, q);
@@ -26,7 +30,7 @@ int main() {
 }},
 {"optimizer", {
         {"otype", "sgd"},
-        {"output_width", 64},
+        {"output_width", output_width},
         {"n_hidden_layers", 3},
         {"learning_rate", 1e-3},
         {"l2_reg", 1e-8f}
@@ -35,9 +39,9 @@ int main() {
         {"otype", "SwiftNetMLP"},
         {"activation", "ReLU"},
         {"output_activation", "None"},
-        {"n_neurons", 64},
+        {"n_neurons", WIDTH},
         {"n_hidden_layers", 3},
-        {"batch_size", 128}
+        {"batch_size", batch_size}
 }},
     };
 
