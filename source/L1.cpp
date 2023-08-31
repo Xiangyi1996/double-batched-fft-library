@@ -43,48 +43,42 @@ void L1_loss(
 	grads[idx] = bf16(scale * copysignf(1.0f, difference) / N_total_elements);
 }
 
-/**
- * Class for evaluating L1 loss and gradients.
- */
-class L1Loss {
-public:
-	/**
-	 * Evaluate L1 loss and gradients.
-	 *
-	 * @param q SYCL queue for parallel computation.
-	 * @param dims Number of dimensions.
-	 * @param stride Stride value for indexing.
-	 * @param scale Scaling factor for gradients.
-	 * @param preds Predicted values (DeviceMem<float>).
-	 * @param targets Target values (DeviceMem<float>).
-	 * @param grads Gradient values (DeviceMem<bf16>).
-	 * @param values Array to store loss values (DeviceMem<float>).
-	 */
-	void evaluate(
-		queue q,
-		const int dims,
-		const int stride,
-		const float scale,
-		DeviceMem<float>& preds,
-		DeviceMem<float>& targets,
-		DeviceMem<bf16>& grads,
-		DeviceMem<float>& values
-	) {
-		// Get the total number of elements
-		int n_elements = preds.size();
 
+/**
+ * Evaluate L1 loss and gradients.
+ *
+ * @param q SYCL queue for parallel computation.
+ * @param dims Number of dimensions.
+ * @param stride Stride value for indexing.
+ * @param scale Scaling factor for gradients.
+ * @param preds Predicted values (DeviceMem<float>).
+ * @param targets Target values (DeviceMem<float>).
+ * @param grads Gradient values (DeviceMem<bf16>).
+ * @param values Array to store loss values (DeviceMem<float>).
+ */
+void L1Loss::evaluate(
+	queue q,
+	const int dims,
+	const int stride,
+	const float scale,
+	DeviceMem<float>& preds,
+	DeviceMem<float>& targets,
+	DeviceMem<bf16>& grads,
+	DeviceMem<float>& values
+) {
+	// Get the total number of elements
+	int n_elements = preds.size();
 		// Perform parallel computation using SYCL
-		q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
-			// Call the L1_loss function to calculate loss and gradients
-			L1_loss(idx,
-				n_elements,
-				dims,
-				stride,
-				scale,
-				preds.data(),
-				targets.data(),
-				grads.data(),
-				values.data());
-		}).wait();
-	}
-};
+	q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
+		// Call the L1_loss function to calculate loss and gradients
+		L1_loss(idx,
+			n_elements,
+			dims,
+			stride,
+			scale,
+			preds.data(),
+			targets.data(),
+			grads.data(),
+			values.data());
+	}).wait();
+}
