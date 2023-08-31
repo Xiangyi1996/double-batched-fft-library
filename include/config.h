@@ -13,6 +13,7 @@
 #include "cross_entropy.h"
 #include "adam.h"
 #include "sgd.h"
+#include "json.hpp"
 
 Activation string_to_activation(const std::string& activation_name) {
 	if (isequalstring(activation_name, "None")) {
