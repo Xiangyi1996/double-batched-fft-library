@@ -28,12 +28,12 @@ const int batch_size = std::pow(2, 13);
     queue q = queue();
 
     //uncomment this portion of the code on pvc for better performances
-    */std::vector<device> subdev = {};
+    /*std::vector<device> subdev = {};
 
     subdev = dev.create_sub_devices<sycl::info::partition_property::
         partition_by_affinity_domain>(sycl::info::partition_affinity_domain::numa);
 
-    queue q = queue(subdev[0]);/*
+    queue q = queue(subdev[0]);*/
 
     DeviceMem<bf16> inputs = DeviceMem<bf16>(batch_size * WIDTH, q);
     DeviceMem<float> output = DeviceMem<float>(batch_size * output_width, q);
