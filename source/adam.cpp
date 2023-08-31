@@ -1,6 +1,29 @@
 #include "adam.h"
 #include <vector>
 
+/**
+ * Perform an Adam optimizer step for a single element.
+ *
+ * @param idx Index of the element to process.
+ * @param n_elements Total number of elements.
+ * @param relative_weight_decay Relative weight decay coefficient.
+ * @param absolute_weight_decay Absolute weight decay coefficient.
+ * @param weight_clipping_magnitude Weight clipping magnitude.
+ * @param loss_scale Loss scale factor.
+ * @param learning_rate Learning rate.
+ * @param non_matrix_learning_rate_factor Non-matrix learning rate factor.
+ * @param beta1 Beta1 coefficient for first moment.
+ * @param beta2 Beta2 coefficient for second moment.
+ * @param epsilon Small value to prevent division by zero.
+ * @param lower_lr_bound Lower bound for the learning rate.
+ * @param upper_lr_bound Upper bound for the learning rate.
+ * @param l2_reg L2 regularization coefficient.
+ * @param weights Pointer to weights (bf16 type).
+ * @param gradients Pointer to gradients (bf16 type).
+ * @param first_moments Pointer to first moments.
+ * @param second_moments Pointer to second moments.
+ * @param WIDTH Width of the matrix (for matrix operations).
+ */
 void adam_step(id<1> idx,
 	const int n_elements,
 	const float relative_weight_decay,
@@ -43,6 +66,29 @@ void adam_step(id<1> idx,
 	weights[idx] = (bf16)new_weight;
 }
 
+/**
+ * Perform an Adam optimizer step for a single element for the transposed weight matrix.
+ *
+ * @param idx Index of the element to process.
+ * @param n_elements Total number of elements.
+ * @param relative_weight_decay Relative weight decay coefficient.
+ * @param absolute_weight_decay Absolute weight decay coefficient.
+ * @param weight_clipping_magnitude Weight clipping magnitude.
+ * @param loss_scale Loss scale factor.
+ * @param learning_rate Learning rate.
+ * @param non_matrix_learning_rate_factor Non-matrix learning rate factor.
+ * @param beta1 Beta1 coefficient for first moment.
+ * @param beta2 Beta2 coefficient for second moment.
+ * @param epsilon Small value to prevent division by zero.
+ * @param lower_lr_bound Lower bound for the learning rate.
+ * @param upper_lr_bound Upper bound for the learning rate.
+ * @param l2_reg L2 regularization coefficient.
+ * @param weights Pointer to weights (bf16 type).
+ * @param gradients Pointer to gradients (bf16 type).
+ * @param first_moments Pointer to first moments.
+ * @param second_moments Pointer to second moments.
+ * @param WIDTH Width of the matrix (for matrix operations).
+ */
 void adam_stepT(id<1> idx,
 	const int n_elements,
 	const float relative_weight_decay,
@@ -89,7 +135,16 @@ void adam_stepT(id<1> idx,
 	weightsT[T_idx] = (bf16)new_weight;
 }
 
-
+/**
+ * Perform Adam optimizer steps on a batch of elements.
+ *
+ * @param q SYCL queue for parallel computation.
+ * @param loss_scale Loss scale factor.
+ * @param weights Weights tensor (DeviceMem<bf16>).
+ * @param weightsT Transposed weights tensor (DeviceMem<bf16>).
+ * @param gradients Gradients tensor (DeviceMem<bf16>).
+ * @param WIDTH Width of the matrix (for matrix operations).
+ */
 void AdamOptimizer::step(queue q, float loss_scale, DeviceMem<bf16>& weights, DeviceMem<bf16>& weightsT, DeviceMem<bf16>& gradients, int WIDTH) {
 
 	const int n_elements = weights.size();
@@ -154,6 +209,11 @@ void AdamOptimizer::step(queue q, float loss_scale, DeviceMem<bf16>& weights, De
 			}).wait();
 }
 
+/**
+ * Set the learning rate for the Adam optimizer.
+ *
+ * @param learning_rate The new learning rate.
+ */
 void AdamOptimizer::set_learning_rate(const float learning_rate) {
 	m_learning_rate = learning_rate;
 }
