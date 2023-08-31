@@ -14,7 +14,7 @@ int main() {
 
     queue q = queue();
 
-    const int batch_size = 128; // POur l'istant on teste avec un batch size de 1 ( 'est à dire que les 64 éléments sont tous les mêmes)
+    const int batch_size = 8192; 
     const int output_width = 64;
     const int WIDTH = 64;
 
