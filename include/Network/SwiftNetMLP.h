@@ -11,13 +11,10 @@
 #include "sgd.h"
 #include "trainer.h"
 #include "mkl.h"
-#include "mkl_omp_offload.h"
 #include "common.h"
 #include "oneapi/mkl.hpp"
-#include <json/json.hpp>
 
 using bf16 = sycl::ext::oneapi::bfloat16;
-using json = nlohmann::json;
 
 template <int WIDTH>
 class SwiftNetMLP : public Network {
