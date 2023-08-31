@@ -15,6 +15,8 @@
 #include "sgd.h"
 #include "json.hpp"
 
+using json = nlohmann::json;
+
 Activation string_to_activation(const std::string& activation_name) {
 	if (isequalstring(activation_name, "None")) {
 		return Activation::None;
