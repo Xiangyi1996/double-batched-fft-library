@@ -335,14 +335,14 @@ void kernel_swift_mlp(nd_item<1> item,
 		matmul_act_layer<WIDTH, N_ITERS, false>(item, activation, a, at, weights_layer, !INFERENCE ? (out_intermediate_layer + elem_idx * WIDTH) : nullptr);
 	}
 	else {
-		workgroup_matmul_act_dynamic<WIDTH, N_ITERS>(item,
+		/*workgroup_matmul_act_dynamic<WIDTH, N_ITERS>(item,
 			activation,
 			a,
 			at,
 			input + elem_idx * input_width,
 			weights_layer,
 			!INFERENCE ? (out_intermediate_layer + elem_idx * WIDTH) : nullptr,
-			input_width);
+			input_width);*/
 	}
 
 	// Handle hidden layers all together
