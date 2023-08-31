@@ -16,26 +16,7 @@ public:
 	}
 
 	void training_step(DeviceMem<bf16>& input,
-		float* forward,
-		float* A_forward,
-		float* B_forward,
-		float* C_forward,
-		float* out_inter,
-		float* delta_temp,
-		DeviceMem<bf16> loss,
-		float* A_backward,
-		float* B_backward,
-		float* C_backward,
-		float* A_backward_last_layer,
-		float* B_backward_last_layer,
-		float* C_backward_last_layer,
-		float* D_backward_last_layer,
-		float* E_backward_last_layer,
-		float* F_backward_last_layer,
-		float* A_dgemm,
-		float* B_dgemm,
-		float* C_dgemm,
-		DeviceMem<float>& output, 
+		DeviceMem<float>& output,
 		DeviceMem<float>& target,
 		DeviceMem<bf16>& grads,
 		DeviceMem<float>& losses,
@@ -44,33 +25,33 @@ public:
 		//const int input_size = input.size();
 		//const int batch_size = std::pow(2, 19);
 
-
+		auto p = m_network->m_forward;
 		m_network->get_queue().parallel_for<>(range<1>(input.size()), [=](id<1> idx) {
-			forward[idx] = input.data()[idx];
+			p[idx] = input.data()[idx];
 			});
 
-		m_network->forward_pass(input, forward, A_forward, B_forward, C_forward, output);
+		m_network->forward_pass(input, m_network->m_forward, m_network->m_A_forward, m_network->m_B_forward, m_network->m_C_forward, output);
 
 		m_loss->evaluate(m_network->get_queue(), WIDTH, WIDTH, scale, output, target, grads, losses);
 
-		m_network->backward_pass(input, 
-			grads, 
-			out_inter,
-			delta_temp, 
-			loss,
-			A_backward,
-			B_backward,
-			C_backward,
-			A_backward_last_layer,
-			B_backward_last_layer,
-			C_backward_last_layer,
-			D_backward_last_layer,
-			E_backward_last_layer, 
-			F_backward_last_layer,
-			A_dgemm,
-			B_dgemm,
-			C_dgemm,
-			forward);
+		m_network->backward_pass(input,
+			grads,
+			m_network->m_out_inter,
+			m_network->m_deltas_temp,
+			m_network->m_deltas,
+			m_network->m_A_backward,
+			m_network->m_B_backward,
+			m_network->m_C_backward,
+			m_network->m_A_backward_last_layer,
+			m_network->m_B_backward_last_layer,
+			m_network->m_C_backward_last_layer,
+			m_network->m_D_backward_last_layer,
+			m_network->m_E_backward_last_layer,
+			m_network->m_F_backward_last_layer,
+			m_network->m_A_dgemm,
+			m_network->m_B_dgemm,
+			m_network->m_C_dgemm,
+			m_network->m_forward);
 
 		m_optim->step(m_network->get_queue(), scale, m_network->m_weights_matrices, m_network->m_weightsT_matrices, m_network->m_grads_matrices, WIDTH);
 
