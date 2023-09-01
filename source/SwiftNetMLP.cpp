@@ -178,10 +178,11 @@ void workgroup_matmul_act_dynamic(nd_item<1> item,
 	Activation activation,
 	multi_ptr<bf16, access::address_space::local_space, (access::decorated)2> a,
 	multi_ptr<float, access::address_space::local_space, (access::decorated)2> at,
-	const bf16* input,
+	bf16* input,
 	bf16* weights_layer,
 	float* out_intermediate_layer,
-	const int input_width
+	const int input_width,
+	const int batch_size
 )
 {
 	auto sg = item.get_sub_group();
@@ -190,6 +191,7 @@ void workgroup_matmul_act_dynamic(nd_item<1> item,
 	const int N_BLOCKS = WIDTH / TK;
 
 	// Device pointers to memory
+	device_ptr<bf16> in(input);
 	device_ptr<bf16> w(weights_layer);
 	device_ptr<float> o(out_intermediate_layer);
 
@@ -202,16 +204,12 @@ void workgroup_matmul_act_dynamic(nd_item<1> item,
 	const int n_operations = input_width / TK;
 
 	for (int l = 0; l < N_ITERS; l++) {
-		for (int j = 0; j < N_ITERS; j++) {
-			for (int k = 0; k < TM; k++) {
-				a[TN * sgId + WIDTH * TM * j + k * WIDTH + id] = input[TN * sgId + WIDTH * TM * j + k * WIDTH + id];
-			}
-		}
+
 
 		joint_matrix_fill(sg, result_matrix, 0.0f);
 		for (int i = 0; i < n_operations; i++) {
-			joint_matrix_load(sg, act_matrix, a + TK * i, input_width);
-			joint_matrix_load(sg, weight_matrix, w + TN / 2 * 2 * sgId * 8 * input_width + TK * i * 2, input_width * 2);
+			joint_matrix_load(sg, act_matrix, in + 16 * i * batch_size + 16 * l, input_width);
+			joint_matrix_load(sg, weight_matrix, w + TN * 2 * sgId + TK / 2 * i * input_width * 2, input_width * 2);
 
 			result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix, result_matrix);
 
@@ -226,7 +224,6 @@ void workgroup_matmul_act_dynamic(nd_item<1> item,
 		}
 	}
 }
-
 /**
  * Performs forward computation for the last layer within a work group.
  *
@@ -335,14 +332,15 @@ void kernel_swift_mlp(nd_item<1> item,
 		matmul_act_layer<WIDTH, N_ITERS, false>(item, activation, a, at, weights_layer, !INFERENCE ? (out_intermediate_layer + elem_idx * WIDTH) : nullptr);
 	}
 	else {
-		/*workgroup_matmul_act_dynamic<WIDTH, N_ITERS>(item,
+		workgroup_matmul_act_dynamic<WIDTH, N_ITERS>(item,
 			activation,
 			a,
 			at,
 			input + elem_idx * input_width,
 			weights_layer,
 			!INFERENCE ? (out_intermediate_layer + elem_idx * WIDTH) : nullptr,
-			input_width);*/
+			input_width,
+			batch_size);
 	}
 
 	// Handle hidden layers all together
@@ -649,7 +647,7 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(
 	m_alignment = SHMEM_SIZE;
 
 	// Allocate and initialize various memory buffers
-	m_forward = malloc_device<float>(m_batch_size * (WIDTH + m_output_width + WIDTH * m_n_hidden_layers), q);
+	m_forward = malloc_device<float>(m_batch_size * (m_inputs_width + m_output_width + WIDTH * m_n_hidden_layers), q);
 
 	m_shmem_size = m_batch_size * WIDTH * m_n_hidden_layers;
 	m_act_mem = sycl::aligned_alloc_device<bf16>(m_alignment, m_shmem_size, q);
