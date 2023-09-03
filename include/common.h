@@ -1,8 +1,8 @@
 #pragma once
 
+#include <CL/sycl.hpp>
 #include <iostream>
 #include <vector>
-#include <CL/sycl.hpp>
 
 /**
  * @brief Convert index from original matrix layout to packed layout
@@ -31,4 +31,5 @@ extern SYCL_EXTERNAL int fromPackedLayoutCoord(int idx, int rows, int cols);
  * @param str2 Second string
  * @return True if the strings are equal, false otherwise
  */
-extern SYCL_EXTERNAL bool isequalstring(const std::string& str1, const std::string& str2);
+extern SYCL_EXTERNAL bool isequalstring(const std::string& str1,
+                                        const std::string& str2);
