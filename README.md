@@ -1,7 +1,7 @@
 ## Introduction
-The goal of this repository is to implements an GPU-accelerated tiny neural network framework using Intel hardware. The implementation uses Intel DPC++ compiler and rely on both SYCL language and Intel Level-Zero API.
+The goal of this repository is to implements an GPU-accelerated tiny neural network framework [original CUDA implementation](https://github.com/NVlabs/tiny-cuda-nn) using Intel hardware. The implementation uses Intel DPC++ compiler and rely on both SYCL language and Intel Level-Zero API.
 
-Because this network is tight, we are able to load both the activation matrices and the weights matrices into the GPU L1 memory ( shared memory and registers ) that corresponds to the GPU's fast memory.
+Because this network is tight, we are able to load both the activation matrices and the weights matrices into the GPU L1 memory (shared memory and registers) that corresponds to the GPU's fast memory.
 
 The computation of the product of matrices is realised thanks to an Intel extension called joint_matrix, that is a high-level wrapper to realise systolic array operations. We also use OneMKL to realise matrices product with bigger dimension when to input or the output are too large to fit the matrix in the L1 memory and use joint_matrix.
 
@@ -113,10 +113,10 @@ Note : To make the use of the network, you have to disable the implicit scaling 
 Preferred DG2 or PVC with last version of oneAPI.
 Mandatory : XMX hardware ( if not DG2 or PVC, pay attention to SG_SIZE and tile sizes ).
 
+## PyTorch extension
+tinynn provides pybindings, such that the MLP and encodings can be called as module within Python. Set the PyTorch Extensions up as follows.
 
-
-
-## PyBindings
+### PyBindings
 
 First install pybindings with
 ```
@@ -125,16 +125,32 @@ git submodule update --init --recursive
 
 Install the pybindings:
 ```
-cd extern/pybindings11
+cd extern/pybinding11 && mkdir build && cd build
 cmake .. -DCMAKE_INSTALL_PREFIX=../
 make install
 ```
+
+Install [Intel® Extension for PyTorch*](https://github.com/intel/intel-extension-for-pytorch).
+```
+python -m pip install torch==2.0.1a0 torchvision==0.15.2a0 intel_extension_for_pytorch==2.0.110+xpu -f https://developer.intel.com/ipex-whl-stable-xpu
+```
+[Alternatively]: For older versions, run, e.g., `python -m pip install torch==1.13.0a0+git6c9b55e intel_extension_for_pytorch==1.13.120+xpu -f https://developer.intel.com/ipex-whl-stable-xpu`.
 
 After installing the pybindings package, you can now install the pybindings for tiny-nn:
 ```
 cd dpcpp_bindings
 pip install -e .
 ```
+
+### Usage
+
+Example files can be found in the `python` folder to test the functionalities of the tinynn module:
+
+- benchmark_dpcpp.py: Benchmark of dpcpp implementation of tinynn. Reports the speed of training 1000 loops of data with batch size 2^20.
+- benchmark_tf.py:  Benchmark standard Multi-Layer Perceptron in Tensorflow. Reports the speed of training 1000 loops of data with batch size 2^20.
+- test_fwd.py: Tests forward pass of SwiftNet
+- test_bwd_training.py: Tests backward pass of SwiftNet
+- test_einstein.py: Tests learning an image of Einstein (x,y pixel coordinate in, grey-value of that point out).
 
 ## Benchmark
 
@@ -143,3 +159,9 @@ For the benchmark, tensorflow with XPU support is required:
 pip install tensorflow==2.13.0
 pip install --upgrade intel-extension-for-tensorflow[xpu]
 ```
+
+# Acknowledgement
+
+- The original implementation of SwiftNet was conducted by Darius Dabert ([DariusDabert](https://github.com/DariusDabert)) and Adrien Tousnakhoff ([Tousnaaa](https://github.com/Tousnaaa))
+- The pybindings were developed by Kai Yuan (kai.yuan@intel.com)
+- The encodings were developed by xyz

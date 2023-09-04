@@ -3,6 +3,9 @@ import intel_extension_for_pytorch
 from modules import SwiftNet
 from tiny_nn import Activation
 
+# DEVICE = "cpu"
+DEVICE = "xpu"
+
 if __name__ == "__main__":
     batch_size = 64
     width = 64
@@ -19,9 +22,10 @@ if __name__ == "__main__":
         n_hidden_layers,
         activation,
         output_activation,
+        device=DEVICE,
     )
     print("FWD pass")
-    output = network.forward(torch.tensor([1.0] * (input_width * batch_size)))
+    output = network.forward(torch.ones([batch_size, input_width]).to(DEVICE))
     # output =  network.forward(torch.tensor([0.1] * (input_width * batch_size), device="xpu"))
     print(output)
     print("FWD pass end")

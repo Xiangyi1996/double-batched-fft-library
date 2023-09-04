@@ -4,6 +4,7 @@ from modules import SwiftNet
 from tiny_nn import Activation
 import numpy as np
 
+DEVICE = "cpu"
 
 if __name__ == "__main__":
     batch_size = 64
@@ -14,9 +15,9 @@ if __name__ == "__main__":
 
     DATA_AMOUNT = 400
     x = [torch.linspace(0.01, 10, steps=DATA_AMOUNT)] * input_width
-    x = torch.stack((x)).T
+    x = (torch.stack((x)).T).to(DEVICE)
     dim_reduce = torch.ones(input_width, output_width)
-    y = 2 * x @ dim_reduce
+    y = (2 * x @ dim_reduce).to(DEVICE)
 
     activation = Activation.ReLU
     output_activation = Activation.Linear
@@ -29,6 +30,7 @@ if __name__ == "__main__":
         n_hidden_layers,
         activation,
         output_activation,
+        device=DEVICE,
     )
 
     loss_fn = torch.nn.MSELoss()

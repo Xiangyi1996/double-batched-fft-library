@@ -114,7 +114,7 @@ class SwiftNet(Module):
         output_activation=Activation.ReLU,
         out_swiftnet_width=64,
         input_swiftnet_width=64,
-        device="xpu"
+        device="xpu",
     ):
         self.batch_size = batch_size
         self.width = width
