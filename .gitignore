@@ -3,6 +3,7 @@
 *.so
 *.egg-info
 **/build/
-extern/torch/
+program
+/extern/pybind11/**/
 **/__pycache__/
 *.pyc

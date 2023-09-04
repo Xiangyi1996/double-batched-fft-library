@@ -11,7 +11,7 @@ program: $(OBJ)
 		icpx -fsycl -qmkl=parallel -I include/ -I include/Network -I include/Losses -I include/Optimizers -fsycl-targets=spir64_gen -c $< -o $@
 
 clean:
-        rm -fr source/*.o
+		rm -fr source/*.o
 
 pvc_build:
 		tail -n +11 source/SwiftNetMLP.cpp > temp && mv temp source/SwiftNetMLP.cpp
