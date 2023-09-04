@@ -95,6 +95,11 @@ const int batch_size = std::pow(2, 13);
 
 ```
 
+Build the code as follows to test training for 1000 steps (`benchmarking_training.cpp`).
+
+For validating that the forward and backward passes are calculated correctly, run `unitTest.cpp`. For this, uncomment the `main()` function and comment out the main function in `benchmark_training.cpp`.
+
+
 ## Build
 
 To build the tiny-nn librairy, you can clone the github repo on your machine and put your code in the source folder.
@@ -107,7 +112,8 @@ user$ make <options>
 
 where <options> can be dg2 or pvc depending on the hardware you want to build for.
 
-Note : To make the use of the network, you have to disable the implicit scaling on PVC which can be done by uncommenting the portion of the code indicated in the sample when creating the queue.
+Note: To make the use of the network, you have to disable the implicit scaling on PVC which can be done by uncommenting the portion of the code indicated in the sample when creating the queue.
+
 
 ## Required Hardware and Framework
 Preferred DG2 or PVC with last version of oneAPI.

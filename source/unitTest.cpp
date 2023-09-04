@@ -408,13 +408,8 @@ void test_exactitude() {
   network.forward_pass(inputs, forward, A_forward, B_forward, C_forward,
                        output);
 
-  std::cout << "1" << std::endl;
-  train.training_step(
-      inputs, forward, A_forward, B_forward, C_forward, out_inter, deltas_temp,
-      deltas, A_backward, B_backward, C_backward, A_backward_last_layer,
-      B_backward_last_layer, C_backward_last_layer, D_backward_last_layer,
-      E_backward_last_layer, F_backward_last_layer, A_dgemm, B_dgemm, C_dgemm,
-      output, target, grads, losses, scale, 64);
+  std::cout << "Performing one training step" << std::endl;
+  train.training_step(inputs, output, target, grads, losses, scale, 64);
 
   std::vector<float> res(64 * 3, 0.0f);
 
@@ -573,7 +568,7 @@ void test_exactitude() {
   free(C_dgemm, q);
 }
 
-int main() {
-  test_exactitude();
-  return 0;
-}
+// int main() {
+//   test_exactitude();
+//   return 0;
+// }
