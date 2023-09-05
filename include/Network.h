@@ -12,9 +12,10 @@ class Network {
                             float* A, float* B, float* C,
                             DeviceMem<float>& output) = 0;
 
-  // Perform inference through the network
-  virtual void inference(const DeviceMem<bf16>& input, float* forward, float* A,
-                         float* B, float* C, DeviceMem<float>& output) = 0;
+  //   // Perform inference through the network
+  //   virtual void inference(const DeviceMem<bf16>& input, float* forward,
+  //   float* A,
+  //                          float* B, float* C, DeviceMem<float>& output) = 0;
 
   // Perform backward pass through the network
   virtual void backward_pass(
@@ -33,6 +34,7 @@ class Network {
   // Get the SYCL queue associated with the network
   queue get_queue() { return m_q; }
   virtual void set_params(std::vector<bf16> params) = 0;
+  virtual void set_params(float* params) = 0;
 
   virtual DeviceMem<bf16>* get_grads_matrices() = 0;
   virtual DeviceMem<bf16>* get_weights_matrices() = 0;

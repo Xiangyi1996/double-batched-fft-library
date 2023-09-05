@@ -17,7 +17,7 @@ class Trainer {
   void training_step(DeviceMem<bf16>& input, DeviceMem<float>& output,
                      DeviceMem<float>& target, DeviceMem<bf16>& grads,
                      DeviceMem<float>& losses, const float scale,
-                     const int WIDTH) {
+                     const int WIDTH, int forward_only = 1) {
     // const int input_size = input.size();
     // const int batch_size = std::pow(2, 19);
 
@@ -28,7 +28,9 @@ class Trainer {
     m_network->forward_pass(input, m_network->m_forward, m_network->m_A_forward,
                             m_network->m_B_forward, m_network->m_C_forward,
                             output);
-
+    if (forward_only) {
+      return;
+    }
     m_loss->evaluate(m_network->get_queue(), WIDTH, WIDTH, scale, output,
                      target, grads, losses);
 

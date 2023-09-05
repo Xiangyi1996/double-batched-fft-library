@@ -1,5 +1,7 @@
 #include "tnn_api.h"
 
+#include <torch/script.h>
+
 template <typename T>
 void printVector(const std::vector<T> &vec) {
   for (const T &element : vec) {
@@ -14,7 +16,20 @@ SwiftNetModule::SwiftNetModule(const int width, int input_width,
                                int output_width, int n_hidden_layers,
                                Activation activation,
                                Activation output_activation,
-                               const int batch_size) {
+                               const int batch_size, std::string device_name)
+    : m_device(torch::kCPU), m_device_name(device_name) {
+  std::cout << "Running on device: " << m_device_name << std::endl;
+  if (m_device_name == "cpu") {
+    m_device = torch::kCPU;
+  } else if (m_device_name == "xpu") {
+    m_device = torch::kXPU;
+  } else {
+    std::cout << "No device name " << device_name
+              << ". Consider falling back to CPU as device. Exiting now"
+              << std::endl;
+    exit(1);
+  }
+
   sycl_queue = sycl::queue();
 
   network = SwiftNetMLPFactory::create(
@@ -28,7 +43,7 @@ SwiftNetModule::SwiftNetModule(const int width, int input_width,
   int shmem_size = batch_size * width * 5;
 
   forward_size =
-      batch_size * (width + output_width + width * n_hidden_matrices);
+      batch_size * (input_width + output_width + width * n_hidden_matrices);
   forward = malloc_device<float>(forward_size, sycl_queue);
 
   input = DeviceMem<bf16>(batch_size * input_width, sycl_queue);
@@ -83,7 +98,8 @@ SwiftNetModule::SwiftNetModule(const int width, int input_width,
 
 std::vector<bf16> SwiftNetModule::get_vector_from_tensor(torch::Tensor tensor) {
   std::vector<bf16> array_bf16(tensor.numel());
-  const float *tensor_data = tensor.data_ptr<float>();
+
+  float *tensor_data = tensor.data_ptr<float>();
   for (int i = 0; i < tensor.numel(); ++i) {
     array_bf16[i] = bf16(tensor_data[i]);
   }
@@ -107,7 +123,7 @@ void SwiftNetModule::convert_tensor_to_dev_mem(
 
 template <typename T>
 torch::Tensor SwiftNetModule::get_converted_tensor_from_dev_mem(
-    DeviceMem<T> device_mem_array) {
+    DeviceMem<T> device_mem_array, int print_out) {
   // Conversion to float array for pybindings
   std::vector<T> list_T(device_mem_array.size());
   device_mem_array.copy_to_host(list_T, sycl_queue);
@@ -117,9 +133,11 @@ torch::Tensor SwiftNetModule::get_converted_tensor_from_dev_mem(
   for (size_t i = 0; i < list_T.size(); ++i) {
     list_float[i] = static_cast<float>(list_T[i]);
   }
-  //   std::cout << "About to convert this " << std::endl;
-  //   printVector(list_float);
-  // convert to torch tensor
+  if (print_out) {
+    std::cout << "About to convert this " << std::endl;
+    printVector(list_float);
+  }
+  //   convert to torch tensor
   torch::Tensor output_tensor =
       torch::from_blob(list_float.data(),
                        {static_cast<long>(list_float.size())}, torch::kFloat32)
@@ -136,15 +154,58 @@ torch::Tensor SwiftNetModule::get_converted_tensor_from_array(T *array,
 
 torch::Tensor SwiftNetModule::forward_pass(torch::Tensor input_tensor,
                                            torch::Tensor params) {
-  convert_tensor_to_dev_mem(input_tensor, input);
-  std::vector<bf16> params_bf16 = get_vector_from_tensor(params);
-  network->set_params(params_bf16);
-
+  //   std::cout << "Input tensor: " << input_tensor << std::endl;
+  if (m_device_name == "cpu") {
+    std::vector<bf16> params_bf16 = get_vector_from_tensor(params);
+    network->set_params(params_bf16);
+    convert_tensor_to_dev_mem(input_tensor, input);
+  } else if (m_device_name == "xpu") {
+    float *tensor_data = params.data_ptr<float>();
+    network->set_params(tensor_data);
+    // TODO: refactor and make own function
+    // set the DeviceMem input vals to the ones from input_tensor. Because it's
+    // on device, we need to sycl_queue it
+    float *input_data = input_tensor.data_ptr<float>();
+    auto p = input.data();
+    int s = input.size();
+    sycl_queue
+        .parallel_for<>(range<1>(s),
+                        [=](id<1> idx) { p[idx] = bf16(input_data[idx]); })
+        .wait();
+  } else {
+    std::cout << "No behaviour for device " << m_device_name
+              << ". Exiting code." << std::endl;
+    exit(1);
+  }
   // Calling forward pass of Swiftnet
   network->forward_pass(input, forward, A_forward, B_forward, C_forward,
                         output);
+  //   std::cout << "Size: "
+  //             << network->m_batch_size *
+  //                    (network->m_inputs_width + network->m_output_width +
+  //                     network->m_net_width * network->m_n_hidden_layers)
+  //             << std::endl;
+  int batch_size = 64;
+  int input_width = 64;
+  int output_width = 2;
+  int width = 64;
+  int n_hidden_layers = 1;
+  std::vector<float> fwd(
+      batch_size * (input_width + output_width + width * n_hidden_layers));
+  network->m_q.memcpy(fwd.data(), forward, fwd.size() * sizeof(float)).wait();
+  //   std::cout << "FWD" << std::endl;
+  //   for (int i = 0; i < fwd.size(); i++) {
+  //     if ((i == (batch_size * input_width)) ||
+  //         (i == batch_size * (input_width + width))) {
+  //       std::cout << "================================================"
+  //                 << std::endl;
+  //     }
+  //     std::cout << i << ":" << fwd[i] << std::endl;
+  //   }
+  // std::cout << "AFter " << std::endl;
 
   torch::Tensor output_tensor = get_converted_tensor_from_dev_mem(output);
+  //   std::cout << "Output tensor " << output_tensor << std::endl;
 
   return output_tensor;
 }
@@ -152,6 +213,7 @@ torch::Tensor SwiftNetModule::forward_pass(torch::Tensor input_tensor,
 torch::Tensor SwiftNetModule::backward_pass(torch::Tensor input_tensor,
                                             torch::Tensor grad_output,
                                             torch::Tensor params) {
+  //   std::cout << "Grad output " << grad_output << std::endl;
   convert_tensor_to_dev_mem(grad_output, grads);
   convert_tensor_to_dev_mem(input_tensor, input_backward);
 
@@ -166,7 +228,9 @@ torch::Tensor SwiftNetModule::backward_pass(torch::Tensor input_tensor,
 
   DeviceMem<bf16> grads_matrices = *(network->get_grads_matrices());
 
-  torch::Tensor grad_loss = get_converted_tensor_from_dev_mem(grads_matrices);
+  torch::Tensor grad_loss =
+      get_converted_tensor_from_dev_mem(grads_matrices, 0);
+  //   std::cout << "Tensor grad_loss: " << grad_loss << std::endl;
   return grad_loss;
 }
 
@@ -222,8 +286,9 @@ SwiftNetModule *create_network(const int width, int input_width,
                                int output_width, int n_hidden_layers,
                                Activation activation,
                                Activation output_activation,
-                               const int batch_size) {
+                               const int batch_size, std::string device_name) {
   return new SwiftNetModule(width, input_width, output_width, n_hidden_layers,
-                            activation, output_activation, batch_size);
+                            activation, output_activation, batch_size,
+                            device_name);
 }
 }  // namespace tnn

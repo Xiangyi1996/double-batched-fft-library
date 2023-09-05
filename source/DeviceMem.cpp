@@ -403,11 +403,9 @@ void DeviceMem<T>::make_transposed(DeviceMem<T>& transposed, int input_width,
  */
 template <typename T>
 void DeviceMem<T>::initialize_uniform(queue q, double scale) {
-  std::cout << "HERE2" << std::endl;
   std::default_random_engine gen;
   std::uniform_real_distribution<double> distrib(0.0, scale);
   std::vector<T> data(m_size);
-  std::cout << "msize" << m_size << std::endl;
 
   for (int i = 0; i < m_size; i++) {
     data[i] = (T)distrib(gen);
@@ -517,7 +515,48 @@ void DeviceMem<T>::initialize_constant(T constant, DeviceMem<T>& transposed,
   q.memcpy(transposed.data(), data.data(), m_size * constant * sizeof(T))
       .wait();
 }
+template <typename T>
+void DeviceMem<T>::initialize_arange(queue q, int input_width, int net_width,
+                                     int out_width) {
+  std::vector<T> data(m_size);
 
+  // input
+  //  Create a 1D vector that goes from 1 to input_width
+  std::vector<T> col_vector;
+  for (int i = 1; i <= input_width; ++i) {
+    col_vector.push_back(static_cast<T>(i));
+  }
+
+  // Repeat the col_vector and perform the operations
+  for (int i = 0; i < net_width; ++i) {
+    for (int j = 0; j < input_width; ++j) {
+      //   data[i * input_width + j] = col_vector[j] * 0.001;
+      data[j * input_width + i] = col_vector[j] * 0.001;
+      //   std::cout << "Input Index: " << i * input_width + j << std::endl;
+    }
+  }
+
+  // output
+
+  // Create a 1D vector that goes from 1 to input_width
+  std::vector<T> col_vector_out;
+  for (int i = 1; i <= out_width; ++i) {
+    col_vector_out.push_back(static_cast<T>(i));
+  }
+
+  // Repeat the col_vector and perform the operations
+  for (int i = 0; i < net_width; ++i) {
+    for (int j = 0; j < out_width; ++j) {
+      data[net_width * input_width + i * out_width + j] = col_vector[j] * 0.001;
+    }
+  }
+
+  //   for (int i = 0; i < m_size; i++) {
+  //     std::cout << "i: " << i << " - " << data[i] << std::endl;
+  //   }
+
+  q.memcpy(m_data, data.data(), m_size * sizeof(T)).wait();
+}
 /**
  * Initialize the device memory with a constant value.
  *
@@ -575,10 +614,5 @@ void DeviceMem<T>::intitialize_he_normal(int input_width, queue q) {
   initialize_normal(dev, q);
 }
 
-template <typename T>
-void DeviceMem<T>::initialize_test_input(queue q) {
-  auto p = m_data;
-  q.parallel_for(m_size, [=](id<1> idx) { p[idx] = (T)(idx % 64) * 0.01f; });
-}
 template class DeviceMem<float>;
 template class DeviceMem<bf16>;

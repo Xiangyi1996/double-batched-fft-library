@@ -7,6 +7,7 @@
 #include <iostream>
 #include <memory>
 #include <stdexcept>
+#include <string>  // Include the necessary header for std::string
 #include <vector>
 
 #include "SwiftNetMLP.h"
@@ -41,7 +42,8 @@ class SwiftNetModule {
  public:
   SwiftNetModule(const int width, int input_width, int output_width,
                  int n_hidden_layers, Activation activation,
-                 Activation output_activation, const int batch_size);
+                 Activation output_activation, const int batch_size,
+                 std::string device_name);
 
   torch::Tensor forward_pass(torch::Tensor input_list, torch::Tensor params);
 
@@ -50,6 +52,8 @@ class SwiftNetModule {
   void initialize_params(float *params_full_precision);
   int n_params();
   void free_memory();
+  torch::Device m_device;
+  std::string m_device_name;
 
  private:
   template <typename T>
@@ -58,8 +62,8 @@ class SwiftNetModule {
   void convert_tensor_to_dev_mem(torch::Tensor tensor,
                                  DeviceMem<bf16> device_mem_array);
   template <typename T>
-  torch::Tensor get_converted_tensor_from_dev_mem(
-      DeviceMem<T> device_mem_array);
+  torch::Tensor get_converted_tensor_from_dev_mem(DeviceMem<T> device_mem_array,
+                                                  int print_out = 0);
   std::unique_ptr<Network> network;
 
   sycl::queue sycl_queue;
@@ -97,6 +101,7 @@ tnn::SwiftNetModule *create_network(const int width, int input_width,
                                     int output_width, int n_hidden_layers,
                                     Activation activation,
                                     Activation output_activation,
-                                    const int batch_size);
+                                    const int batch_size,
+                                    std::string device_name);
 
 }  // namespace tnn

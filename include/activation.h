@@ -54,9 +54,10 @@ void elt_activation(Activation activation, T& elt, resT& res) {
       res = elt;
       return;
       break;
-      /*case Activation::Tanh:
-              res = (resT)(((expf(elt) - expf(-elt))) / (expf(elt) +
-         expf(-elt))); return; break;*/
+    case Activation::Tanh:
+      res = (resT)(((expf(elt) - expf(-elt))) / (expf(elt) + expf(-elt)));
+      return;
+      break;
     default:
       return;
       break;

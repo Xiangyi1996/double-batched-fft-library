@@ -7,3 +7,6 @@ program
 /extern/pybind11/**/
 **/__pycache__/
 *.pyc
+*.jpg
+!albert.jpg
+program

@@ -28,12 +28,6 @@ class Module {
     return m_module->forward_pass(input, params);
   }
 
-  //   void print_tensor(torch::Tensor input) {
-  //     //   void print_tensor(std::vector<int> input) {
-  //     CHECK_INPUT(input);
-  //     std::cout << "Tensor: " << input << std::endl;
-  //   }
-
   torch::Tensor bwd(torch::Tensor input_tensor, torch::Tensor grad_output,
                     torch::Tensor params) {
     // CHECK_INPUT(input_tensor);
@@ -59,10 +53,11 @@ class Module {
 
 Module create_network(const int width, int input_width, int output_width,
                       int n_hidden_layers, Activation activation,
-                      Activation output_activation, const int batch_size) {
-  tnn::SwiftNetModule* network_module =
-      tnn::create_network(width, input_width, output_width, n_hidden_layers,
-                          activation, output_activation, batch_size);
+                      Activation output_activation, const int batch_size,
+                      std::string device_name) {
+  tnn::SwiftNetModule* network_module = tnn::create_network(
+      width, input_width, output_width, n_hidden_layers, activation,
+      output_activation, batch_size, device_name);
 
   return Module{network_module};
 }

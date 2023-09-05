@@ -2,11 +2,13 @@ import torch
 import intel_extension_for_pytorch
 from modules import SwiftNet
 from tiny_nn import Activation
+import pytest
 
-# DEVICE = "cpu"
-DEVICE = "xpu"
+DEVICE = "cpu"
 
-if __name__ == "__main__":
+
+# DEVICE = "xpu"
+def test_fwd():
     batch_size = 64
     width = 64
     input_width = 64
@@ -26,7 +28,14 @@ if __name__ == "__main__":
     )
     print("FWD pass")
     output = network.forward(torch.ones([batch_size, input_width]).to(DEVICE))
-    # output =  network.forward(torch.tensor([0.1] * (input_width * batch_size), device="xpu"))
     print(output)
     print("FWD pass end")
     network.free_memory()
+    assert (
+        abs((output - torch.ones([batch_size, input_width]).to(DEVICE) * 1.3401).mean())
+        < 1e-3
+    ), "Output values not correct. Either weights changed, or issue with fwd_pass."
+
+
+if __name__ == "__main__":
+    test_fwd()

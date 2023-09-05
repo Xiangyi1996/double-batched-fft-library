@@ -20,23 +20,23 @@ def write_image_imageio(img_file, img, quality):
         kwargs["quality"] = quality
         kwargs["subsampling"] = 0
 
-    imageio.imwrite(img_file, img, **kwargs)
+    imageio.imwrite(img_file, img, format="JPEG-PIL", **kwargs)
 
 
 def read_image_imageio(img_file):
     img = imageio.imread(img_file)
 
-    # Calculate the new dimensions (1/10 of the original dimensions)
+    # Calculate the new dimensions (1/8 of the original dimensions)
     new_height = img.shape[0] // 8
     new_width = img.shape[1] // 8
 
-    # Resize the image to 1/10 of its original size
-    img = skimage.transform.resize(img, (new_height, new_width), anti_aliasing=True)
+    # Resize the image to 1/8 of its original size
+    img = skimage.transform.resize(img, (new_height, new_width))
 
     img = np.asarray(img).astype(np.float32)
     if len(img.shape) == 2:
         img = img[:, :, np.newaxis]
-    return img / 255.0
+    return img
 
 
 def srgb_to_linear(img):

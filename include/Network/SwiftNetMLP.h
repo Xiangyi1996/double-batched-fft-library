@@ -15,6 +15,17 @@
 #include "oneapi/mkl.hpp"
 #include "sgd.h"
 #include "trainer.h"
+#ifdef __SYCL_DEVICE_ONLY__
+
+#define CONSTANT __attribute__((opencl_constant))
+
+#else
+
+#define CONSTANT
+
+#endif
+void get_float_as_integers_own(float value, int& integer_val,
+                               int& fractional_val);
 using bf16 = sycl::ext::oneapi::bfloat16;
 
 template <int WIDTH>
@@ -27,8 +38,8 @@ class SwiftNetMLP : public Network {
   void forward_pass(const DeviceMem<bf16>& input, float* forward, float* A,
                     float* B, float* C, DeviceMem<float>& output) override;
 
-  void inference(const DeviceMem<bf16>& input, float* forward, float* A,
-                 float* B, float* C, DeviceMem<float>& output) override;
+  //   void inference(const DeviceMem<bf16>& input, float* forward, float* A,
+  //                  float* B, float* C, DeviceMem<float>& output) override;
 
   void backward_pass(const DeviceMem<bf16>& input, DeviceMem<bf16>& grads,
                      float* out_inter, float* delta_temp, DeviceMem<bf16> loss,
@@ -43,6 +54,7 @@ class SwiftNetMLP : public Network {
                                  float* A, float* B, float* C, float* D,
                                  float* E, float* F);
   void set_params(std::vector<bf16> params) override;
+  void set_params(float* params) override;
   void save_to_file(std::string filename);
   void load_from_file(std::string filename);
   void initialize_params() override;
@@ -64,7 +76,6 @@ class SwiftNetMLP : public Network {
   int m_output_width;
   int m_padded_output_width;
   int m_batch_size;
-
   Activation m_activation;
   Activation m_output_activation;
 
