@@ -35,16 +35,6 @@ SwiftNetModule::SwiftNetModule(const int width, int input_width,
   network = SwiftNetMLPFactory::create(
       sycl_queue, width, input_width, output_width, n_hidden_layers, activation,
       output_activation, batch_size);
-  const size_t alignment = 4096;
-
-  const int n_hidden_matrices = n_hidden_layers - 1;
-  const int layer_length = width * batch_size;
-
-  int shmem_size = batch_size * width * 5;
-
-  forward_size =
-      batch_size * (input_width + output_width + width * n_hidden_matrices);
-  forward = malloc_device<float>(forward_size, sycl_queue);
 
   input = DeviceMem<bf16>(batch_size * input_width, sycl_queue);
   input_backward = DeviceMem<bf16>(batch_size * input_width, sycl_queue);
@@ -56,44 +46,6 @@ SwiftNetModule::SwiftNetModule(const int width, int input_width,
   input_backward.initialize_constant(0.1f, sycl_queue);
   output.initialize_constant(0.0f, sycl_queue);
   grads.initialize_constant(bf16(0.0f), sycl_queue);
-
-  A_forward =
-      sycl::aligned_alloc_device<float>(alignment, layer_length, sycl_queue);
-  B_forward = sycl::aligned_alloc_device<float>(alignment, output_width * 64,
-                                                sycl_queue);
-  C_forward = sycl::aligned_alloc_device<float>(
-      alignment, output_width * batch_size, sycl_queue);
-
-  out_inter = malloc_device<float>(batch_size * width * (n_hidden_matrices + 1),
-                                   sycl_queue);
-  delta_temp = sycl::aligned_alloc_device<float>(
-      alignment, output_width * batch_size, sycl_queue);
-
-  A_backward = sycl::aligned_alloc_device<float>(alignment, width * batch_size,
-                                                 sycl_queue);
-  B_backward = sycl::aligned_alloc_device<float>(
-      alignment, batch_size * output_width, sycl_queue);
-  C_backward = sycl::aligned_alloc_device<float>(
-      alignment, width * output_width, sycl_queue);
-  A_backward_last_layer =
-      sycl::aligned_alloc_device<float>(alignment, grads.size(), sycl_queue);
-  B_backward_last_layer = sycl::aligned_alloc_device<float>(
-      alignment, output_width * width, sycl_queue);
-  C_backward_last_layer = sycl::aligned_alloc_device<float>(
-      alignment, width * batch_size, sycl_queue);
-  D_backward_last_layer = sycl::aligned_alloc_device<float>(
-      alignment, width * batch_size, sycl_queue);
-  E_backward_last_layer = sycl::aligned_alloc_device<float>(
-      alignment, batch_size * width, sycl_queue);
-  F_backward_last_layer =
-      sycl::aligned_alloc_device<float>(alignment, width * width, sycl_queue);
-
-  A_dgemm = sycl::aligned_alloc_device<float>(alignment, batch_size * width,
-                                              sycl_queue);
-  B_dgemm = sycl::aligned_alloc_device<float>(alignment, batch_size * width,
-                                              sycl_queue);
-  C_dgemm =
-      sycl::aligned_alloc_device<float>(alignment, width * width, sycl_queue);
 }
 
 std::vector<bf16> SwiftNetModule::get_vector_from_tensor(torch::Tensor tensor) {
@@ -178,8 +130,8 @@ torch::Tensor SwiftNetModule::forward_pass(torch::Tensor input_tensor,
     exit(1);
   }
   // Calling forward pass of Swiftnet
-  network->forward_pass(input, forward, A_forward, B_forward, C_forward,
-                        output);
+  network->forward_pass(input, network->m_forward, network->m_A_forward,
+                        network->m_B_forward, network->m_C_forward, output);
   //   std::cout << "Size: "
   //             << network->m_batch_size *
   //                    (network->m_inputs_width + network->m_output_width +
@@ -221,10 +173,13 @@ torch::Tensor SwiftNetModule::backward_pass(torch::Tensor input_tensor,
   network->set_params(params_bf16);
 
   network->backward_pass(
-      input_backward, grads, out_inter, delta_temp, deltas, A_backward,
-      B_backward, C_backward, A_backward_last_layer, B_backward_last_layer,
-      C_backward_last_layer, D_backward_last_layer, E_backward_last_layer,
-      F_backward_last_layer, A_dgemm, B_dgemm, C_dgemm, forward);
+      input_backward, grads, network->m_out_inter, network->m_deltas_temp,
+      network->m_deltas, network->m_A_backward, network->m_B_backward,
+      network->m_C_backward, network->m_A_backward_last_layer,
+      network->m_B_backward_last_layer, network->m_C_backward_last_layer,
+      network->m_D_backward_last_layer, network->m_E_backward_last_layer,
+      network->m_F_backward_last_layer, network->m_A_dgemm, network->m_B_dgemm,
+      network->m_C_dgemm, network->m_forward);
 
   DeviceMem<bf16> grads_matrices = *(network->get_grads_matrices());
 
@@ -254,32 +209,9 @@ void SwiftNetModule::free_memory() {
   input.free_mem(sycl_queue);
   input_backward.free_mem(sycl_queue);
   output.free_mem(sycl_queue);
+  deltas.free_mem(sycl_queue);
   grads.free_mem(sycl_queue);
-
-  free(forward, sycl_queue);
-  free(A_forward, sycl_queue);
-  free(B_forward, sycl_queue);
-  free(C_forward, sycl_queue);
-
-  free(out_inter, sycl_queue);
-  free(delta_temp, sycl_queue);
-
-  //   deltas.free_mem(q);
-
-  free(A_backward, sycl_queue);
-  free(B_backward, sycl_queue);
-  free(C_backward, sycl_queue);
-
-  free(A_backward_last_layer, sycl_queue);
-  free(B_backward_last_layer, sycl_queue);
-  free(C_backward_last_layer, sycl_queue);
-  free(D_backward_last_layer, sycl_queue);
-  free(E_backward_last_layer, sycl_queue);
-  free(F_backward_last_layer, sycl_queue);
-
-  free(A_dgemm, sycl_queue);
-  free(B_dgemm, sycl_queue);
-  free(C_dgemm, sycl_queue);
+  network->free_mem(sycl_queue);
 }
 
 SwiftNetModule *create_network(const int width, int input_width,

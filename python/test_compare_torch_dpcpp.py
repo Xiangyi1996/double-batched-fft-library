@@ -154,7 +154,7 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
 if __name__ == "__main__":
     input_width = 64
     output_width = 32
-    n_hidden_layers = 3
+    n_hidden_layers = 2
     activation_func = "linear"
     output_func = "linear"
 
