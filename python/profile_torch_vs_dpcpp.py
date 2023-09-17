@@ -6,11 +6,12 @@ import time
 
 from utils import create_models
 
-BATCH_SIZE = 64
-DEVICE_NAME = "cpu"
+# BATCH_SIZE = 2**6 # 64
+BATCH_SIZE = 2**6  # 64
+DEVICE_NAME = "xpu"
 
 
-def test_fwd(model, name, iters=10000):
+def test_fwd(model, name, iters=1000):
     # Generate random input data for testing
     torch.manual_seed(123)
     input_data = torch.randn(BATCH_SIZE, model.input_width, dtype=torch.float32).to(
@@ -28,7 +29,9 @@ def test_fwd(model, name, iters=10000):
 
     end_time = time.time()
     duration = (end_time - start_time) * 1000
-    print(f"{name}: Execution Time: {duration:.2f} ms")
+    print(
+        f"{name}: Execution Time: {duration:.2f} ms for {iters} iterations on {DEVICE_NAME}."
+    )
 
 
 if __name__ == "__main__":

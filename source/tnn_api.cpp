@@ -185,16 +185,16 @@ torch::Tensor SwiftNetModule::forward_pass(torch::Tensor input_tensor,
   //                    (network->m_inputs_width + network->m_output_width +
   //                     network->m_net_width * network->m_n_hidden_layers)
   //             << std::endl;
-  int batch_size = 64;
-  int input_width = 64;
-  int output_width = 2;
-  int width = 64;
-  int n_hidden_layers = 1;
-  std::vector<float> fwd(
-      batch_size * (input_width + output_width + width * n_hidden_layers));
-  network->m_q.memcpy(fwd.data(), forward, fwd.size() * sizeof(float)).wait();
-  //   std::cout << "FWD" << std::endl;
-  //   for (int i = 0; i < fwd.size(); i++) {
+  //   int batch_size = 64;
+  //   int input_width = 64;
+  //   int output_width = 2;
+  //   int width = 64;
+  //   int n_hidden_layers = 1;
+  //   std::vector<float> fwd(
+  //       batch_size * (input_width + output_width + width * n_hidden_layers));
+  //   network->m_q.memcpy(fwd.data(), forward, fwd.size() *
+  //   sizeof(float)).wait(); std::cout << "FWD" << std::endl; for (int i = 0; i
+  //   < fwd.size(); i++) {
   //     if ((i == (batch_size * input_width)) ||
   //         (i == batch_size * (input_width + width))) {
   //       std::cout << "================================================"

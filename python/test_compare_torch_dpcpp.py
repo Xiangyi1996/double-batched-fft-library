@@ -13,7 +13,7 @@ activation_funcs = ["relu", "linear", "sigmoid", "tanh"]
 hidden_layer_counts = [1, 2, 3]
 
 BATCH_SIZE = 64
-DEVICE_NAME = "cpu"
+DEVICE_NAME = "xpu"
 
 
 def train_model(model, x_train, y_train, n_steps):

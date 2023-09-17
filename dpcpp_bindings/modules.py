@@ -163,9 +163,9 @@ class Module(torch.nn.Module):
 
         output = output.reshape(self.batch_size, -1).to(self.device)
 
-        zero_vals = int((output == 0).sum())
-        if zero_vals > 2:
-            print(f"{zero_vals} values are exactly zero. Check if intended behaviour.")
+        # zero_vals = int((output == 0).sum())
+        # if zero_vals > 2:
+        #     print(f"{zero_vals} values are exactly zero. Check if intended behaviour.")
 
         return output
 
