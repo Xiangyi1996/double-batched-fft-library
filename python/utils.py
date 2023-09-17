@@ -47,7 +47,7 @@ def create_models(
         output_func,
         use_batchnorm=False,
     ).to(device_name)
-    model_torch.eval()
+    # model_torch.eval()
 
     # Create and test model_dpcpp
     activation = get_dpcpp_activation(activation_func)
@@ -63,7 +63,7 @@ def create_models(
         output_activation=output_activation,
         device=device_name,
     )
-    model_dpcpp.eval()
+    # model_dpcpp.eval()
 
     # Set weights of model_torch to the ones of model_dpcpp
     params = []

@@ -46,10 +46,11 @@ class _module_function(torch.autograd.Function):
     @staticmethod
     def backward(ctx, doutput):
         input, params, output = ctx.saved_tensors
+
         with torch.no_grad():
             grad = ctx.native_tcnn_module.bwd(input, doutput, params)
         # 3 inputs to forward, so need 3 grads
-        return None, None, grad * 100  # scaling because too small
+        return None, None, grad
 
 
 class Embedding(torch.nn.Module):
@@ -155,11 +156,7 @@ class Module(torch.nn.Module):
         if self.input_width < 16:
             x = self.embedding(x)
         x = x.reshape(-1, 1)  # flatten for tiny nn
-        output = _module_function.apply(
-            self.tnn_module,
-            x,
-            self.params,
-        )
+        output = _module_function.apply(self.tnn_module, x, self.params)
 
         output = output.reshape(self.batch_size, -1).to(self.device)
 

@@ -9,8 +9,7 @@ class Network {
  public:
   // Perform forward pass through the network
   virtual void forward_pass(const DeviceMem<bf16>& input, float* forward,
-                            float* A, float* B, float* C,
-                            DeviceMem<float>& output) = 0;
+                            float* B, float* C, DeviceMem<float>& output) = 0;
 
   //   // Perform inference through the network
   //   virtual void inference(const DeviceMem<bf16>& input, float* forward,
@@ -47,10 +46,6 @@ class Network {
   int m_shmem_size;
   size_t m_alignment;
 
-  bf16* m_act_mem;
-  float* m_act_mem_temp;
-
-  float* m_A_forward;
   float* m_B_forward;
   float* m_C_forward;
 

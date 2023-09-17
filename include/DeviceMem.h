@@ -93,8 +93,8 @@ class DeviceMem {
 
   // Initialize memory with constant values
   void initialize_constant(T constant, queue q);
-  void initialize_arange(queue q, int input_width, int net_width,
-                         int out_width);
+  void initialize_arange(queue q, int input_width, int net_width, int out_width,
+                         int hidden_matrices);
   // Initialize memory with values according to He normal initialization
   void intitialize_he_normal(DeviceMem<T>& transposed, int input_width,
                              int width, int output_width, int n_hidden,

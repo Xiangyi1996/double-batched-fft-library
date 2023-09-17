@@ -4,7 +4,7 @@
 #define SKEW 4
 
 #define SG_SIZE 8
-#define WG_SIZE 8 * SG_SIZE
+#define WG_SIZE 8*SG_SIZE
 
 #define BATCH_CHUNK 16
 #define SHMEM_SIZE 1024
@@ -21,7 +21,7 @@ using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;
 using bf16 = sycl::ext::oneapi::bfloat16;
 void get_float_as_integers_own(float value, int& integer_val,
-                               int& fractional_val) {
+                               int& fractional_val, int& leading_zeros) {
   // careful with the code. Leading zeros not shown in fractional_val. This is
   // only to debug whether it's zero or non-zero. only for 4 decimals after
   // comma
@@ -40,6 +40,9 @@ void get_float_as_integers_own(float value, int& integer_val,
   //   // Print the integer and fractional parts as integers
   //   std::cout << "Integer part: " << integerPart << std::endl;
   //   std::cout << "Fractional part: " << fractionalPart << std::endl;
+
+  // Count leading zeros in the fractional part
+  leading_zeros = 0;
 }
 template <typename T>
 void printVector(const std::vector<T>& vec) {
@@ -139,10 +142,41 @@ void matmul_act_layer(
 #pragma unroll
   for (int i = 0; i < N_ITERS; i++) {
     if (BACKWARD) {
+      //   for (int i = 0; i < 1; i++) {
+      // int a_first;
+      // int a_second;
+      // int a_zeros;
+      // int b_first;
+      // int b_second;
+      // int b_zeros;
+      // get_float_as_integers_own(at[i], a_first, a_second, a_zeros);
+      // get_float_as_integers_own(a[i], b_first, b_second, b_zeros);
+      // static const CONSTANT char FMT[] =
+      //     "1. [%d]: In %d.%d (%d zeroes), out %d.%d (%d zeroes), \n";
+      // sycl::ext::oneapi::experimental::printf(FMT, int(i), a_first, a_second,
+      //                                         a_zeros, b_first, b_second,
+      //                                         b_zeros);
+      //   }
       // Apply backward activation matrix if required
       matrix_activation_backward<float, float, bf16, SG_SIZE>(
           activation, at, f, a, TN * sgId * (WIDTH + SKEW) + TM * i + id,
           (WIDTH + SKEW));
+      //   for (int j = 0; j < 1; j++) {
+      //     int a_first;
+      //     int a_second;
+      //     int a_zeros;
+      //     int b_first;
+      //     int b_second;
+      //     int b_zeros;
+      //     static const CONSTANT char FMT[] =
+      //         "2. [%d]: In %d.%d (%d zeroes), out %d.%d (%d zeroes), \n";
+      //     get_float_as_integers_own(at[i], a_first, a_second, a_zeros);
+      //     get_float_as_integers_own(a[i], b_first, b_second, b_zeros);
+      //     sycl::ext::oneapi::experimental::printf(FMT, int(i), a_first,
+      //     a_second,
+      //                                             a_zeros, b_first, b_second,
+      //                                             b_zeros);
+      //   }
     } else {
       //   for (int i = 0; i < 1; i++) {
       //     int a_first;
@@ -181,9 +215,16 @@ void matmul_act_layer(
     for (int i = 0; i < N_ITERS; i++) {
       for (int k = 0; k < TM; k++) {
         // Copy results to the output intermediate matrix
-        out_inter[TN * sgId + WIDTH * TM * i + k * WIDTH + id] =
-            a[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id];
-        // at[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id];
+        if (BACKWARD) {
+          out_inter[TN * sgId + WIDTH * TM * i + k * WIDTH + id] =
+              //   a[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) +
+              //   id];
+              at[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id];
+        } else {
+          out_inter[TN * sgId + WIDTH * TM * i + k * WIDTH + id] =
+              a[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id];
+          // at[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id];
+        }
       }
     }
   }
@@ -335,9 +376,19 @@ void workgroup_matmul_act_dynamic(
  */
 template <int WIDTH, int N_ITERS>
 void workgroup_last_layer(
-    nd_item<1> item, Activation activation,
+    nd_item<1> item,
     multi_ptr<bf16, access::address_space::local_space, (access::decorated)2> a,
     bf16* weights_layer, float* out, const int output_stride) {
+  //   for (int i = 0; i < ((SHMEM_SIZE + BATCH_CHUNK * SKEW) * WIDTH / 64);
+  //   i++) {
+  //     int b_first;
+  //     int b_second;
+  //     int b_zeroes;
+  //     static const CONSTANT char FMT[] = "a[%d]: %d.%d (%d zeroes), \n";
+  //     get_float_as_integers_own(a[i], b_first, b_second, b_zeroes);
+  //     sycl::ext::oneapi::experimental::printf(FMT, int(i), b_first, b_second,
+  //                                             b_zeroes);
+  //   };
   auto sg = item.get_sub_group();
   int sgId = sg.get_group_id();
   const int li = item.get_local_id(0);
@@ -465,7 +516,7 @@ void kernel_swift_mlp(nd_item<1> item, const Activation output_activation,
     }
   } else if (out) {
     workgroup_last_layer<WIDTH, N_ITERS>(
-        item, output_activation, a,
+        item, a,
         weights_layer + first_weight_length +
             hidden_weight_lenght * n_hidden_matmuls,
         out + elem_idx * WIDTH, output_stride);
@@ -617,10 +668,12 @@ void dgemm_multiply(queue q, bf16* grads_device, float* loss_gradients,
   q.parallel_for<>(range<1>(WIDTH * WIDTH), [=](id<1> idx) {
     // int b_first;
     // int b_second;
-    // static const CONSTANT char FMT[] = "C last[%d]: %d.%d,  ";
-    // get_float_as_integers_own(C[idx], b_first, b_second);
-    // sycl::ext::oneapi::experimental::printf(FMT, int(idx), b_first,
-    // b_second);
+    // int b_zeroes;
+    // static const CONSTANT char FMT[] = "C last[%d]: %d.%d (%d zeroes), \n";
+    // get_float_as_integers_own(C[idx], b_first, b_second, b_zeroes);
+    // sycl::ext::oneapi::experimental::printf(
+    //     FMT, int((m_n_hidden_matrices - k - 1) * WIDTH * WIDTH + idx),
+    //     b_first, b_second, b_zeroes);
     grads_device[(m_n_hidden_matrices - k - 1) * WIDTH * WIDTH + idx] += C[idx];
   });
 }
@@ -731,7 +784,6 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(queue q, int input_width, int output_width,
       m_q);
 
   // Initialize constants and allocations
-  const int layer_length = WIDTH * m_batch_size;
   m_alignment = SHMEM_SIZE;
 
   // Allocate and initialize various memory buffers
@@ -740,12 +792,6 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(queue q, int input_width, int output_width,
                                            WIDTH * m_n_hidden_layers),
                            q);
 
-  m_shmem_size = m_batch_size * WIDTH * m_n_hidden_layers;
-  m_act_mem = sycl::aligned_alloc_device<bf16>(m_alignment, m_shmem_size, q);
-  m_act_mem_temp =
-      sycl::aligned_alloc_device<float>(m_alignment, m_shmem_size, q);
-
-  m_A_forward = sycl::aligned_alloc_device<float>(m_alignment, layer_length, q);
   m_B_forward =
       sycl::aligned_alloc_device<float>(m_alignment, m_output_width * WIDTH, q);
   m_C_forward = sycl::aligned_alloc_device<float>(
@@ -831,17 +877,19 @@ void SwiftNetMLP<WIDTH>::initialize_params() {
   //       0.01, m_weightsT_matrices, m_inputs_width, m_net_width,
   //       m_output_width, m_n_hidden_matrices, m_q);
   m_weights_matrices.intitialize_he_normal(m_inputs_width, m_q);
+  //   m_weights_matrices.intitialize_he_normal(m_inputs_width, m_q);
   //   m_weights_matrices.initialize_constant(0.001, m_q);
   //   m_weightsT_matrices.initialize_constant(0.001, m_q);
 
   //   m_weights_matrices.initialize_arange(m_q, m_inputs_width, m_net_width,
-  //                                        m_output_width);
+  //                                        m_output_width,
+  //                                        m_n_hidden_matrices);
   //   m_weightsT_matrices.initialize_arange(m_q, m_inputs_width, m_net_width,
-  //                                         m_output_width);
+  //                                         m_output_width,
+  //                                         m_n_hidden_matrices);
   //   std::cout << "INITIALISING WITH CONSTANT. CHANGE LATER" << std::endl;
 };
-// }
-;
+// };
 
 /**
  * Save the neural network parameters to a file.
@@ -916,11 +964,9 @@ void SwiftNetMLP<WIDTH>::load_from_file(std::string filename) {
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::free_mem(queue q) {
   // Free memory for arrays allocated using sycl::aligned_alloc_device
-  free(m_act_mem, q);
-  free(m_act_mem_temp, q);
   free(m_out_inter, q);
   free(m_deltas_temp, q);
-  free(m_A_forward, q);
+  //   free(m_A_forward, q);
   free(m_B_forward, q);
   free(m_C_forward, q);
 
@@ -955,9 +1001,11 @@ void SwiftNetMLP<WIDTH>::free_mem(queue q) {
  */
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input,
-                                      float* forward, float* A, float* B,
-                                      float* C, DeviceMem<float>& output) {
+                                      float* forward, float* B, float* C,
+                                      DeviceMem<float>& output) {
   // Constants and dimensions
+
+  auto output_activation = m_output_activation;
   const int output_stride = WIDTH;
   const int n_hidden_matrices = m_n_hidden_matrices;
   const int net_width = m_net_width;
@@ -1053,6 +1101,17 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input,
   //          })
   //       .wait();
   // Handle the case when output_width is greater than 16
+
+  //   std::vector<float> out(m_batch_size * (m_output_width));
+
+  //   output.copy_to_host(out, m_q);
+
+  //   for (int i = 0; i < out.size(); i++) {
+  //     std::cout << i << ": " << out[i] << std::endl;
+  //   }
+
+  // TODO: Not doing check again. According to Darius, it's faster to use
+  // workgroup_last_layer, but somehow results are flawed
   //   if (m_output_width > 16) {
   m_q.parallel_for<>(range<1>(m_output_width * m_net_width), [=](id<1> idx) {
     B[idx] =
@@ -1060,11 +1119,9 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input,
                  net_width * (inputs_width + n_hidden_matrices * net_width)];
   });
 
-  //   const int layer_length = WIDTH * m_batch_size;
   oneapi::mkl::blas::row_major::gemm(
       m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
       m_batch_size, m_output_width, WIDTH, 1,
-      //   forward + (n_hidden_matrices + 1) * layer_length, WIDTH, B,
       forward + (n_hidden_matrices * WIDTH + m_inputs_width) * m_batch_size,
       WIDTH, B, m_output_width, 0, C, m_output_width);
 
@@ -1073,9 +1130,12 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input,
 
   m_q.parallel_for<>(range<1>(m_output_width * m_batch_size),
                      [=](id<1> idx) {
-                       output.data()[idx] = C[idx];
+                       //  output.data()[idx] = C[idx];
+
+                       output.data()[idx] =
+                           elt_activation_ret<float>(output_activation, C[idx]);
                        forward[intermediate_output_size + input.size() + idx] =
-                           C[idx];
+                           elt_activation_ret<float>(output_activation, C[idx]);
                        //    int b_first;
                        //    int b_second;
                        //    static const CONSTANT char FMT[] = "out[%d]
@@ -1085,6 +1145,11 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input,
                        //        FMT, int(idx), b_first, b_second);
                      })
       .wait();
+  //   }
+  //   output.copy_to_host(out, m_q);
+  //   for (int i = 0; i < out.size(); i++) {
+  //     std::cout << i << ": " << out[i] << std::endl;
+  //   }
 }
 
 // template <int WIDTH>
@@ -1195,13 +1260,19 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads,
                                                    float* B, float* C, float* D,
                                                    float* E, float* F) {
   auto p_w = m_weightsT_matrices.data();
+
   auto p_g = m_grads_matrices.data();
+  //   std::cout << "Total weights: " << m_weightsT_matrices.size() <<
+  //   std::endl;
   const int offset_w = m_n_hidden_matrices * m_net_width * m_net_width +
                        m_net_width * m_inputs_width;
   const int offset_g = m_inputs_width * m_net_width +
                        (m_n_hidden_matrices - 1) * m_net_width * m_net_width;
   const int offset_f =
       (m_inputs_width + (m_n_hidden_matrices - 1) * batch_size) * m_net_width;
+  //   std::cout << "offsets: " << offset_w << "," << offset_g << ", " <<
+  //   offset_f
+  //             << std::endl;
   const int output_width = m_output_width;
   const int net_width = m_net_width;
 
@@ -1210,28 +1281,77 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads,
   auto activation = m_activation;
 
   m_q.parallel_for<>(range<1>(grads.size()),
-                     [=](id<1> idx) { A[idx] = (float)loss.data()[idx]; })
-      .wait();
+                     [=](id<1> idx) {
+                       A[idx] = (float)loss.data()[idx];
 
+                       //    int b_first;
+                       //    int b_second;
+                       //    static const CONSTANT char FMT[] = "A[%d]
+                       //    %d.%d,\n"; get_float_as_integers_own(A[idx],
+                       //    b_first, b_second);
+                       //    sycl::ext::oneapi::experimental::printf(
+                       //        FMT, int(idx), b_first, b_second);
+                     })
+      .wait();
+  //   m_q.parallel_for<>(range<1>(m_weightsT_matrices.size()),
+  //                      [=](id<1> idx) {
+  //                        int b_first;
+  //                        int b_second;
+  //                        static const CONSTANT char FMT[] = "pw[%d]
+  //                        %d.%d,\n"; get_float_as_integers_own(p_w[idx],
+  //                        b_first, b_second);
+  //                        sycl::ext::oneapi::experimental::printf(
+  //                            FMT, int(idx), b_first, b_second);
+  //                      })
+  //       .wait();
   m_q.parallel_for<>(range<1>(m_output_width * WIDTH),
                      [=](id<1> idx) {
                        B[idx] =
                            p_w[offset_w + toPackedLayoutCoord(idx, output_width,
                                                               net_width)];
+                       //    int b_first;
+                       //    int b_second;
+                       //    static const CONSTANT char FMT[] = "B[%d]
+                       //    %d.%d,\n"; get_float_as_integers_own(B[idx],
+                       //    b_first, b_second);
+                       //    sycl::ext::oneapi::experimental::printf(
+                       //        FMT, int(idx), b_first, b_second);
                      })
       .wait();
 
   oneapi::mkl::blas::row_major::gemm(
-      m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
+      //   m_q, oneapi::mkl::transpose::nontrans,
+      //   oneapi::mkl::transpose::nontrans,
+      m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::trans,
       batch_size, m_net_width, m_output_width, 1, A, m_output_width, B,
       m_net_width, 0, C, m_net_width);
 
+  //   m_q.parallel_for<>(range<1>(m_net_width * m_output_width),
+  //                      [=](id<1> idx) {
+  //                        int b_first;
+  //                        int b_second;
+  //                        static const CONSTANT char FMT[] = "C[%d] %d.%d,\n";
+  //                        get_float_as_integers_own(C[idx], b_first,
+  //                        b_second); sycl::ext::oneapi::experimental::printf(
+  //                            FMT, int(idx), b_first, b_second);
+  //                      })
+  //       .wait();
   m_q.parallel_for<>(range<1>(WIDTH * batch_size),
                      [=](id<1> idx) {
                        int i = idx / batch_size;
                        int j = idx % batch_size;
                        D[i * batch_size + j] = elt_activation_ret<float>(
                            activation, forward[offset_f + j * net_width + i]);
+
+                       //    int b_first;
+                       //    int b_second;
+                       //    static const CONSTANT char FMT[] = "D[%d] %d.%d\n";
+                       //    get_float_as_integers_own(D[i * batch_size + j],
+                       //    b_first,
+                       //                              b_second);
+                       //    sycl::ext::oneapi::experimental::printf(
+                       //        FMT, int(i * batch_size + j), b_first,
+                       //        b_second);
                      })
       .wait();
 
@@ -1240,6 +1360,12 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads,
                        elt_activation_bwd<float, float, float>(
                            activation, C[idx], forward[offset_f + idx], E[idx]);
                        loss.data()[idx] = (bf16)E[idx];
+                       //    int b_first;
+                       //    int b_second;
+                       //    static const CONSTANT char FMT[] = "E[%d] %d.%d\n";
+                       //    get_float_as_integers_own(E[idx], b_first,
+                       //    b_second); sycl::ext::oneapi::experimental::printf(
+                       //        FMT, int(idx), b_first, b_second);
                      })
       .wait();
 
@@ -1253,9 +1379,10 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads,
                        p_g[idx + offset_g] = (float)F[idx];
                        //    int b_first;
                        //    int b_second;
-                       //    static const CONSTANT char FMT[] = "F[%d]  %d.%d,";
-                       //    get_float_as_integers_own(F[idx], b_first,
-                       //    b_second); sycl::ext::oneapi::experimental::printf(
+                       //    static const CONSTANT char FMT[] = "F[%d]
+                       //    %d.%d,\n"; get_float_as_integers_own(F[idx],
+                       //    b_first, b_second);
+                       //    sycl::ext::oneapi::experimental::printf(
                        //        FMT, int(idx), b_first, b_second);
                      })
       .wait();
@@ -1291,11 +1418,6 @@ void SwiftNetMLP<WIDTH>::backward_pass(
     float* C_backward_last_layer, float* D_backward_last_layer,
     float* E_backward_last_layer, float* F_backward_last_layer, float* A_dgemm,
     float* B_dgemm, float* C_dgemm, float* forward) {
-  //   std::vector<bf16> grad_vec(grads.size());
-  //   grads.copy_to_host(grad_vec, m_q);
-  //   for (int i = 0; i < grads.size(); i++) {
-  //     std::cout << "Grad at " << i << ": " << grad_vec[i] << std::endl;
-  //   }
   int batch_size = m_batch_size;
   auto p = m_grads_matrices.data();
   int s = m_grads_matrices.size();
@@ -1307,7 +1429,17 @@ void SwiftNetMLP<WIDTH>::backward_pass(
                        m_n_hidden_matrices * m_net_width * batch_size;
 
   const size_t alignment = 1024;
-
+  //   std::vector<bf16> grad_vec_out(m_grads_matrices.size());
+  //   std::cout << " grads before " << std::endl;
+  //   m_q.memcpy(grad_vec_out.data(), m_grads_matrices.data(),
+  //              m_grads_matrices.size() * sizeof(bf16))
+  //       .wait();
+  //   for (int i = 0; i < grad_vec_out.size(); i++) {
+  //     std::cout << "Grad at " << i << ": " << grad_vec_out[i] << std::endl;
+  //   }
+  //   std::cout << "
+  //   =========================================================="
+  //             << std::endl;
   // Compute activation backpropagation using parallel_for
   m_q.parallel_for<>(range<1>(WIDTH * batch_size),
                      [=](id<1> idx) {
@@ -1344,16 +1476,10 @@ void SwiftNetMLP<WIDTH>::backward_pass(
                        //    int b_second;
                        //    int a_first;
                        //    int a_second;
-                       //    static const CONSTANT char FMT[] = "B[%d]  %d.%d,
-                       //    grad: %d.%d"; get_float_as_integers_own(B[idx],
-                       //    b_first, b_second);
-                       //    get_float_as_integers_own(grads.data()[idx],
-                       //    a_first, a_second);
-                       //    sycl::ext::oneapi::experimental::printf(FMT,
-                       //    int(idx), b_first,
-                       //                                            b_second,
-                       //                                            a_first,
-                       //                                            a_second);
+                       //    static const CONSTANT char FMT[] = "loss[%d]
+                       //    %d.%d,"; get_float_as_integers_own(B[idx], b_first,
+                       //    b_second); sycl::ext::oneapi::experimental::printf(
+                       //        FMT, int(idx), b_first, b_second);
                      })
       .wait();
   // Perform matrix multiplication using MKL BLAS
@@ -1374,7 +1500,7 @@ void SwiftNetMLP<WIDTH>::backward_pass(
                        //        b_second);
                      })
       .wait();
-  //   std::cout << " grads " << std::endl;
+  //   std::cout << " grads after (should be last layer)" << std::endl;
   //   m_q.memcpy(grad_vec_out.data(), m_grads_matrices.data(),
   //              m_grads_matrices.size() * sizeof(bf16))
   //       .wait();
@@ -1387,6 +1513,15 @@ void SwiftNetMLP<WIDTH>::backward_pass(
                             C_backward_last_layer, D_backward_last_layer,
                             E_backward_last_layer, F_backward_last_layer);
 
+  //   std::cout << " grads should be penultimate layer " << std::endl;
+  //   m_q.memcpy(grad_vec_out.data(), m_grads_matrices.data(),
+  //              m_grads_matrices.size() * sizeof(bf16))
+  //       .wait();
+  //   for (int i = 0; i < grad_vec_out.size(); i++) {
+  //     std::cout << "Grad at " << i << ": " << grad_vec_out[i] << std::endl;
+  //   }
+  //   std::cout << "=========================================================="
+  //             << std::endl;
   // Choose appropriate mlp_swiftnet_backward based on activation
   switch (m_activation) {
     case Activation::None:
@@ -1428,11 +1563,20 @@ void SwiftNetMLP<WIDTH>::backward_pass(
     default:
       return;
   }
-
-  // Normalize gradients
-  m_q.parallel_for<>(range<1>(s), [=](id<1> idx) { p[idx] /= batch_size; })
-      .wait();
-  std::vector<bf16> grad_vec_out(m_grads_matrices.size());
+  //   std::cout << "For all hidden " << std::endl;
+  //   m_q.memcpy(grad_vec_out.data(), m_grads_matrices.data(),
+  //              m_grads_matrices.size() * sizeof(bf16))
+  //       .wait();
+  //   for (int i = 0; i < grad_vec_out.size(); i++) {
+  //     std::cout << "Grad at " << i << ": " << grad_vec_out[i] << std::endl;
+  //   }
+  //   std::cout << "
+  //   =========================================================="
+  //             << std::endl;
+  //   // Normalize gradients
+  //   m_q.parallel_for<>(range<1>(s), [=](id<1> idx) { p[idx] /= batch_size; })
+  //       .wait();
+  //   std::vector<bf16> grad_vec_out(m_grads_matrices.size());
 
   //   std::cout << " grads final" << std::endl;
   //   m_q.memcpy(grad_vec_out.data(), m_grads_matrices.data(),

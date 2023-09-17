@@ -130,8 +130,8 @@ torch::Tensor SwiftNetModule::forward_pass(torch::Tensor input_tensor,
     exit(1);
   }
   // Calling forward pass of Swiftnet
-  network->forward_pass(input, network->m_forward, network->m_A_forward,
-                        network->m_B_forward, network->m_C_forward, output);
+  network->forward_pass(input, network->m_forward, network->m_B_forward,
+                        network->m_C_forward, output);
   //   std::cout << "Size: "
   //             << network->m_batch_size *
   //                    (network->m_inputs_width + network->m_output_width +

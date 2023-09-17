@@ -36,7 +36,7 @@ void L2_loss(id<1> idx, const int n_elements, const int dims, const int stride,
   values[idx] = difference * difference;
 
   // Compute gradient using bf16 type
-  grads[idx] = bf16(((bf16)preds[idx] - (bf16)targets[target_idx]));
+  grads[idx] = bf16(2 * ((bf16)preds[idx] - (bf16)targets[target_idx]));
 }
 
 /**

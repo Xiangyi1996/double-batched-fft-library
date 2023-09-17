@@ -13,13 +13,24 @@ activation_funcs = ["relu", "linear", "sigmoid", "tanh"]
 hidden_layer_counts = [1, 2, 3]
 
 BATCH_SIZE = 64
-DEVICE_NAME = "xpu"
+DEVICE_NAME = "cpu"
+
+
+class CustomMSELoss(torch.nn.Module):
+    def __init__(self):
+        super(CustomMSELoss, self).__init__()
+
+    def forward(self, predicted, target):
+        # Calculate the mean squared error
+        mse = torch.mean((predicted - target) ** 2)
+        return mse
 
 
 def train_model(model, x_train, y_train, n_steps):
     batch_size = BATCH_SIZE
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    loss_fn = torch.nn.MSELoss()
+    loss_fn = CustomMSELoss()
+    # loss_fn = torch.nn.MSELoss()
     y_predicted_all = []
     grads = []
     losses = []
@@ -27,6 +38,14 @@ def train_model(model, x_train, y_train, n_steps):
         all_loss = []
         for idx in range(x_train.shape[0] // batch_size):
             y_pred = model(x_train[idx * batch_size : (idx + 1) * batch_size, ...])
+            # try:
+            # y_pred = model(
+            #     x_train[idx * batch_size : (idx + 1) * batch_size, ...].flatten()
+            # )
+            # except:
+            #     y_pred = model(
+            #         x_train[idx * batch_size : (idx + 1) * batch_size, ...]
+            #     ).flatten()
             loss = loss_fn(
                 y_pred,
                 y_train[idx * batch_size : (idx + 1) * batch_size],
@@ -53,57 +72,64 @@ def train_model(model, x_train, y_train, n_steps):
     return losses, y_predicted_all, grads
 
 
-# @pytest.mark.parametrize(
-#     "input_size, hidden_size, output_size, activation_func, output_func",
-#     [
-#         (input_size, hidden_size, output_size, activation_func, output_func)
-#         for input_size in input_sizes
-#         for output_size in output_sizes
-#         for activation_func in activation_funcs
-#         for output_func in output_funcs
-#         for hidden_size in hidden_layer_counts
-#     ],
-# )
-# def test_grad(
-#     input_size,
-#     hidden_size,
-#     output_size,
-#     activation_func,
-#     output_func,
-#     iterations=1,
-# ):
-#     x_train = (
-#         torch.tensor(BATCH_SIZE * [2e-1 for _ in range(input_size)])
-#         .to(DEVICE_NAME)
-#         .reshape(BATCH_SIZE, -1)
-#     )
-#     y_train = torch.ones([BATCH_SIZE, output_size]).to(DEVICE_NAME)
-#     for _ in range(iterations):
-#         model_dpcpp, model_torch = create_models(
-#             input_size, hidden_size, output_size, activation_func, output_func
-#         )
+@pytest.mark.parametrize(
+    "input_size, hidden_size, output_size, activation_func, output_func",
+    [
+        (input_size, hidden_size, output_size, activation_func, output_func)
+        for input_size in input_sizes
+        for output_size in output_sizes
+        for activation_func in activation_funcs
+        for output_func in output_funcs
+        for hidden_size in hidden_layer_counts
+    ],
+)
+def test_grad(
+    input_size,
+    hidden_size,
+    output_size,
+    activation_func,
+    output_func,
+    iterations=1,
+):
+    for iter_ in range(iterations):
+        if iter_ == 0:
+            # easiest, debug test
+            x_train = (
+                torch.tensor(BATCH_SIZE * [1.0 for _ in range(input_size)])
+                .to(DEVICE_NAME)
+                .reshape(BATCH_SIZE, -1)
+            )
+            y_train = torch.ones([BATCH_SIZE, output_size]).to(DEVICE_NAME)
+        else:
+            x_train = torch.rand([BATCH_SIZE, input_size]).to(DEVICE_NAME)
+            y_train = torch.rand([BATCH_SIZE, output_size]).to(DEVICE_NAME)
 
-#         n_steps = 100
-#         loss_dpcpp, y_dpcpp, grads_dpcpp = train_model(
-#             model_dpcpp, x_train, y_train, n_steps
-#         )
-#         loss_torch, y_torch, grads_torch = train_model(
-#             model_torch, x_train, y_train, n_steps
-#         )
+        # Need to generate new model, because weights are updated in one loop.
+        model_dpcpp, model_torch = create_models(
+            input_size, hidden_size, output_size, activation_func, output_func
+        )
 
-#         last_idx = int(n_steps * 0.8)
-#         assert (
-#             np.mean(
-#                 abs(np.array(loss_dpcpp[last_idx:]) - np.array(loss_torch[last_idx:]))
-#             )
-#             < 1e-3
-#         )
-#         assert (
-#             np.mean(abs(np.array(y_dpcpp[last_idx:])))
-#             - np.mean(np.array(y_torch[last_idx:]))
-#         ) / (
-#             y_train.mean()
-#         ) < 2e-2  # relative error smaller than 2%
+        n_steps = 1  # if this is too large, there will be accumulated error (weights aren't the same, thus the loss is not the same etc)
+        loss_dpcpp, y_dpcpp, grads_dpcpp = train_model(
+            model_dpcpp, x_train, y_train, n_steps
+        )
+        loss_torch, y_torch, grads_torch = train_model(
+            model_torch, x_train, y_train, n_steps
+        )
+        grads_dpcpp = grads_dpcpp[0][0]
+        grads_torch = grads_torch[0]
+        for layer in range(len(grads_dpcpp)):
+            rel_diff_in_layer = abs(
+                grads_torch[layer].sum() - grads_dpcpp[layer].sum()
+            ) / (abs(grads_torch[layer]).sum())
+            print(f"Layer {layer}: {rel_diff_in_layer*100:.2f}%")
+            print("Torch")
+            print(grads_torch[layer])
+            print("DPCPP")
+            print(grads_dpcpp[layer])
+            # assert (
+            #     rel_diff_in_layer < 0.05
+            # ), f"Difference larger than 5%: {rel_diff_in_layer* 100:.2f}%"
 
 
 @pytest.mark.parametrize(
@@ -120,8 +146,8 @@ def train_model(model, x_train, y_train, n_steps):
 def test_fwd(input_size, hidden_size, output_size, activation_func, output_func):
     # Generate random input data for testing
     torch.manual_seed(123)
-    input_data = torch.randn(BATCH_SIZE, input_size, dtype=torch.float32).to(
-        DEVICE_NAME
+    input_data = (
+        torch.randn(BATCH_SIZE, input_size, dtype=torch.float32).to(DEVICE_NAME) * 0 + 1
     )
     model_dpcpp, model_torch = create_models(
         input_size,

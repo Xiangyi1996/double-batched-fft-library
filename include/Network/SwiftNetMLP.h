@@ -35,8 +35,8 @@ class SwiftNetMLP : public Network {
               Activation activation, Activation output_activation,
               int batch_size);
   ~SwiftNetMLP();
-  void forward_pass(const DeviceMem<bf16>& input, float* forward, float* A,
-                    float* B, float* C, DeviceMem<float>& output) override;
+  void forward_pass(const DeviceMem<bf16>& input, float* forward, float* B,
+                    float* C, DeviceMem<float>& output) override;
 
   //   void inference(const DeviceMem<bf16>& input, float* forward, float* A,
   //                  float* B, float* C, DeviceMem<float>& output) override;

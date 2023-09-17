@@ -517,7 +517,7 @@ void DeviceMem<T>::initialize_constant(T constant, DeviceMem<T>& transposed,
 }
 template <typename T>
 void DeviceMem<T>::initialize_arange(queue q, int input_width, int net_width,
-                                     int out_width) {
+                                     int out_width, int hidden_matrices) {
   std::vector<T> data(m_size);
 
   // input
@@ -528,11 +528,27 @@ void DeviceMem<T>::initialize_arange(queue q, int input_width, int net_width,
   }
 
   // Repeat the col_vector and perform the operations
-  for (int i = 0; i < net_width; ++i) {
-    for (int j = 0; j < input_width; ++j) {
-      //   data[i * input_width + j] = col_vector[j] * 0.001;
-      data[j * input_width + i] = col_vector[j] * 0.001;
-      //   std::cout << "Input Index: " << i * input_width + j << std::endl;
+  for (int i = 0; i < net_width; i++) {
+    for (int j = 0; j < input_width; j++) {
+      data[i * input_width + j] = col_vector[j] * 0.001;
+      //   data[j * input_width + i] = col_vector[j] * 0.001;
+    }
+  }
+  // middle layers
+  // Create a 1D vector that goes from 1 to input_width
+  std::vector<T> col_vector_mid;
+  for (int i = 1; i <= net_width; ++i) {
+    col_vector_mid.push_back(static_cast<T>(i));
+  }
+  for (int k = 0; k < hidden_matrices; ++k) {
+    // Repeat the col_vector and perform the operations
+    for (int i = 0; i < net_width; ++i) {
+      for (int j = 0; j < net_width; ++j) {
+        data[net_width * input_width + k * net_width * net_width +
+             i * net_width + j] = col_vector[j] * 0.001;
+        // data[net_width * input_width + k * net_width * net_width +
+        //      j * net_width + i] = col_vector[j] * 0.001;
+      }
     }
   }
 
@@ -543,17 +559,16 @@ void DeviceMem<T>::initialize_arange(queue q, int input_width, int net_width,
   for (int i = 1; i <= out_width; ++i) {
     col_vector_out.push_back(static_cast<T>(i));
   }
-
   // Repeat the col_vector and perform the operations
-  for (int i = 0; i < net_width; ++i) {
-    for (int j = 0; j < out_width; ++j) {
-      data[net_width * input_width + i * out_width + j] = col_vector[j] * 0.001;
+  for (int i = 0; i < net_width; i++) {
+    for (int j = 0; j < out_width; j++) {
+      //   data[net_width * input_width + hidden_matrices * net_width *
+      //   net_width +
+      //        j * out_width + i] = col_vector_out[j] * 0.001;
+      data[net_width * input_width + hidden_matrices * net_width * net_width +
+           i * out_width + j] = col_vector_out[j] * 0.001;
     }
   }
-
-  //   for (int i = 0; i < m_size; i++) {
-  //     std::cout << "i: " << i << " - " << data[i] << std::endl;
-  //   }
 
   q.memcpy(m_data, data.data(), m_size * sizeof(T)).wait();
 }
