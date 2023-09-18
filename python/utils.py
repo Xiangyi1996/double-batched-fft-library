@@ -6,6 +6,10 @@ from mlp import MLP
 from modules import SwiftNet
 from tiny_nn import Activation
 
+import os
+import pickle
+import gdown
+import zipfile
 
 WIDTH = 64
 BATCH_SIZE = 64
@@ -76,3 +80,30 @@ def create_models(
     }
     model_torch.set_weights(weights)
     return model_dpcpp, model_torch
+
+
+def download_samples():
+    # Check if 'data' directory exists in the current path
+    if not os.path.exists("data"):
+        # Create the 'data' directory
+        print("Downloading from gdrive")
+
+        url = "https://drive.google.com/file/d/11QhrgOcxSehaHOzMHjn_bXU_z2LuKqw-/view?usp=sharing"
+        gdown.download_folder(url, quiet=False, use_cookies=False)
+        # Here, we'll assume you have 'tinynn_samples.zip' and want to unzip it
+        with zipfile.ZipFile("tinynn_samples.zip", "r") as zip_ref:
+            # Extract all contents of 'data.zip' into the 'data' directory
+            zip_ref.extractall()
+        print("Downloaded data")
+
+
+def load_from_folder(folder_path, file_name):
+    file_path = os.path.join(folder_path, file_name)
+
+    if not os.path.exists(file_path):
+        download_samples()
+
+    with open(file_path, "rb") as file:
+        data = torch.load(file)
+
+    return data
