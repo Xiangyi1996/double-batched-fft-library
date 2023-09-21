@@ -76,6 +76,7 @@ void matmul_act_layer(
         at,
     bf16* weights_layer, float* out_inter, float* forward_act = nullptr) {
   // Get sub-group and local IDs
+
   auto sg = item.get_sub_group();
   int id = item.get_local_id() % SG_SIZE;
   int sgId = sg.get_group_id();
@@ -221,6 +222,24 @@ void matmul_act_layer(
               //   id];
               at[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id];
         } else {
+          //   int wg_id = item.get_group().get_group_id();
+          //   int sg_id = item.get_sub_group().get_group_id();
+          //   int local_id = item.get_local_id();
+          //   static const CONSTANT char FMT[] =
+          //       "writing from idx: %d to idx: %d, i:%d, k:%d, group id: %d, "
+          //       "sub_group id: "
+          //       "%d, "
+          //       "local id: %d, overall id: %d\n";
+          //   if (wg_id == 0) {
+          //     sycl::ext::oneapi::experimental::printf(
+          //         FMT,
+          //         int(TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH +
+          //         SKEW) +
+          //             id),
+          //         int(TN * sgId + WIDTH * TM * i + k * WIDTH + id), int(i),
+          //         int(k), int(wg_id), int(sg_id), int(local_id),
+          //         int(wg_id * WG_SIZE + local_id));
+          //   }
           out_inter[TN * sgId + WIDTH * TM * i + k * WIDTH + id] =
               a[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id];
           // at[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id];
@@ -285,8 +304,24 @@ void workgroup_write_output_static(
   for (int i = 0; i < N_ITERS; i++) {
     for (int k = 0; k < TM; k++) {
       // Copy data from shared memory to output thread block
-      output_threadblock[TN * sgId * WIDTH + TM * i + k * WIDTH + id] =
-          a[TN * sgId + (WIDTH + SKEW) * TM * i + k * WIDTH + id];
+      //   int wg_id = item.get_group().get_group_id();
+      //   int sg_id = item.get_sub_group().get_group_id();
+      //   int local_id = item.get_local_id();
+      //   static const CONSTANT char FMT[] =
+      //       "writing from idx: %d to idx: %d, i:%d, k:%d, group id: %d, "
+      //       "sub_group id: "
+      //       "%d, "
+      //       "local id: %d, overall id: %d\n";
+      //   if (wg_id == 0) {
+      //     sycl::ext::oneapi::experimental::printf(
+      //         FMT,
+      //         int(TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) +
+      //         id), int(TN * sgId + WIDTH * TM * i + k * WIDTH + id), int(i),
+      //         int(k), int(wg_id), int(sg_id), int(local_id), int(wg_id *
+      //         WG_SIZE + local_id));
+      //   }
+      output_threadblock[TN * sgId + WIDTH * TM * i + k * WIDTH + id] =
+          a[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id];
     }
   }
 }
@@ -370,7 +405,6 @@ void workgroup_matmul_act_dynamic(
  * @param a                 Pointer to activation memory.
  * @param weights_layer     Pointer to weights for the layer.
  * @param out               Pointer to the output memory.
- * @param output_stride     The stride for the output memory.
  * @tparam WIDTH            Width of the layer.
  * @tparam N_ITERS          Number of iterations.
  */
@@ -378,7 +412,7 @@ template <int WIDTH, int N_ITERS>
 void workgroup_last_layer(
     nd_item<1> item,
     multi_ptr<bf16, access::address_space::local_space, (access::decorated)2> a,
-    bf16* weights_layer, float* out, const int output_stride) {
+    bf16* weights_layer, float* out) {
   //   for (int i = 0; i < ((SHMEM_SIZE + BATCH_CHUNK * SKEW) * WIDTH / 64);
   //   i++) {
   //     int b_first;
@@ -391,7 +425,6 @@ void workgroup_last_layer(
   //   };
   auto sg = item.get_sub_group();
   int sgId = sg.get_group_id();
-  const int li = item.get_local_id(0);
   int N_BLOCKS = WIDTH / 16;
   device_ptr<bf16> w(weights_layer);
   device_ptr<float> o(out);
@@ -454,7 +487,6 @@ void workgroup_last_layer(
  * @param act_mem               Pointer to activation memory.
  * @param act_mem_temp          Pointer to temporary activation memory.
  * @param out                   Pointer to output memory.
- * @param output_stride         The stride for the output memory.
  * @param input_width           Width of the input data.
  * @param output_width          Width of the output data.
  * @param n_hidden_matmuls      Number of hidden matrix multiplications.
@@ -469,8 +501,7 @@ void kernel_swift_mlp(nd_item<1> item, const Activation output_activation,
                       float* out_intermediate_layer,
                       local_accessor<bf16> act_mem,
                       local_accessor<float> act_mem_temp, float* out,
-                      const uint32_t output_stride, const uint32_t input_width,
-                      const uint32_t output_width,
+                      const uint32_t input_width, const uint32_t output_width,
                       const uint32_t n_hidden_matmuls, int batch_size) {
   auto a = act_mem.get_pointer();
   auto at = act_mem_temp.get_pointer();
@@ -491,36 +522,46 @@ void kernel_swift_mlp(nd_item<1> item, const Activation output_activation,
         !INFERENCE ? (out_intermediate_layer + elem_idx * WIDTH) : nullptr);
   } else {
     workgroup_matmul_act_dynamic<WIDTH, N_ITERS>(
-        item, activation, a, at, input + elem_idx * input_width, weights_layer,
+        item, activation, a, at, input + elem_idx * WIDTH, weights_layer,
         !INFERENCE ? (out_intermediate_layer + elem_idx * WIDTH) : nullptr,
         input_width, batch_size);
   }
   //   Handle hidden layers all together
+  //   std::cout << "n_hidden_matmuls: " << n_hidden_matmuls << std::endl;
 
   for (int k = 0; k < n_hidden_matmuls; k++) {
     matmul_act_layer<WIDTH, N_ITERS, false>(
         item, activation, a, at,
         weights_layer + first_weight_length + k * hidden_weight_lenght,
         !INFERENCE ? (out_intermediate_layer + elem_idx * WIDTH +
-                      (k + 1) * layer_lenght)
+                      (k * WIDTH + input_width) * batch_size)
                    : nullptr);
   }
 
   // Handle output layer
-  if (output_width > 16) {
-    if (INFERENCE) {
-      workgroup_write_output_static<WIDTH, N_ITERS>(
-          item, a,
-          out_intermediate_layer + elem_idx * WIDTH +
-              (n_hidden_matmuls + 1) * layer_lenght);
-    }
-  } else if (out) {
-    workgroup_last_layer<WIDTH, N_ITERS>(
+  //   if (output_width > 16) {
+  if (INFERENCE) {
+    workgroup_write_output_static<WIDTH, N_ITERS>(
         item, a,
-        weights_layer + first_weight_length +
-            hidden_weight_lenght * n_hidden_matmuls,
-        out + elem_idx * WIDTH, output_stride);
+        out_intermediate_layer + elem_idx * WIDTH +
+            (n_hidden_matmuls * WIDTH + input_width) * batch_size);
   }
+  //   } else if (out) {
+  //     // static const CONSTANT char FMT[] =
+  //     //     "first_weight_length: %d hidden_weight_lenght: %d, "
+  //     //     "n_hidden_matmuls:%d\n";
+  //     // if (wg_idx == 0) {
+  //     //   sycl::ext::oneapi::experimental::printf(FMT,
+  //     int(first_weight_length),
+  //     //                                           int(hidden_weight_lenght),
+  //     //                                           int(n_hidden_matmuls));
+  //     // }
+  //     workgroup_last_layer<WIDTH, N_ITERS>(
+  //         item, a,
+  //         weights_layer + first_weight_length +
+  //             hidden_weight_lenght * n_hidden_matmuls,
+  //         out + elem_idx * WIDTH);
+  //   }
 }
 
 /**
@@ -535,7 +576,6 @@ void kernel_swift_mlp(nd_item<1> item, const Activation output_activation,
  * @param act_mem            Pointer to activation memory.
  * @param act_mem_temp       Pointer to temporary activation memory.
  * @param output             Device memory for storing the output.
- * @param output_stride      The stride for the output memory.
  * @param n_hidden_layers    Number of hidden layers.
  * @param input_width        Width of the input data.
  * @param output_width       Width of the output data.
@@ -548,9 +588,8 @@ void mlp_swift_forward(queue q, Activation output_activation,
                        const DeviceMem<bf16>& weights,
                        const DeviceMem<bf16>& inputs,
                        float* intermediate_output, DeviceMem<float>& output,
-                       const int output_stride, const int n_hidden_layers,
-                       const int input_width, const int output_width,
-                       int batch_size) {
+                       const int n_hidden_layers, const int input_width,
+                       const int output_width, int batch_size) {
   const int N_BLOCKS = WIDTH / TK;
   const int N_ITERS = BATCH_CHUNK / TM;
 
@@ -562,12 +601,18 @@ void mlp_swift_forward(queue q, Activation output_activation,
 
      cgh.parallel_for(
          nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE),
+         //  nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, 32),
          [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
+           //    auto wg = item.get_group();
+           //    const int wg_idx = wg.get_group_id();
+
+           //    static const CONSTANT char FMT[] = "Current work group idx:
+           //    %d\n";
+           //    sycl::ext::oneapi::experimental::printf(FMT, int(wg_idx));
            kernel_swift_mlp<WIDTH, N_ITERS, activation, INFERENCE>(
                item, output_activation, inputs.data(), weights.data(),
                intermediate_output, act_mem, act_mem_temp, output.data(),
-               output_stride, input_width, output_width, n_hidden_layers - 1,
-               batch_size);
+               input_width, output_width, n_hidden_layers - 1, batch_size);
          });
    }).wait();
 }
@@ -659,7 +704,7 @@ void dgemm_multiply(queue q, bf16* grads_device, float* loss_gradients,
         (float)loss_gradients[idx + (n_hidden_matrices - k - 1) * layer_lenght];
   });
 
-  // Perform DGEMM operation
+  // Perform GEMM operation
   oneapi::mkl::blas::row_major::gemm(
       q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
       WIDTH, WIDTH, batch_size, 1, A, batch_size, B, WIDTH, 0, C, WIDTH);
@@ -876,10 +921,10 @@ void SwiftNetMLP<WIDTH>::initialize_params() {
   //   m_weights_matrices.initialize_uniform(
   //       0.01, m_weightsT_matrices, m_inputs_width, m_net_width,
   //       m_output_width, m_n_hidden_matrices, m_q);
-  m_weights_matrices.intitialize_he_normal(m_inputs_width, m_q);
   //   m_weights_matrices.intitialize_he_normal(m_inputs_width, m_q);
-  //   m_weights_matrices.initialize_constant(0.001, m_q);
-  //   m_weightsT_matrices.initialize_constant(0.001, m_q);
+  //   m_weights_matrices.intitialize_he_normal(m_inputs_width, m_q);
+  m_weights_matrices.initialize_constant(0.1, m_q);
+  m_weightsT_matrices.initialize_constant(0.1, m_q);
 
   //   m_weights_matrices.initialize_arange(m_q, m_inputs_width, m_net_width,
   //                                        m_output_width,
@@ -1006,7 +1051,6 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input,
   // Constants and dimensions
 
   auto output_activation = m_output_activation;
-  const int output_stride = WIDTH;
   const int n_hidden_matrices = m_n_hidden_matrices;
   const int net_width = m_net_width;
   const int inputs_width = m_inputs_width;
@@ -1036,50 +1080,50 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input,
     case Activation::None:
       mlp_swift_forward<WIDTH, Activation::None, false>(
           m_q, m_output_activation, m_weights_matrices, input,
-          forward + input.size(), output, output_stride, m_n_hidden_layers,
-          m_inputs_width, m_output_width, m_batch_size);
+          forward + input.size(), output, m_n_hidden_layers, m_inputs_width,
+          m_output_width, m_batch_size);
       break;
     case Activation::Exponential:
       mlp_swift_forward<WIDTH, Activation::Exponential, false>(
           m_q, m_output_activation, m_weights_matrices, input,
-          forward + input.size(), output, output_stride, m_n_hidden_layers,
-          m_inputs_width, m_output_width, m_batch_size);
+          forward + input.size(), output, m_n_hidden_layers, m_inputs_width,
+          m_output_width, m_batch_size);
       break;
     case Activation::Sigmoid:
       mlp_swift_forward<WIDTH, Activation::Sigmoid, false>(
           m_q, m_output_activation, m_weights_matrices, input,
-          forward + input.size(), output, output_stride, m_n_hidden_layers,
-          m_inputs_width, m_output_width, m_batch_size);
+          forward + input.size(), output, m_n_hidden_layers, m_inputs_width,
+          m_output_width, m_batch_size);
       break;
     case Activation::ReLU:
       mlp_swift_forward<WIDTH, Activation::ReLU, false>(
           m_q, m_output_activation, m_weights_matrices, input,
-          forward + input.size(), output, output_stride, m_n_hidden_layers,
-          m_inputs_width, m_output_width, m_batch_size);
+          forward + input.size(), output, m_n_hidden_layers, m_inputs_width,
+          m_output_width, m_batch_size);
       break;
     case Activation::LeakyReLU:
       mlp_swift_forward<WIDTH, Activation::LeakyReLU, false>(
           m_q, m_output_activation, m_weights_matrices, input,
-          forward + input.size(), output, output_stride, m_n_hidden_layers,
-          m_inputs_width, m_output_width, m_batch_size);
+          forward + input.size(), output, m_n_hidden_layers, m_inputs_width,
+          m_output_width, m_batch_size);
       break;
     case Activation::Squareplus:
       mlp_swift_forward<WIDTH, Activation::Squareplus, false>(
           m_q, m_output_activation, m_weights_matrices, input,
-          forward + input.size(), output, output_stride, m_n_hidden_layers,
-          m_inputs_width, m_output_width, m_batch_size);
+          forward + input.size(), output, m_n_hidden_layers, m_inputs_width,
+          m_output_width, m_batch_size);
       break;
     case Activation::Softplus:
       mlp_swift_forward<WIDTH, Activation::Softplus, false>(
           m_q, m_output_activation, m_weights_matrices, input,
-          forward + input.size(), output, output_stride, m_n_hidden_layers,
-          m_inputs_width, m_output_width, m_batch_size);
+          forward + input.size(), output, m_n_hidden_layers, m_inputs_width,
+          m_output_width, m_batch_size);
       break;
     case Activation::Tanh:
       mlp_swift_forward<WIDTH, Activation::Tanh, false>(
           m_q, m_output_activation, m_weights_matrices, input,
-          forward + input.size(), output, output_stride, m_n_hidden_layers,
-          m_inputs_width, m_output_width, m_batch_size);
+          forward + input.size(), output, m_n_hidden_layers, m_inputs_width,
+          m_output_width, m_batch_size);
       break;
     default:
       return;
@@ -1152,90 +1196,85 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input,
   //   }
 }
 
-// template <int WIDTH>
-// void SwiftNetMLP<WIDTH>::inference(const DeviceMem<bf16>& input, float*
-// forward,
-//                                    float* A, float* B, float* C,
-//                                    DeviceMem<float>& output) {
-//   const int output_stride = WIDTH;
-//   const int input_size = input.size();
-//   const int layer_length = WIDTH * m_batch_size;
-//   const int n_hidden_matrices = m_n_hidden_matrices;
-//   const int net_width = m_net_width;
-//   const int inputs_width = m_inputs_width;
-//   const int output_width = m_output_width;
+template <int WIDTH>
+void SwiftNetMLP<WIDTH>::inference(const DeviceMem<bf16>& input, float* forward,
+                                   float* B, float* C,
+                                   DeviceMem<float>& output) {
+  const int input_size = input.size();
+  const int n_hidden_matrices = m_n_hidden_matrices;
+  const int net_width = m_net_width;
+  const int inputs_width = m_inputs_width;
+  const int output_width = m_output_width;
 
-//   static_assert(WIDTH % 16 == 0, "Width must be a multiply of 16.");
-//   assert(m_batch_size % 64 == 0);
-//   auto p = m_weights_matrices.data();
+  static_assert(WIDTH % 16 == 0, "Width must be a multiply of 16.");
+  assert(m_batch_size % 64 == 0);
+  auto p = m_weights_matrices.data();
 
-//   switch (m_activation) {
-//     case Activation::None:
-//       mlp_swift_forward<WIDTH, Activation::None, true>(
-//           m_q, m_output_activation, m_weights_matrices, input, forward,
-//           output, output_stride, m_n_hidden_layers, m_inputs_width,
-//           m_output_width, m_batch_size);
-//       break;
-//     case Activation::Exponential:
-//       mlp_swift_forward<WIDTH, Activation::Exponential, true>(
-//           m_q, m_output_activation, m_weights_matrices, input, forward,
-//           output, output_stride, m_n_hidden_layers, m_inputs_width,
-//           m_output_width, m_batch_size);
-//       break;
-//     case Activation::Sigmoid:
-//       mlp_swift_forward<WIDTH, Activation::Sigmoid, true>(
-//           m_q, m_output_activation, m_weights_matrices, input, forward,
-//           output, output_stride, m_n_hidden_layers, m_inputs_width,
-//           m_output_width, m_batch_size);
-//       break;
-//     case Activation::ReLU:
-//       mlp_swift_forward<WIDTH, Activation::ReLU, true>(
-//           m_q, m_output_activation, m_weights_matrices, input, forward,
-//           output, output_stride, m_n_hidden_layers, m_inputs_width,
-//           m_output_width, m_batch_size);
-//       break;
-//     case Activation::LeakyReLU:
-//       mlp_swift_forward<WIDTH, Activation::LeakyReLU, true>(
-//           m_q, m_output_activation, m_weights_matrices, input, forward,
-//           output, output_stride, m_n_hidden_layers, m_inputs_width,
-//           m_output_width, m_batch_size);
-//       break;
-//     case Activation::Squareplus:
-//       mlp_swift_forward<WIDTH, Activation::Squareplus, true>(
-//           m_q, m_output_activation, m_weights_matrices, input, forward,
-//           output, output_stride, m_n_hidden_layers, m_inputs_width,
-//           m_output_width, m_batch_size);
-//       break;
-//     case Activation::Softplus:
-//       mlp_swift_forward<WIDTH, Activation::Softplus, true>(
-//           m_q, m_output_activation, m_weights_matrices, input, forward,
-//           output, output_stride, m_n_hidden_layers, m_inputs_width,
-//           m_output_width, m_batch_size);
-//       break;
-//     case Activation::Tanh:
-//       mlp_swift_forward<WIDTH, Activation::Tanh, true>(
-//           m_q, m_output_activation, m_weights_matrices, input, forward,
-//           output, output_stride, m_n_hidden_layers, m_inputs_width,
-//           m_output_width, m_batch_size);
-//       break;
-//     default:
-//       throw std::runtime_error{"Unsupported activation."};
-//   }
+  switch (m_activation) {
+    case Activation::None:
+      mlp_swift_forward<WIDTH, Activation::None, true>(
+          m_q, m_output_activation, m_weights_matrices, input, forward, output,
+          m_n_hidden_layers, m_inputs_width, m_output_width, m_batch_size);
+      break;
+    case Activation::Exponential:
+      mlp_swift_forward<WIDTH, Activation::Exponential, true>(
+          m_q, m_output_activation, m_weights_matrices, input, forward, output,
+          m_n_hidden_layers, m_inputs_width, m_output_width, m_batch_size);
+      break;
+    case Activation::Sigmoid:
+      mlp_swift_forward<WIDTH, Activation::Sigmoid, true>(
+          m_q, m_output_activation, m_weights_matrices, input, forward, output,
+          m_n_hidden_layers, m_inputs_width, m_output_width, m_batch_size);
+      break;
+    case Activation::ReLU:
+      mlp_swift_forward<WIDTH, Activation::ReLU, true>(
+          m_q, m_output_activation, m_weights_matrices, input, forward, output,
+          m_n_hidden_layers, m_inputs_width, m_output_width, m_batch_size);
+      break;
+    case Activation::LeakyReLU:
+      mlp_swift_forward<WIDTH, Activation::LeakyReLU, true>(
+          m_q, m_output_activation, m_weights_matrices, input, forward, output,
+          m_n_hidden_layers, m_inputs_width, m_output_width, m_batch_size);
+      break;
+    case Activation::Squareplus:
+      mlp_swift_forward<WIDTH, Activation::Squareplus, true>(
+          m_q, m_output_activation, m_weights_matrices, input, forward, output,
+          m_n_hidden_layers, m_inputs_width, m_output_width, m_batch_size);
+      break;
+    case Activation::Softplus:
+      mlp_swift_forward<WIDTH, Activation::Softplus, true>(
+          m_q, m_output_activation, m_weights_matrices, input, forward, output,
+          m_n_hidden_layers, m_inputs_width, m_output_width, m_batch_size);
+      break;
+    case Activation::Tanh:
+      mlp_swift_forward<WIDTH, Activation::Tanh, true>(
+          m_q, m_output_activation, m_weights_matrices, input, forward, output,
+          m_n_hidden_layers, m_inputs_width, m_output_width, m_batch_size);
+      break;
+    default:
+      throw std::runtime_error{"Unsupported activation."};
+  }
 
-//   if (m_output_width > 16) {
-//     m_q.parallel_for<>(range<1>(m_output_width * m_net_width), [=](id<1> idx)
-//     {
-//       B[idx] = p[toPackedLayoutCoord(idx, net_width, output_width) +
-//                  net_width * (inputs_width + n_hidden_matrices * net_width)];
-//     });
+  //   if (m_output_width > 16) {
+  m_q.parallel_for<>(range<1>(m_output_width * m_net_width), [=](id<1> idx) {
+    B[idx] = p[toPackedLayoutCoord(idx, net_width, output_width) +
+               net_width * (inputs_width + n_hidden_matrices * net_width)];
+  });
+  oneapi::mkl::blas::row_major::gemm(
+      m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
+      m_batch_size, m_output_width, WIDTH, 1,
+      forward + (n_hidden_matrices * WIDTH + inputs_width) * m_batch_size,
+      WIDTH, B, m_output_width, 0, C, m_output_width);
+  auto output_activation = m_output_activation;
 
-//     oneapi::mkl::blas::row_major::gemm(
-//         m_q, oneapi::mkl::transpose::nontrans,
-//         oneapi::mkl::transpose::nontrans, m_batch_size, m_output_width,
-//         WIDTH, 1, A, WIDTH, B, m_output_width, 0, output.data(),
-//         m_output_width);
-//   }
-// }
+  m_q.parallel_for<>(range<1>(m_output_width * m_batch_size),
+                     [=](id<1> idx) {
+                       output.data()[idx] =
+                           elt_activation_ret<float>(output_activation, C[idx]);
+                     })
+      .wait();
+  //   }
+}
 
 /**
  * Perform matrix multiplications and activation backpropagation for the last

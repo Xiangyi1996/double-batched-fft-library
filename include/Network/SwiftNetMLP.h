@@ -38,8 +38,8 @@ class SwiftNetMLP : public Network {
   void forward_pass(const DeviceMem<bf16>& input, float* forward, float* B,
                     float* C, DeviceMem<float>& output) override;
 
-  //   void inference(const DeviceMem<bf16>& input, float* forward, float* A,
-  //                  float* B, float* C, DeviceMem<float>& output) override;
+  void inference(const DeviceMem<bf16>& input, float* forward, float* B,
+                 float* C, DeviceMem<float>& output) override;
 
   void backward_pass(const DeviceMem<bf16>& input, DeviceMem<bf16>& grads,
                      float* out_inter, float* delta_temp, DeviceMem<bf16> loss,

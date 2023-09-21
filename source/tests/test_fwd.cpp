@@ -21,8 +21,9 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 #define TK 16
 #define TN 8
 
-#define INPUT_WIDTH 64
-#define OUTPUT_WIDTH 8
+#define INPUT_WIDTH 16
+#define OUTPUT_WIDTH 1
+#define HIDDEN_LAYERS 1
 
 #define SG_SIZE 8
 #define WG_SIZE 8 * SG_SIZE
@@ -170,7 +171,7 @@ class MultilayerPerceptron {
       //   if (use_linear) {
       layers[h_].out[i] = nonef(layers[h_].in[i]);
       //   } else {
-      //     layers[h_].out[i] = relu(layers[h_].in[i]);
+      //   layers[h_].out[i] = relu(layers[h_].in[i]);
       //   }
     }
   }
@@ -315,20 +316,20 @@ class MultilayerPerceptron {
 };
 
 void test_exactitude() {
-  // REFERENCE
-
-  MultilayerPerceptron my_mlp(INPUT_WIDTH, OUTPUT_WIDTH);
-  my_mlp.addHiddenLayer(64);
-  // my_mlp.addHiddenLayer(64);
-
   // SWIFTNET
   const int batch_size = 64;
   const int output_width = OUTPUT_WIDTH;
   const int WIDTH = 64;
-  const int m_n_hidden_layers = 1;
+  const int m_n_hidden_layers = HIDDEN_LAYERS;
   const int net_width = 64;
 
   const float scale = 1e-3f;
+  // REFERENCE
+
+  MultilayerPerceptron my_mlp(INPUT_WIDTH, OUTPUT_WIDTH);
+  for (int i = 0; i < m_n_hidden_layers; i++) {
+    my_mlp.addHiddenLayer(64);
+  }
 
   queue q = queue();
 
@@ -343,7 +344,7 @@ void test_exactitude() {
       SGDOptimizer(OUTPUT_WIDTH, m_n_hidden_layers, 1e-3f, 1e-8f);
   SwiftNetMLP<64> network =
       SwiftNetMLP<64>(q, INPUT_WIDTH, output_width, m_n_hidden_layers,
-                      //   Activation::ReLU, Activation::None, batch_size);
+                      //   Activation::ReLU, Activation::ReLU, batch_size);
                       Activation::None, Activation::None, batch_size);
   Trainer train(network, loss, optim);
 
@@ -372,7 +373,7 @@ void test_exactitude() {
   //     std::cout << i << ": " << w_swift[i] << std::endl;
   //   }
 
-  my_mlp.copyWeights(w_swift, 1);
+  my_mlp.copyWeights(w_swift, m_n_hidden_layers);
   std::vector<float> x(INPUT_WIDTH);
   for (int i = 0; i < INPUT_WIDTH; i++) {
     x[i] = 1.0f;
@@ -385,7 +386,7 @@ void test_exactitude() {
   grads.initialize_constant(bf16(0.0f), q);
   losses.initialize_constant(0.0f, q);
 
-  train.training_step(inputs, output, target, grads, losses, scale, 64);
+  train.training_step(inputs, output, target, grads, losses, scale, WIDTH);
 
   std::vector<float> fwd(
       batch_size * (INPUT_WIDTH + OUTPUT_WIDTH + WIDTH * m_n_hidden_layers));
@@ -393,6 +394,12 @@ void test_exactitude() {
            batch_size * (WIDTH + output_width + WIDTH * m_n_hidden_layers) *
                sizeof(float));
   q.wait();
+
+  //   for (int i = 0; i < fwd.size(); i++) {
+  //     std::cout << i << ": " << fwd[i] << std::endl;
+  //   }
+  std::vector<float> out(batch_size * (OUTPUT_WIDTH));
+  output.copy_to_host(out, q);
 
   std::cout
       << "====================================================================="
@@ -407,6 +414,7 @@ void test_exactitude() {
     std::cout << "Idx " << j << " - " << my_mlp.layers[0].out[j] << ": "
               << fwd[j] << std::endl;
   }
+
   std::cout
       << "====================================================================="
          "=================================================================="
@@ -416,27 +424,37 @@ void test_exactitude() {
       << "====================================================================="
          "=================================================================="
       << std::endl;
-
   for (int j = 0; j < WIDTH; j++) {
     std::cout << "Idx " << j << " - " << my_mlp.layers[1].out[j] << ": "
-              << fwd[j + batch_size * INPUT_WIDTH] << std::endl;
+              << fwd[j + (batch_size * INPUT_WIDTH)] << std::endl;
   }
 
   std::cout
       << "====================================================================="
          "=================================================================="
       << std::endl;
-  std::cout << "Layer 2" << std::endl;
-  std::cout
-      << "====================================================================="
-         "=================================================================="
-      << std::endl;
-  for (int j = 0; j < output_width; j++) {
-    std::cout << "Idx " << j << " - " << my_mlp.layers[2].out[j] << ": "
-              << fwd[j + (batch_size * INPUT_WIDTH) + batch_size * WIDTH * 1]
-              << std::endl;
-  }
+  for (int layer = 1; layer < m_n_hidden_layers + 1; layer++) {
+    std::cout << "Layer " << layer + 1 << std::endl;
+    std::cout
+        << "==================================================================="
+           "=="
+           "=================================================================="
+        << std::endl;
 
+    for (int j = 0; j < WIDTH; j++) {
+      std::cout
+          << "Idx " << j << " - " << my_mlp.layers[layer + 1].out[j] << ": "
+          << fwd[j + batch_size * INPUT_WIDTH + batch_size * WIDTH * (layer)];
+      if (layer == m_n_hidden_layers) {
+        std::cout << "/ " << out[j] << std::endl;
+        if (j == (output_width - 1)) {
+          break;
+        }
+      } else {
+        std::cout << std::endl;
+      }
+    }
+  }
   inputs.free_mem(q);
   output.free_mem(q);
   target.free_mem(q);

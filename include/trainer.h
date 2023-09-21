@@ -27,6 +27,8 @@ class Trainer {
 
     m_network->forward_pass(input, m_network->m_forward, m_network->m_B_forward,
                             m_network->m_C_forward, output);
+    // m_network->inference(input, m_network->m_forward, m_network->m_B_forward,
+    //                      m_network->m_C_forward, output);
     if (forward_only) {
       return;
     }

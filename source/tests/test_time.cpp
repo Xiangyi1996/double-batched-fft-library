@@ -325,7 +325,7 @@ void test_exactitude() {
 
   // SWIFTNET
   //   const int batch_size = 64;
-  const int batch_size = std::pow(2, 10);
+  const int batch_size = std::pow(2, 21);
   const int output_width = OUTPUT_WIDTH;
   const int WIDTH = 64;
   const int intermediate_output_size = batch_size * WIDTH * 2;
@@ -367,20 +367,21 @@ void test_exactitude() {
 
   auto start_time = std::chrono::high_resolution_clock::now();
   int iter_steps = 1000;
-  // Code to profile (Section 1)
-  std::vector<float> res_ref;
-  for (int i = 0; i < iter_steps; ++i) {
-    for (int j = 0; j < batch_size; ++j) {
-      // Some computation
-      res_ref = my_mlp.classify(x);
-    }
-  }
+  //   // Code to profile (Section 1)
+  //   std::vector<float> res_ref;
+  //   for (int i = 0; i < iter_steps; ++i) {
+  //     for (int j = 0; j < batch_size; ++j) {
+  //       // Some computation
+  //       res_ref = my_mlp.classify(x);
+  //     }
+  //   }
 
   auto end_time = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
       end_time - start_time);
 
-  std::cout << "MLP Execution Time: " << duration.count() << " ms" << std::endl;
+  //   std::cout << "MLP Execution Time: " << duration.count() << " ms" <<
+  //   std::endl;
 
   inputs.initialize_constant(1.0f, q);
   output.initialize_constant(0.0f, q);
@@ -396,7 +397,22 @@ void test_exactitude() {
   duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time -
                                                                    start_time);
 
-  std::cout << "DPCPP Execution Time: " << duration.count() << " ms"
+  std::cout << "DPCPP Execution Time fwd: " << duration.count() << " ms"
+            << std::endl;
+  auto p = network.m_forward;
+  q.parallel_for<>(range<1>(inputs.size()),
+                   [=](id<1> idx) { p[idx] = inputs.data()[idx]; });
+
+  start_time = std::chrono::high_resolution_clock::now();
+  for (int i = 0; i < iter_steps; ++i) {
+    network.inference(inputs, network.m_forward, network.m_A_forward,
+                      network.m_B_forward, network.m_C_forward, output);
+  }
+  end_time = std::chrono::high_resolution_clock::now();
+  duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time -
+                                                                   start_time);
+
+  std::cout << "DPCPP Execution Time inference: " << duration.count() << "ms "
             << std::endl;
   inputs.free_mem(q);
   output.free_mem(q);
