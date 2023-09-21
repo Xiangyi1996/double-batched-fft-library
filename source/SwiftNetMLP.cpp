@@ -1,7 +1,7 @@
 #define TM 8
 #define TK 16
 #define TN 8
-#define SKEW 4
+#define SKEW 0
 
 #define SG_SIZE 8
 #define WG_SIZE 8*SG_SIZE
@@ -74,7 +74,8 @@ void matmul_act_layer(
     multi_ptr<bf16, access::address_space::local_space, (access::decorated)2> a,
     multi_ptr<float, access::address_space::local_space, (access::decorated)2>
         at,
-    bf16* weights_layer, float* out_inter, float* forward_act = nullptr) {
+    bf16* weights_layer, float* out_inter, float* forward_act = nullptr,
+    int print = 0) {
   // Get sub-group and local IDs
 
   auto sg = item.get_sub_group();
@@ -111,7 +112,28 @@ void matmul_act_layer(
                     w + TN * 2 * sgId + TK / 2 * 2 * WIDTH * 2, WIDTH * 2);
   joint_matrix_load(sg, weight_matrix3,
                     w + TN * 2 * sgId + TK / 2 * 3 * WIDTH * 2, WIDTH * 2);
-
+//   for (int m_idx = 0; m_idx < 4; m_idx++) {
+//     for (int w_idx = TN * 2 * sgId + TK / 2 * m_idx * WIDTH * 2;
+//          w_idx < TN * 2 * sgId + TK / 2 * m_idx * WIDTH * 2 + WIDTH * 2;
+//          w_idx++) {
+//       int b_first;
+//       int b_second;
+//       int b_zeroes;
+//       get_float_as_integers_own(w[w_idx], b_first, b_second, b_zeroes);
+//       int wg_id = item.get_group().get_group_id();
+//       int sg_id = item.get_sub_group().get_group_id();
+//       int local_id = item.get_local_id();
+//       static const CONSTANT char FMT[] =
+//           "W_idx: %d, m_idx: %d,  group id: %d, sub_group "
+//           "id: %d, local id: "
+//           "%d, overall id: %d, val: %d.%d \n ";
+//       if (wg_id == 0) {
+//         sycl::ext::oneapi::experimental::printf(
+//             FMT, w_idx, m_idx, int(wg_id), int(sg_id), int(local_id),
+//             int(wg_id * WG_SIZE + local_id), b_first, b_second);
+//       }
+//     }
+//   }
 #pragma unroll
   for (int l = 0; l < N_ITERS; l++) {
     joint_matrix_fill(sg, result_matrix, 0.0f);
@@ -119,6 +141,7 @@ void matmul_act_layer(
     // Load activation matrix and perform matrix multiplication and accumulation
     joint_matrix_load(sg, act_matrix, a + TK * 0 + TM * l * (WIDTH + SKEW),
                       WIDTH + SKEW);
+
     result_matrix =
         joint_matrix_mad(sg, act_matrix, weight_matrix0, result_matrix);
     joint_matrix_load(sg, act_matrix, a + TK * 1 + TM * l * (WIDTH + SKEW),
@@ -133,81 +156,177 @@ void matmul_act_layer(
                       WIDTH + SKEW);
     result_matrix =
         joint_matrix_mad(sg, act_matrix, weight_matrix3, result_matrix);
-
+    // for (int m_idx = 0; m_idx < 4; m_idx++) {
+    //   for (int w_idx = TK * m_idx + TM * l * (WIDTH + SKEW);
+    //        w_idx < TK * m_idx + TM * l * (WIDTH + SKEW) + WIDTH + SKEW;
+    //        w_idx++) {
+    //     int b_first;
+    //     int b_second;
+    //     int b_zeroes;
+    //     get_float_as_integers_own(a[w_idx], b_first, b_second, b_zeroes);
+    //     int wg_id = item.get_group().get_group_id();
+    //     int sg_id = item.get_sub_group().get_group_id();
+    //     int local_id = item.get_local_id();
+    //     static const CONSTANT char FMT[] =
+    //         "a result, l: %d, w_idx: %d, m_idx: %d,  group id: %d, sub_group
+    //         " "id: %d, local id: "
+    //         "%d, overall id: %d, val: %d.%d \n ";
+    //     if (wg_id == 0 && a[w_idx] == 0.0 && print) {
+    //       sycl::ext::oneapi::experimental::printf(
+    //           FMT, l, w_idx, m_idx, int(wg_id), int(sg_id), int(local_id),
+    //           int(wg_id * WG_SIZE + local_id), b_first, b_second);
+    //     }
+    //   }
+    // }
     // Store the result matrix
+    // for (int w_idx = TN * sgId + TM * l * (WIDTH + SKEW);
+    //      w_idx < TN * sgId + TM * l * (WIDTH + SKEW) + WIDTH + SKEW; w_idx++)
+    //      {
+    //   int b_first;
+    //   int b_second;
+    //   int b_zeroes;
+    //   get_float_as_integers_own(at[w_idx], b_first, b_second, b_zeroes);
+    //   int wg_id = item.get_group().get_group_id();
+    //   int sg_id = item.get_sub_group().get_group_id();
+    //   int local_id = item.get_local_id();
+    //   static const CONSTANT char FMT[] =
+    //       "Before at, l: %d, w_idx: %d (%d to %d),  group id: %d, sub_group "
+    //       "id: %d, id: %d, local id: "
+    //       "%d, overall id: %d, val: %d.%d \n ";
+    //   if ((wg_id == 0) && (id == 0) && print) {
+    //     sycl::ext::oneapi::experimental::printf(
+    //         FMT, l, w_idx, TN * sgId + TM * l * (WIDTH + SKEW),
+    //         TN * sgId + TM * l * (WIDTH + SKEW) + (WIDTH + SKEW), int(wg_id),
+    //         int(sg_id), id, int(local_id), int(wg_id * WG_SIZE + local_id),
+    //         b_first, b_second);
+    //   }
+    // }
     joint_matrix_store(sg, result_matrix,
                        at + TN * sgId + TM * l * (WIDTH + SKEW), WIDTH + SKEW,
                        layout::row_major);
+    // for (int w_idx = TN * sgId + TM * l * (WIDTH + SKEW);
+    //      w_idx < TN * sgId + TM * l * (WIDTH + SKEW) + WIDTH + SKEW; w_idx++)
+    //      {
+    //   int b_first;
+    //   int b_second;
+    //   int b_zeroes;
+    //   get_float_as_integers_own(at[w_idx], b_first, b_second, b_zeroes);
+    //   int wg_id = item.get_group().get_group_id();
+    //   int sg_id = item.get_sub_group().get_group_id();
+    //   int local_id = item.get_local_id();
+    //   static const CONSTANT char FMT[] =
+    //       "After at1, l: %d, w_idx: %d (%d to %d),  group id: %d, sub_group "
+    //       "id: %d, id: %d, local id: "
+    //       "%d, overall id: %d, val: %d.%d \n ";
+    //   if ((wg_id == 0) && (id == 0) && print) {
+    //     sycl::ext::oneapi::experimental::printf(
+    //         FMT, l, w_idx, TN * sgId + TM * l * (WIDTH + SKEW),
+    //         TN * sgId + TM * l * (WIDTH + SKEW) + (WIDTH + SKEW), int(wg_id),
+    //         int(sg_id), id, int(local_id), int(wg_id * WG_SIZE + local_id),
+    //         b_first, b_second);
+    //   }
+    // }
   }
 
 #pragma unroll
   for (int i = 0; i < N_ITERS; i++) {
     if (BACKWARD) {
-      //   for (int i = 0; i < 1; i++) {
-      // int a_first;
-      // int a_second;
-      // int a_zeros;
-      // int b_first;
-      // int b_second;
-      // int b_zeros;
-      // get_float_as_integers_own(at[i], a_first, a_second, a_zeros);
-      // get_float_as_integers_own(a[i], b_first, b_second, b_zeros);
-      // static const CONSTANT char FMT[] =
-      //     "1. [%d]: In %d.%d (%d zeroes), out %d.%d (%d zeroes), \n";
-      // sycl::ext::oneapi::experimental::printf(FMT, int(i), a_first, a_second,
-      //                                         a_zeros, b_first, b_second,
-      //                                         b_zeros);
-      //   }
-      // Apply backward activation matrix if required
-      matrix_activation_backward<float, float, bf16, SG_SIZE>(
-          activation, at, f, a, TN * sgId * (WIDTH + SKEW) + TM * i + id,
-          (WIDTH + SKEW));
-      //   for (int j = 0; j < 1; j++) {
+      int stride = (WIDTH + SKEW);
+      int offset = TN * sgId * (WIDTH + SKEW) + TM * i + id;
+      //   for (int j = 0; j < 8; j++) {
       //     int a_first;
       //     int a_second;
       //     int a_zeros;
       //     int b_first;
       //     int b_second;
       //     int b_zeros;
-      //     static const CONSTANT char FMT[] =
-      //         "2. [%d]: In %d.%d (%d zeroes), out %d.%d (%d zeroes), \n";
-      //     get_float_as_integers_own(at[i], a_first, a_second, a_zeros);
-      //     get_float_as_integers_own(a[i], b_first, b_second, b_zeros);
-      //     sycl::ext::oneapi::experimental::printf(FMT, int(i), a_first,
+
+      //     int wg_id = item.get_group().get_group_id();
+      //     int sg_id = item.get_sub_group().get_group_id();
+      //     int local_id = item.get_local_id();
+
+      //     get_float_as_integers_own(at[offset + j * stride], a_first,
       //     a_second,
-      //                                             a_zeros, b_first, b_second,
-      //                                             b_zeros);
+      //                               a_zeros);
+      //     get_float_as_integers_own(a[offset + j * stride], b_first,
+      //     b_second,
+      //                               b_zeros);
+      //     static const CONSTANT char FMT[] =
+      //         "Before act (%d iter): idx: %d (wrote from %d - %d ), at %d.%d,
+      //         " "group id: %d, sub_group id: %d, local id: %d, overall id:
+      //         %d\n";
+      //     if (print && item.get_group().get_group_id() == 0) {
+      //       sycl::ext::oneapi::experimental::printf(
+      //           FMT, i, offset + j * stride, TN * sgId + TM * i * (WIDTH +
+      //           SKEW), TN * sgId + TM * i * (WIDTH + SKEW) + WIDTH + SKEW,
+      //           a_first, a_second, int(wg_id), int(sg_id), int(local_id),
+      //           int(wg_id * WG_SIZE + local_id));
+      //     }
       //   }
-    } else {
-      //   for (int i = 0; i < 1; i++) {
+      // Apply backward activation matrix if required
+      matrix_activation_backward<float, float, bf16, SG_SIZE>(
+          activation, at, f, a, TN * sgId + (WIDTH + SKEW) * TM * i + id,
+          //   activation, at, f, a, TN * sgId * (WIDTH + SKEW) + TM * i + id,
+          (WIDTH + SKEW));
+      //   for (int j = 0; j < 8; j++) {
       //     int a_first;
       //     int a_second;
+      //     int a_zeros;
       //     int b_first;
       //     int b_second;
-      //     static const CONSTANT char FMT[] = "1. [%d]: At %d.%d, a %d.%d, ";
-      //     get_float_as_integers_own(at[i], a_first, a_second);
-      //     get_float_as_integers_own(a[i], b_first, b_second);
-      //     sycl::ext::oneapi::experimental::printf(FMT, int(i), a_first,
+      //     int b_zeros;
+
+      //     int wg_id = item.get_group().get_group_id();
+      //     int sg_id = item.get_sub_group().get_group_id();
+      //     int local_id = item.get_local_id();
+
+      //     get_float_as_integers_own(at[offset + j * stride], a_first,
       //     a_second,
-      //                                             b_first, b_second);
+      //                               a_zeros);
+      //     get_float_as_integers_own(a[offset + j * stride], b_first,
+      //     b_second,
+      //                               b_zeros);
+      //     static const CONSTANT char FMT[] =
+      //         "After act (%d iter): idx: %d, at %d.%d, a %d.%d, group id: %d,
+      //         " "sub_group " "id: %d, local id: %d, overall id: %d\n";
+      //     if (print && item.get_group().get_group_id() == 0) {
+      //       sycl::ext::oneapi::experimental::printf(
+      //           FMT, i, offset + j * stride, a_first, a_second, b_first,
+      //           b_second, int(wg_id), int(sg_id), int(local_id), int(wg_id *
+      //           WG_SIZE + local_id));
+      //     }
       //   }
+    } else {
+      // for (int i = 0; i < 1; i++) {
+      //   int a_first;
+      //   int a_second;
+      //   int b_first;
+      //   int b_second;
+      //   static const CONSTANT char FMT[] = "1. [%d]: At %d.%d, a %d.%d, ";
+      //   get_float_as_integers_own(at[i], a_first, a_second);
+      //   get_float_as_integers_own(a[i], b_first, b_second);
+      //   sycl::ext::oneapi::experimental::printf(FMT, int(i), a_first,
+      //   a_second,
+      //                                           b_first, b_second);
+      // }
       //   Apply forward activation matrix
 
       matrix_activation<float, bf16, SG_SIZE>(
           activation, at, a, TN * sgId + (WIDTH + SKEW) * TM * i + id,
           (WIDTH + SKEW));
-      //   for (int j = 0; j < 1; j++) {
-      //     int a_first;
-      //     int a_second;
-      //     int b_first;
-      //     int b_second;
-      //     static const CONSTANT char FMT[] = "[%d]: in %d.%d, out %d.%d, \n";
-      //     get_float_as_integers_own(at[j], a_first, a_second);
-      //     get_float_as_integers_own(a[j], b_first, b_second);
-      //     sycl::ext::oneapi::experimental::printf(FMT, int(j), a_first,
-      //     a_second,
-      //                                             b_first, b_second);
-      //   }
+
+      // for (int j = 0; j < 1; j++) {
+      //   int a_first;
+      //   int a_second;
+      //   int b_first;
+      //   int b_second;
+      //   static const CONSTANT char FMT[] = "[%d]: in %d.%d, out %d.%d, \n";
+      //   get_float_as_integers_own(at[j], a_first, a_second);
+      //   get_float_as_integers_own(a[j], b_first, b_second);
+      //   sycl::ext::oneapi::experimental::printf(FMT, int(j), a_first,
+      //   a_second,
+      //                                           b_first, b_second);
+      // }
     }
   }
 
@@ -217,10 +336,31 @@ void matmul_act_layer(
       for (int k = 0; k < TM; k++) {
         // Copy results to the output intermediate matrix
         if (BACKWARD) {
+          //   int b_first;
+          //   int b_second;
+          //   int b_zeroes;
+          //   get_float_as_integers_own(
+          //       at[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) +
+          //       id], b_first, b_second, b_zeroes);
+          //   int wg_id = item.get_group().get_group_id();
+          //   int sg_id = item.get_sub_group().get_group_id();
+          //   int local_id = item.get_local_id();
+          //   static const CONSTANT char FMT[] =
+          //       "Out inter idx: %d,  group id: %d, sub_group id: %d, local
+          //       id: "
+          //       "%d, overall id: %d, val: %d.%d \n ";
+          //   if (wg_id == 0 && print &&
+          //       at[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) +
+          //          id] == 0) {
+          //     sycl::ext::oneapi::experimental::printf(
+          //         FMT, int(TN * sgId + WIDTH * TM * i + k * WIDTH + id),
+          //         int(wg_id), int(sg_id), int(local_id),
+          //         int(wg_id * WG_SIZE + local_id), b_first, b_second);
+          //   }
           out_inter[TN * sgId + WIDTH * TM * i + k * WIDTH + id] =
-              //   a[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) +
-              //   id];
-              at[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id];
+              a[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id];
+          //   at[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) +
+          //   id];
         } else {
           //   int wg_id = item.get_group().get_group_id();
           //   int sg_id = item.get_sub_group().get_group_id();
@@ -263,18 +403,37 @@ template <int WIDTH, int N_ITERS>
 void workgroup_prefetch(
     nd_item<1> item,
     multi_ptr<bf16, access::address_space::local_space, (access::decorated)2> a,
-    const bf16* input) {
+    const bf16* input, int print = 0) {
   // Get local ID and sub-group information
   int id = item.get_local_id() % SG_SIZE;
   auto sg = item.get_sub_group();
   int sgId = sg.get_group_id();
+  int wg_id = item.get_group().get_group_id();
 
+  int sg_id = item.get_sub_group().get_group_id();
+  int local_id = item.get_local_id();
 #pragma unroll
   for (int i = 0; i < N_ITERS; i++) {
     for (int k = 0; k < TM; k++) {
       // Copy input data to activation memory
       a[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id] =
           input[TN * sgId + WIDTH * TM * i + k * WIDTH + id];
+      int b_first;
+      int b_second;
+      int b_zeroes;
+      get_float_as_integers_own(
+          a[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id],
+          b_first, b_second, b_zeroes);
+      static const CONSTANT char FMT[] =
+          "Prefetch a (%d),  group id: %d, sub_group "
+          "id: %d, local id: "
+          "%d, overall id: %d, val: %d.%d \n ";
+      if (wg_id == 0 && print) {
+        sycl::ext::oneapi::experimental::printf(
+            FMT, TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id,
+            int(wg_id), int(sg_id), int(local_id),
+            int(wg_id * WG_SIZE + local_id), b_first, b_second);
+      }
     }
   }
 }
@@ -333,7 +492,7 @@ void workgroup_write_output_static(
  * @param activation            The type of activation to be applied.
  * @param a                     Pointer to the shared memory containing
  * activation data.
- * @param at                    Pointer to the shared memory containing
+ * @param at                    Pointer to the sfohared memory containing
  * temporary activation data.
  * @param input                 Pointer to the input data.
  * @param weights_layer         Pointer to weights for the layer.
@@ -514,18 +673,55 @@ void kernel_swift_mlp(nd_item<1> item, const Activation output_activation,
   const int first_weight_length = input_width * WIDTH;
   const int hidden_weight_lenght = WIDTH * WIDTH;
   const int layer_lenght = WIDTH * batch_size;
-
+  //   for (int w_idx = 0; w_idx < 1024; w_idx++) {
+  //     int b_first;
+  //     int b_second;
+  //     int b_zeroes;
+  //     get_float_as_integers_own(at[w_idx], b_first, b_second, b_zeroes);
+  //     int wg_id = item.get_group().get_group_id();
+  //     int sg_id = item.get_sub_group().get_group_id();
+  //     int local_id = item.get_local_id();
+  //     static const CONSTANT char FMT[] =
+  //         "at 0,  w_idx: %d,  group id: %d, sub_group "
+  //         "id: %d, local id: "
+  //         "%d, overall id: %d, val: %d.%d \n ";
+  //     if ((wg_id == 0)) {
+  //       sycl::ext::oneapi::experimental::printf(
+  //           FMT, w_idx, int(wg_id), int(sg_id), int(local_id),
+  //           int(wg_id * WG_SIZE + local_id), b_first, b_second);
+  //     }
+  //   }
   if (input_width == WIDTH) {
     workgroup_prefetch<WIDTH, N_ITERS>(item, a, input + elem_idx * WIDTH);
     matmul_act_layer<WIDTH, N_ITERS, false>(
         item, activation, a, at, weights_layer,
-        !INFERENCE ? (out_intermediate_layer + elem_idx * WIDTH) : nullptr);
+        !INFERENCE ? (out_intermediate_layer + elem_idx * WIDTH) : nullptr,
+        nullptr, 0);
   } else {
     workgroup_matmul_act_dynamic<WIDTH, N_ITERS>(
         item, activation, a, at, input + elem_idx * WIDTH, weights_layer,
         !INFERENCE ? (out_intermediate_layer + elem_idx * WIDTH) : nullptr,
         input_width, batch_size);
   }
+
+  //   for (int w_idx = 0; w_idx < 1024; w_idx++) {
+  //     int b_first;
+  //     int b_second;
+  //     int b_zeroes;
+  //     get_float_as_integers_own(at[w_idx], b_first, b_second, b_zeroes);
+  //     int wg_id = item.get_group().get_group_id();
+  //     int sg_id = item.get_sub_group().get_group_id();
+  //     int local_id = item.get_local_id();
+  //     static const CONSTANT char FMT[] =
+  //         "at2,  w_idx: %d,  group id: %d, sub_group "
+  //         "id: %d, local id: "
+  //         "%d, overall id: %d, val: %d.%d \n ";
+  //     if ((wg_id == 0)) {
+  //       sycl::ext::oneapi::experimental::printf(
+  //           FMT, w_idx, int(wg_id), int(sg_id), int(local_id),
+  //           int(wg_id * WG_SIZE + local_id), b_first, b_second);
+  //     }
+  //   }
   //   Handle hidden layers all together
   //   std::cout << "n_hidden_matmuls: " << n_hidden_matmuls << std::endl;
 
@@ -534,8 +730,9 @@ void kernel_swift_mlp(nd_item<1> item, const Activation output_activation,
         item, activation, a, at,
         weights_layer + first_weight_length + k * hidden_weight_lenght,
         !INFERENCE ? (out_intermediate_layer + elem_idx * WIDTH +
-                      (k * WIDTH + input_width) * batch_size)
-                   : nullptr);
+                      (k + 1) * layer_lenght)
+                   : nullptr,
+        nullptr, 0);
   }
 
   // Handle output layer
@@ -650,10 +847,24 @@ void kernel_swiftnet_backward(nd_item<1> item, bf16* deltas,
   const int layer_length = WIDTH * batch_size;
 
   workgroup_prefetch<WIDTH, N_ITERS>(item, a,
-                                     deltas + groupId * BATCH_CHUNK * WIDTH);
+                                     deltas + groupId * BATCH_CHUNK * WIDTH, 0);
 
   // Iterate through hidden layers for backpropagation
   for (int k = 0; k < n_hidden_matmuls; k++) {
+    // int wg_id = item.get_group().get_group_id();
+    // int sg_id = item.get_sub_group().get_group_id();
+    // int local_id = item.get_local_id();
+    // static const CONSTANT char FMT[] =
+    //     "Out inter idx: %d,  group id: %d, "
+    //     "sub_group id: "
+    //     "%d, "
+    //     "local id: %d, overall id: %d,\n ";
+    // sycl::ext::oneapi::experimental::printf(
+    //     FMT,
+    //     int(groupId * BATCH_CHUNK * WIDTH +
+    //         (n_hidden_matmuls - k - 1) * layer_length),
+    //     int(wg_id), int(sg_id), int(local_id), int(wg_id * WG_SIZE +
+    //     local_id));
     matmul_act_layer<WIDTH, N_ITERS, true>(
         item, ACTIVATION, a, at,
         weights + WIDTH * WIDTH * (n_hidden_matmuls - k),
@@ -661,7 +872,8 @@ void kernel_swiftnet_backward(nd_item<1> item, bf16* deltas,
             (n_hidden_matmuls - k - 1) * layer_length,
         forward + WIDTH * batch_size +
             WIDTH * batch_size * (n_hidden_matmuls - k - 1) +
-            groupId * BATCH_CHUNK * WIDTH);
+            groupId * BATCH_CHUNK * WIDTH,
+        1);
   }
 }
 
@@ -696,12 +908,26 @@ void dgemm_multiply(queue q, bf16* grads_device, float* loss_gradients,
     A[i * batch_size + j] = (float)elt_activation_ret<float>(
         ACTIVATION,
         fwd[i + j * WIDTH + (n_hidden_matrices - k - 1) * layer_lenght]);
+    // int b_first;
+    // int b_second;
+    // int b_zeroes;
+    // static const CONSTANT char FMT[] = "A[%d]: %d.%d (%d zeroes), \n";
+    // get_float_as_integers_own(A[idx], b_first, b_second, b_zeroes);
+    // sycl::ext::oneapi::experimental::printf(FMT, int(idx), b_first, b_second,
+    //                                         b_zeroes);
   });
 
   // Assign matrix B using loss gradients
   q.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
     B[idx] =
         (float)loss_gradients[idx + (n_hidden_matrices - k - 1) * layer_lenght];
+    // int b_first;
+    // int b_second;
+    // int b_zeroes;
+    // static const CONSTANT char FMT[] = "B[%d]: %d.%d (%d zeroes), \n";
+    // get_float_as_integers_own(B[idx], b_first, b_second, b_zeroes);
+    // sycl::ext::oneapi::experimental::printf(FMT, int(idx), b_first, b_second,
+    //                                         b_zeroes);
   });
 
   // Perform GEMM operation
@@ -923,15 +1149,13 @@ void SwiftNetMLP<WIDTH>::initialize_params() {
   //       m_output_width, m_n_hidden_matrices, m_q);
   //   m_weights_matrices.intitialize_he_normal(m_inputs_width, m_q);
   //   m_weights_matrices.intitialize_he_normal(m_inputs_width, m_q);
-  m_weights_matrices.initialize_constant(0.1, m_q);
-  m_weightsT_matrices.initialize_constant(0.1, m_q);
+  //   m_weights_matrices.initialize_constant(0.001, m_q);
+  //   m_weightsT_matrices.initialize_constant(0.001, m_q);
 
-  //   m_weights_matrices.initialize_arange(m_q, m_inputs_width, m_net_width,
-  //                                        m_output_width,
-  //                                        m_n_hidden_matrices);
-  //   m_weightsT_matrices.initialize_arange(m_q, m_inputs_width, m_net_width,
-  //                                         m_output_width,
-  //                                         m_n_hidden_matrices);
+  m_weights_matrices.initialize_arange(m_q, m_inputs_width, m_net_width,
+                                       m_output_width, m_n_hidden_matrices);
+  m_weightsT_matrices.initialize_arange(m_q, m_inputs_width, m_net_width,
+                                        m_output_width, m_n_hidden_matrices);
   //   std::cout << "INITIALISING WITH CONSTANT. CHANGE LATER" << std::endl;
 };
 // };

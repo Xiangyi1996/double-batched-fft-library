@@ -11,23 +11,13 @@
 #include "oneapi/mkl.hpp"
 #include "sgd.h"
 #include "trainer.h"
-// #include "config.h"
 
 using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;
 using bf16 = sycl::ext::oneapi::bfloat16;
 
-#define TM 8
-#define TK 16
-#define TN 8
-
 #define INPUT_WIDTH 64
 #define OUTPUT_WIDTH 64
-#define HIDDEN_LAYERS 2
-
-#define SG_SIZE 8
-#define WG_SIZE 8 * SG_SIZE
-#define BATCH_CHUNK 64
 
 class MultilayerPerceptron {
   struct WeightMatrix {
@@ -168,10 +158,11 @@ class MultilayerPerceptron {
 
   void calcLayerOutput(int h_, int use_linear = 0) {
     for (int i = 0; i < layers[h_].dim; ++i) {
-      //   if (use_linear) {
       layers[h_].out[i] = nonef(layers[h_].in[i]);
+      //   if (use_linear) {
+      //     layers[h_].out[i] = nonef(layers[h_].in[i]);
       //   } else {
-      //   layers[h_].out[i] = relu(layers[h_].in[i]);
+      //     layers[h_].out[i] = relu(layers[h_].in[i]);
       //   }
     }
   }
@@ -300,13 +291,13 @@ class MultilayerPerceptron {
       }
     }
 
-    // std::cout << "Weights 0: " << std::endl;
+    // std::cout << "Weights 0 (" << weights[0].w.size() << ")" << std::endl;
     // int layer = 0;
     // for (int i = 0; i < weights[layer].w.size(); i++) {
     //   std::cout << weights[layer].w[i] << ", ";
     // }
     // std::cout << std::endl;
-    // std::cout << "Weights 1: " << std::endl;
+    // std::cout << "Weights 1 (" << weights[1].w.size() << ")" << std::endl;
     // layer = 1;
     // for (int i = 0; i < weights[layer].w.size(); i++) {
     //   std::cout << weights[layer].w[i] << ", ";
@@ -316,20 +307,20 @@ class MultilayerPerceptron {
 };
 
 void test_exactitude() {
+  // REFERENCE
+
+  MultilayerPerceptron my_mlp(INPUT_WIDTH, OUTPUT_WIDTH);
+  my_mlp.addHiddenLayer(64);
+  my_mlp.addHiddenLayer(64);
+
   // SWIFTNET
   const int batch_size = 64;
   const int output_width = OUTPUT_WIDTH;
   const int WIDTH = 64;
-  const int m_n_hidden_layers = HIDDEN_LAYERS;
+  const int m_n_hidden_layers = 2;
   const int net_width = 64;
 
   const float scale = 1e-3f;
-  // REFERENCE
-
-  MultilayerPerceptron my_mlp(INPUT_WIDTH, OUTPUT_WIDTH);
-  for (int i = 0; i < m_n_hidden_layers; i++) {
-    my_mlp.addHiddenLayer(64);
-  }
 
   queue q = queue();
 
@@ -344,7 +335,7 @@ void test_exactitude() {
       SGDOptimizer(OUTPUT_WIDTH, m_n_hidden_layers, 1e-3f, 1e-8f);
   SwiftNetMLP<64> network =
       SwiftNetMLP<64>(q, INPUT_WIDTH, output_width, m_n_hidden_layers,
-                      //   Activation::ReLU, Activation::ReLU, batch_size);
+                      //   Activation::ReLU, Activation::None, batch_size);
                       Activation::None, Activation::None, batch_size);
   Trainer train(network, loss, optim);
 
@@ -360,33 +351,41 @@ void test_exactitude() {
 
   //   for (int i = 0; i < 10; i++) {
   //     for (int j = 0; j < 10; j++) {
-  //       std::cout << my_mlp.weights[0].w[j * 64 + i] << " ; "
-  //                 << w_swift[toPackedLayoutCoord(i * 64 + j, 64, 64) +
-  //                            0 * batch_size * WIDTH]
-  //                 << std::endl;
+  //   std::cout << my_mlp.weights[0].w[j * 64 + i] << " ; "
+  //             << w_swift[toPackedLayoutCoord(i * 64 + j, 64, 64) +
+  //                        0 * batch_size * WIDTH]
+  //             << std::endl;
   //       std::cout << w_swift[toPackedLayoutCoord(i * 64 + j, 64, 64) +
   //                            0 * batch_size * WIDTH]
   //                 << ", ";
   //     }
   //   }
   //   for (int i = 0; i < w_swift.size(); i++) {
-  //     std::cout << i << ": " << w_swift[i] << std::endl;
+  //     std::cout << w_swift[i] << ", ";
   //   }
+  //   std::cout << std::endl;
 
-  my_mlp.copyWeights(w_swift, m_n_hidden_layers);
+  my_mlp.copyWeights(w_swift, 2);
   std::vector<float> x(INPUT_WIDTH);
   for (int i = 0; i < INPUT_WIDTH; i++) {
-    x[i] = 1.0f;
+    x[i] = 1e-1f;
+    // x[i] = 1.0f;
   }
   std::vector<float> res_ref = my_mlp.classify(x);
 
-  inputs.initialize_constant(1.0f, q);
+  std::vector<MultilayerPerceptron::TrainingElement> training_set(
+      1, MultilayerPerceptron::TrainingElement(
+             x, std::vector<float>(OUTPUT_WIDTH, 1.0f)));
+  my_mlp.setTrainingSet(training_set);
+  my_mlp.train(1e-3f);
+
+  inputs.initialize_constant(0.1f, q);
   output.initialize_constant(0.0f, q);
   target.initialize_constant(1.0f, q);
   grads.initialize_constant(bf16(0.0f), q);
   losses.initialize_constant(0.0f, q);
 
-  train.training_step(inputs, output, target, grads, losses, scale, WIDTH);
+  train.training_step(inputs, output, target, grads, losses, scale, 64, 0);
 
   std::vector<float> fwd(
       batch_size * (INPUT_WIDTH + OUTPUT_WIDTH + WIDTH * m_n_hidden_layers));
@@ -394,12 +393,6 @@ void test_exactitude() {
            batch_size * (WIDTH + output_width + WIDTH * m_n_hidden_layers) *
                sizeof(float));
   q.wait();
-
-  //   for (int i = 0; i < fwd.size(); i++) {
-  //     std::cout << i << ": " << fwd[i] << std::endl;
-  //   }
-  std::vector<float> out(batch_size * (OUTPUT_WIDTH));
-  output.copy_to_host(out, q);
 
   std::cout
       << "====================================================================="
@@ -414,7 +407,6 @@ void test_exactitude() {
     std::cout << "Idx " << j << " - " << my_mlp.layers[0].out[j] << ": "
               << fwd[j] << std::endl;
   }
-
   std::cout
       << "====================================================================="
          "=================================================================="
@@ -424,37 +416,89 @@ void test_exactitude() {
       << "====================================================================="
          "=================================================================="
       << std::endl;
+
   for (int j = 0; j < WIDTH; j++) {
     std::cout << "Idx " << j << " - " << my_mlp.layers[1].out[j] << ": "
-              << fwd[j + (batch_size * INPUT_WIDTH)] << std::endl;
+              << fwd[j + batch_size * INPUT_WIDTH] << std::endl;
   }
 
   std::cout
       << "====================================================================="
          "=================================================================="
       << std::endl;
-  for (int layer = 1; layer < m_n_hidden_layers + 1; layer++) {
-    std::cout << "Layer " << layer + 1 << std::endl;
-    std::cout
-        << "==================================================================="
-           "=="
-           "=================================================================="
-        << std::endl;
+  std::cout << "Layer 2" << std::endl;
+  std::cout
+      << "====================================================================="
+         "=================================================================="
+      << std::endl;
+  for (int j = 0; j < output_width; j++) {
+    std::cout << "Idx " << j << " - " << my_mlp.layers[2].out[j] << ": "
+              << fwd[j + (batch_size * INPUT_WIDTH) + batch_size * WIDTH * 1]
+              << std::endl;
+  }
+  std::cout << "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
+               "+++++++++"
+               "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
+               "+++++++++"
+            << std::endl;
 
+  std::vector<bf16> grad(train.m_network->m_grads_matrices.size());
+  q.memcpy(grad.data(), train.m_network->m_grads_matrices.data(),
+           train.m_network->m_grads_matrices.size() * sizeof(bf16))
+      .wait();
+
+  //   std::cout << " grads " << std::endl;
+  //   for (int i = 0; i < grad.size(); i++) {
+  //     // if (i == INPUT_WIDTH * WIDTH) {
+  //     //   std::cout << "===================" << std::endl;
+  //     // }
+  //     if (grad[i] == 0) {
+  //       std::cout << i << ": " << grad[i] << std::endl;
+  //     }
+  //   }
+
+  std::cout << "Grad compare " << std::endl;
+  std::cout << "Layer 0" << std::endl;
+  for (int i = 0; i < INPUT_WIDTH; i++) {
     for (int j = 0; j < WIDTH; j++) {
-      std::cout
-          << "Idx " << j << " - " << my_mlp.layers[layer + 1].out[j] << ": "
-          << fwd[j + batch_size * INPUT_WIDTH + batch_size * WIDTH * (layer)];
-      if (layer == m_n_hidden_layers) {
-        std::cout << "/ " << out[j] << std::endl;
-        if (j == (output_width - 1)) {
-          break;
-        }
-      } else {
-        std::cout << std::endl;
-      }
+      std::cout << i << ", " << j << ": "
+                << my_mlp.layers[1].err[j] * my_mlp.layers[0].out[i] << ": "
+                << grad[i + j] << std::endl;
     }
   }
+  std::cout << "Layer 1" << std::endl;
+  for (int i = 0; i < WIDTH; i++) {
+    for (int j = 0; j < WIDTH; j++) {
+      std::cout << i << ", " << j << ": "
+                << my_mlp.layers[2].err[j] * my_mlp.layers[1].out[i] << ": "
+                << grad[INPUT_WIDTH * WIDTH + i + j] << std::endl;
+    }
+  }
+  std::cout << "Layer 2" << std::endl;
+  for (int i = 0; i < WIDTH; i++) {
+    for (int j = 0; j < OUTPUT_WIDTH; j++) {
+      std::cout << i << ", " << j << ": "
+                << my_mlp.layers[3].err[j] * my_mlp.layers[2].out[i] << ": "
+                << grad[INPUT_WIDTH * WIDTH + WIDTH * WIDTH + i + j]
+                << std::endl;
+    }
+  }
+  //   std::cout << " weights after backprop" << std::endl;
+  //   q.memcpy(w_swift.data(), train.m_network->m_weights_matrices.data(),
+  //            train.m_network->m_weights_matrices.size() * sizeof(bf16));
+  //   q.wait();
+  //   for (int i = 0; i < 10; i++) {
+  //     for (int j = 0; j < 10; j++) {
+  //       std::cout << my_mlp.weights[0].w[j * 64 + i] << " ; "
+  //                 << w_swift[toPackedLayoutCoord(i * 64 + j, 64, 64) +
+  //                            0 * batch_size * WIDTH]
+  //                 << std::endl;
+  //       //   std::cout << w_swift[toPackedLayoutCoord(i * 64 + j, 64, 64) +
+  //       //                        0 * batch_size * WIDTH]
+  //       //             << ", " << std::endl;
+  //     }
+  //   }
+
   inputs.free_mem(q);
   output.free_mem(q);
   target.free_mem(q);

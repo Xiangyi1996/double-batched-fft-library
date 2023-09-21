@@ -179,18 +179,18 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
 
 if __name__ == "__main__":
     input_width = 64
-    output_width = 32
+    output_width = 64
     n_hidden_layers = 2
     activation_func = "linear"
     output_func = "linear"
 
-    test_fwd(input_width, n_hidden_layers, output_width, activation_func, output_func)
-    print("Passed fwd test")
+    # test_fwd(input_width, n_hidden_layers, output_width, activation_func, output_func)
+    # print("Passed fwd test")
 
-    # test_grad(
-    #     input_width,
-    #     n_hidden_layers,
-    #     output_width,
-    #     activation_func,
-    #     output_func,
-    # )
+    test_grad(
+        input_width,
+        n_hidden_layers,
+        output_width,
+        activation_func,
+        output_func,
+    )

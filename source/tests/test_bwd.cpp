@@ -458,38 +458,36 @@ void test_exactitude() {
 
   //   std::cout << " grads " << std::endl;
   //   for (int i = 0; i < grad.size(); i++) {
-  //     if (i == INPUT_WIDTH * WIDTH) {
-  //       std::cout << "===================" << std::endl;
+  //     // if (i == INPUT_WIDTH * WIDTH) {
+  //     //   std::cout << "===================" << std::endl;
+  //     // }
+  //     if (grad[i] == 0) {
+  //       std::cout << i << ": " << grad[i] << std::endl;
   //     }
-  //     std::cout << grad[i] << ", ";
   //   }
-  //   std::cout << std::endl;
 
   std::cout << "Grad compare " << std::endl;
   std::cout << "Layer 0" << std::endl;
   for (int i = 0; i < INPUT_WIDTH; i++) {
     for (int j = 0; j < WIDTH; j++) {
-      std::cout << i << ", " << j
-                << ": "
-                // << my_mlp.layers[1].err[j] * my_mlp.layers[0].out[i] << ": "
+      std::cout << i << ", " << j << ": "
+                << my_mlp.layers[1].err[j] * my_mlp.layers[0].out[i] << ": "
                 << grad[i + j] << std::endl;
     }
   }
   std::cout << "Layer 1" << std::endl;
   for (int i = 0; i < WIDTH; i++) {
     for (int j = 0; j < WIDTH; j++) {
-      std::cout << i << ", " << j
-                << ": "
-                // << my_mlp.layers[2].err[j] * my_mlp.layers[1].out[i] << ": "
+      std::cout << i << ", " << j << ": "
+                << my_mlp.layers[2].err[j] * my_mlp.layers[1].out[i] << ": "
                 << grad[INPUT_WIDTH * WIDTH + i + j] << std::endl;
     }
   }
   std::cout << "Layer 2" << std::endl;
   for (int i = 0; i < WIDTH; i++) {
     for (int j = 0; j < OUTPUT_WIDTH; j++) {
-      std::cout << i << ", " << j
-                << ": "
-                // << my_mlp.layers[3].err[j] * my_mlp.layers[2].out[i] << ": "
+      std::cout << i << ", " << j << ": "
+                << my_mlp.layers[3].err[j] * my_mlp.layers[2].out[i] << ": "
                 << grad[INPUT_WIDTH * WIDTH + WIDTH * WIDTH + i + j]
                 << std::endl;
     }
@@ -508,7 +506,7 @@ void test_exactitude() {
   //       //                        0 * batch_size * WIDTH]
   //       //             << ", " << std::endl;
   //     }
-  // }
+  //   }
 
   inputs.free_mem(q);
   output.free_mem(q);
