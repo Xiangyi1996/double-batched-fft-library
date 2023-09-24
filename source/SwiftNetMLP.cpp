@@ -1,10 +1,10 @@
 #define TM 8
 #define TK 16
 #define TN 8
-#define SKEW 0
+#define SKEW 4
 
 #define SG_SIZE 8
-#define WG_SIZE 8*SG_SIZE
+#define WG_SIZE 8 * SG_SIZE
 
 #define BATCH_CHUNK 16
 #define SHMEM_SIZE 1024
@@ -20,6 +20,25 @@
 using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;
 using bf16 = sycl::ext::oneapi::bfloat16;
+
+void get_float_as_integers_own(float value, int& integer_val,
+                               int& fractional_val) {
+  // careful with the code. Leading zeros not shown in fractional_val. This is
+  // only to debug whether it's zero or non-zero. only for 4 decimals after
+  // comma
+
+  // Extract the integer part
+  int integerPart = static_cast<int>(value);
+
+  // Extract the fractional part as an integer
+  int fractionalPart =
+      //   static_cast<int>(std::fabs((value - static_cast<float>(integerPart))
+      //   *
+      static_cast<int>(((value - static_cast<float>(integerPart)) *
+                        1000000));  // Adjust the multiplier as needed
+  integer_val = integerPart;
+  fractional_val = fractionalPart;
+}
 void get_float_as_integers_own(float value, int& integer_val,
                                int& fractional_val) {
   // careful with the code. Leading zeros not shown in fractional_val. This is
@@ -104,7 +123,6 @@ void matmul_act_layer(
   auto sg = item.get_sub_group();
   int id = item.get_local_id() % SG_SIZE;
   int sgId = sg.get_group_id();
-  const int N_BLOCKS = WIDTH / TK;
 
   // Device pointers to memory
   device_ptr<bf16> w(weights_layer);
@@ -135,7 +153,28 @@ void matmul_act_layer(
                     w + TN * 2 * sgId + TK / 2 * 2 * WIDTH * 2, WIDTH * 2);
   joint_matrix_load(sg, weight_matrix3,
                     w + TN * 2 * sgId + TK / 2 * 3 * WIDTH * 2, WIDTH * 2);
-
+//   for (int m_idx = 0; m_idx < 4; m_idx++) {
+//     for (int w_idx = TN * 2 * sgId + TK / 2 * m_idx * WIDTH * 2;
+//          w_idx < TN * 2 * sgId + TK / 2 * m_idx * WIDTH * 2 + WIDTH * 2;
+//          w_idx++) {
+//       int b_first;
+//       int b_second;
+//       int b_zeroes;
+//       get_float_as_integers_own(w[w_idx], b_first, b_second, b_zeroes);
+//       int wg_id = item.get_group().get_group_id();
+//       int sg_id = item.get_sub_group().get_group_id();
+//       int local_id = item.get_local_id();
+//       static const CONSTANT char FMT[] =
+//           "W_idx: %d, m_idx: %d,  group id: %d, sub_group "
+//           "id: %d, local id: "
+//           "%d, overall id: %d, val: %d.%d \n ";
+//       if (wg_id == 0 && id == 0 && print) {
+//         sycl::ext::oneapi::experimental::printf(
+//             FMT, w_idx, m_idx, int(wg_id), int(sg_id), int(local_id),
+//             int(wg_id * WG_SIZE + local_id), b_first, b_second);
+//       }
+//     }
+//   }
 #pragma unroll
   for (int l = 0; l < N_ITERS; l++) {
     joint_matrix_fill(sg, result_matrix, 0.0f);
@@ -320,7 +359,6 @@ void workgroup_matmul_act_dynamic(
   auto sg = item.get_sub_group();
   int id = item.get_local_id() % SG_SIZE;
   int sgId = sg.get_group_id();
-  const int N_BLOCKS = WIDTH / TK;
 
   // Device pointers to memory
   device_ptr<bf16> in(input);
@@ -381,7 +419,6 @@ void workgroup_last_layer(
     bf16* weights_layer, float* out) {
   auto sg = item.get_sub_group();
   int sgId = sg.get_group_id();
-  int N_BLOCKS = WIDTH / 16;
   device_ptr<bf16> w(weights_layer);
   device_ptr<float> o(out);
 
@@ -409,24 +446,30 @@ void workgroup_last_layer(
                     w + TN * 2 * sgId + TK / 2 * 2 * WIDTH * 2, WIDTH * 2);
   joint_matrix_load(sg, weight_matrix3,
                     w + TN * 2 * sgId + TK / 2 * 3 * WIDTH * 2, WIDTH * 2);
+#pragma unroll
 
   for (int l = 0; l < N_ITERS; l++) {
     joint_matrix_fill(sg, result_matrix, 0.0f);
 
-    joint_matrix_load(sg, act_matrix, a + TK * 0 + TM * l * WIDTH, WIDTH);
+    joint_matrix_load(sg, act_matrix, a + TK * 0 + TM * l * (WIDTH + SKEW),
+                      (WIDTH + SKEW));
     result_matrix =
         joint_matrix_mad(sg, act_matrix, weight_matrix0, result_matrix);
-    joint_matrix_load(sg, act_matrix, a + TK * 1 + TM * l * WIDTH, WIDTH);
+    joint_matrix_load(sg, act_matrix, a + TK * 1 + TM * l * (WIDTH + SKEW),
+                      (WIDTH + SKEW));
     result_matrix =
         joint_matrix_mad(sg, act_matrix, weight_matrix1, result_matrix);
-    joint_matrix_load(sg, act_matrix, a + TK * 2 + TM * l * WIDTH, WIDTH);
+    joint_matrix_load(sg, act_matrix, a + TK * 2 + TM * l * (WIDTH + SKEW),
+                      (WIDTH + SKEW));
     result_matrix =
         joint_matrix_mad(sg, act_matrix, weight_matrix2, result_matrix);
-    joint_matrix_load(sg, act_matrix, a + TK * 3 + TM * l * WIDTH, WIDTH);
+    joint_matrix_load(sg, act_matrix, a + TK * 3 + TM * l * (WIDTH + SKEW),
+                      (WIDTH + SKEW));
     result_matrix =
         joint_matrix_mad(sg, act_matrix, weight_matrix3, result_matrix);
 
-    joint_matrix_store(sg, result_matrix, o + TM * sgId + TN * l * WIDTH, WIDTH,
+    joint_matrix_store(sg, result_matrix,
+                       o + TN * sgId + TM * l * (WIDTH + SKEW), (WIDTH + SKEW),
                        layout::row_major);
   }
 }
@@ -467,10 +510,25 @@ void kernel_swift_mlp(nd_item<1> item, const Activation output_activation,
   auto wg = item.get_group();
   const int wg_idx = wg.get_group_id();
   const int elem_idx = BATCH_CHUNK * wg_idx;
-  const int first_weight_length = input_width * WIDTH;
   const int hidden_weight_lenght = WIDTH * WIDTH;
-  const int layer_lenght = WIDTH * batch_size;
-
+  //   for (int w_idx = 0; w_idx < 1024; w_idx++) {
+  //     int b_first;
+  //     int b_second;
+  //     int b_zeroes;
+  //     get_float_as_integers_own(at[w_idx], b_first, b_second, b_zeroes);
+  //     int wg_id = item.get_group().get_group_id();
+  //     int sg_id = item.get_sub_group().get_group_id();
+  //     int local_id = item.get_local_id();
+  //     static const CONSTANT char FMT[] =
+  //         "at 0,  w_idx: %d,  group id: %d, sub_group "
+  //         "id: %d, local id: "
+  //         "%d, overall id: %d, val: %d.%d \n ";
+  //     if ((wg_id == 0)) {
+  //       sycl::ext::oneapi::experimental::printf(
+  //           FMT, w_idx, int(wg_id), int(sg_id), int(local_id),
+  //           int(wg_id * WG_SIZE + local_id), b_first, b_second);
+  //     }
+  //   }
   if (input_width == WIDTH) {
     workgroup_prefetch<WIDTH, N_ITERS>(item, a, input + elem_idx * WIDTH);
     matmul_act_layer<WIDTH, N_ITERS, false>(
@@ -490,40 +548,61 @@ void kernel_swift_mlp(nd_item<1> item, const Activation output_activation,
         out_intermediate_layer + input_width * batch_size + elem_idx * WIDTH);
   }
 
+  //   for (int w_idx = 0; w_idx < 1024; w_idx++) {
+  //     int b_first;
+  //     int b_second;
+  //     int b_zeroes;
+  //     get_float_as_integers_own(at[w_idx], b_first, b_second, b_zeroes);
+  //     int wg_id = item.get_group().get_group_id();
+  //     int sg_id = item.get_sub_group().get_group_id();
+  //     int local_id = item.get_local_id();
+  //     static const CONSTANT char FMT[] =
+  //         "at2,  w_idx: %d,  group id: %d, sub_group "
+  //         "id: %d, local id: "
+  //         "%d, overall id: %d, val: %d.%d \n ";
+  //     if ((wg_id == 0)) {
+  //       sycl::ext::oneapi::experimental::printf(
+  //           FMT, w_idx, int(wg_id), int(sg_id), int(local_id),
+  //           int(wg_id * WG_SIZE + local_id), b_first, b_second);
+  //     }
+  //   }
+  //   Handle hidden layers all together
+  //   std::cout << "n_hidden_matmuls: " << n_hidden_matmuls << std::endl;
+  const int first_weight_length = input_width * WIDTH;
+
   for (int k = 0; k < n_hidden_matmuls; k++) {
     matmul_act_layer<WIDTH, N_ITERS, false>(
         item, activation, a, at,
         weights_layer + first_weight_length + k * hidden_weight_lenght,
         !INFERENCE ? (out_intermediate_layer + elem_idx * WIDTH +
-                      (k + 1) * layer_lenght)
+                      (k * WIDTH + input_width) * batch_size)
                    : nullptr,
         nullptr, 0);
   }
 
   // Handle output layer
-  //   if (output_width > 16) {
-  if (INFERENCE) {
-    workgroup_write_output_static<WIDTH, N_ITERS>(
+  if (output_width > 16) {
+    if (INFERENCE) {
+      workgroup_write_output_static<WIDTH, N_ITERS>(
+          item, a,
+          out_intermediate_layer + elem_idx * WIDTH +
+              (n_hidden_matmuls * WIDTH + input_width) * batch_size);
+    }
+  } else if (out) {
+    // static const CONSTANT char FMT[] =
+    //     "first_weight_length: %d hidden_weight_lenght: %d, "
+    //     "n_hidden_matmuls:%d, write to: %d\n";
+    // if (wg_idx == 0) {
+    //   sycl::ext::oneapi::experimental::printf(FMT, int(first_weight_length),
+    //                                           int(hidden_weight_lenght),
+    //                                           int(n_hidden_matmuls));
+    // }
+    workgroup_last_layer<WIDTH, N_ITERS>(
         item, a,
-        out_intermediate_layer + elem_idx * WIDTH +
-            (n_hidden_matmuls * WIDTH + input_width) * batch_size);
+        weights_layer + first_weight_length +
+            hidden_weight_lenght * n_hidden_matmuls,
+        out + elem_idx * WIDTH);
   }
-  //   } else if (out) {
-  //     // static const CONSTANT char FMT[] =
-  //     //     "first_weight_length: %d hidden_weight_lenght: %d, "
-  //     //     "n_hidden_matmuls:%d\n";
-  //     // if (wg_idx == 0) {
-  //     //   sycl::ext::oneapi::experimental::printf(FMT,
-  //     int(first_weight_length),
-  //     //                                           int(hidden_weight_lenght),
-  //     //                                           int(n_hidden_matmuls));
-  //     // }
-  //     workgroup_last_layer<WIDTH, N_ITERS>(
-  //         item, a,
-  //         weights_layer + first_weight_length +
-  //             hidden_weight_lenght * n_hidden_matmuls,
-  //         out + elem_idx * WIDTH);
-  //   }
 }
 
 /**
@@ -552,7 +631,6 @@ void mlp_swift_forward(queue q, Activation output_activation,
                        float* intermediate_output, DeviceMem<float>& output,
                        const int n_hidden_layers, const int input_width,
                        const int output_width, int batch_size) {
-  const int N_BLOCKS = WIDTH / TK;
   const int N_ITERS = BATCH_CHUNK / TM;
 
   q.submit([&](handler& cgh) {
@@ -606,7 +684,6 @@ void kernel_swiftnet_backward(nd_item<1> item, bf16* deltas,
 
   workgroup_prefetch<WIDTH, N_ITERS>(item, a,
                                      deltas + groupId * BATCH_CHUNK * WIDTH, 0);
-
   // Iterate through hidden layers for backpropagation
   for (int k = 0; k < n_hidden_matmuls; k++) {
     matmul_act_layer<WIDTH, N_ITERS, true>(
@@ -721,7 +798,6 @@ void mlp_swiftnet_backward(queue q, DeviceMem<bf16>& weights_transposed,
   // here, weights are already transposed and packed
   // in deltas, the last layer has already been calculated
 
-  const int layer_lenght = WIDTH * batch_size;
   const int N_ITERS = BATCH_CHUNK / TM;
 
   // Execute the kernel for backward pass
@@ -804,7 +880,8 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(queue q, int input_width, int output_width,
   // Allocate and initialize various memory buffers
   m_forward =
       malloc_device<float>(m_batch_size * (m_inputs_width + m_output_width +
-                                           WIDTH * m_n_hidden_layers),
+                                           //    WIDTH * m_n_hidden_layers),
+                                           WIDTH * m_n_hidden_matrices),
                            q);
 
   m_A_forward =
@@ -815,7 +892,11 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(queue q, int input_width, int output_width,
       m_alignment, m_output_width * m_batch_size, q);
 
   m_out_inter =
-      malloc_device<float>(m_batch_size * WIDTH * (m_n_hidden_layers), q);
+      malloc_device<float>(m_batch_size * (m_output_width +
+                                           //    WIDTH * m_n_hidden_layers),
+                                           WIDTH * m_n_hidden_matrices),
+                           q);
+  //   malloc_device<float>(m_batch_size * WIDTH * (m_n_hidden_layers), q);
   m_deltas_temp = sycl::aligned_alloc_device<float>(
       m_alignment, m_output_width * m_batch_size, q);
   m_deltas.allocate(m_output_width * m_batch_size, q);
@@ -893,16 +974,49 @@ void SwiftNetMLP<WIDTH>::initialize_params() {
   //   m_weights_matrices.initialize_uniform(
   //       0.01, m_weightsT_matrices, m_inputs_width, m_net_width,
   //       m_output_width, m_n_hidden_matrices, m_q);
-  m_weights_matrices.intitialize_he_normal(m_inputs_width, m_q);
-  //   m_weights_matrices.initialize_constant(0.1, m_q);
-  //   m_weightsT_matrices.initialize_constant(0.1, m_q);
+  //   m_weights_matrices.intitialize_he_normal(m_inputs_width, m_q);
+
+  //   std::vector<bf16> weightsT(m_weightsT_matrices.size());
+  //   m_q.memcpy(weightsT.data(), m_weightsT_matrices.data(),
+  //              m_weightsT_matrices.size() * sizeof(bf16))
+  //       .wait();
+  //   for (int i = 0; i < weightsT.size(); i++) {
+  //     std::cout << "Weight T at " << i << ": " << weightsT[i] << std::endl;
+  //   }
+  //   m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width,
+  //                                      m_net_width, m_output_width,
+  //                                      m_n_hidden_matrices, m_q);
+
+  //   std::cout << "== == == == == == == == == == == == == == == == == == == ==
+  //   =="
+  //                "== == == == == == == == "
+  //             << std::endl;
+
+  //   std::cout << m_weightsT_matrices.size() << std::endl;
+  //   std::vector<bf16> weightsT(m_weightsT_matrices.size());
+  //   m_q.memcpy(weightsT.data(), m_weightsT_matrices.data(),
+  //              m_weightsT_matrices.size() * sizeof(bf16))
+  //       .wait();
+  //   for (int i = 0; i < weightsT.size(); i++) {
+  //     if (weightsT[i] == 0) {
+  //       std::cout << "Weight T at " << i << ": " << weightsT[i] << std::endl;
+  //     }
+  //   }
+
+  m_weights_matrices.initialize_constant(0.01, m_q);
+  m_weightsT_matrices.initialize_constant(0.01, m_q);
 
   //   m_weights_matrices.initialize_arange(m_q, m_inputs_width, m_net_width,
   //                                        m_output_width,
   //                                        m_n_hidden_matrices);
-  m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width,
-                                     m_net_width, m_output_width,
-                                     m_n_hidden_matrices, m_q);
+  //   m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width,
+  //                                      m_net_width, m_output_width,
+  //                                      m_n_hidden_matrices, m_q);
+
+  //   m_weightsT_matrices.initialize_arange(m_q, m_inputs_width, m_net_width,
+  //                                         m_output_width,
+  //                                         m_n_hidden_matrices);
+  //   std::cout << "INITIALISING WITH CONSTANT. CHANGE LATER" << std::endl;
 };
 // };
 
@@ -1020,6 +1134,18 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input,
                                       float* C, DeviceMem<float>& output) {
   // Constants and dimensions
 
+  //   std::vector<bf16> weightsT(m_weightsT_matrices.size());
+  //   //   std::cout << " grads T before " << std::endl;
+  //   m_q.memcpy(weightsT.data(), m_weightsT_matrices.data(),
+  //              m_weightsT_matrices.size() * sizeof(bf16))
+  //       .wait();
+  //   for (int i = 0; i < weightsT.size(); i++) {
+  //     std::cout << "fwd Weight at " << i << ": " << weightsT[i] << std::endl;
+  //   }
+  //   std::cout << "== == == == == == == == == == == == == == == == == == == ==
+  //   == "
+  //                "== == == == == == == == "
+  //             << std::endl;
   auto output_activation = m_output_activation;
   auto activation = m_activation;
   const int batch_size = m_batch_size;
@@ -1137,7 +1263,15 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input,
                            elt_activation_ret<float>(output_activation, C[idx]);
                      })
       .wait();
+  //   } else {
+  //     m_q.parallel_for<>(range<1>(m_output_width * m_batch_size),
+  //                        [=](id<1> idx) {
+  //                          output.data()[idx] = elt_activation_ret<float>(
+  //                              output_activation, output.data()[idx]);
+  //                        })
+  //         .wait();
   //   }
+
   //   output.copy_to_host(out, m_q);
   //   for (int i = 0; i < out.size(); i++) {
   //     std::cout << i << ": " << out[i] << std::endl;
@@ -1331,9 +1465,8 @@ void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16>& grads,
       .wait();
 
   oneapi::mkl::blas::row_major::gemm(
-      //   m_q, oneapi::mkl::transpose::nontrans,
-      //   oneapi::mkl::transpose::nontrans,
-      m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::trans,
+      m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
+      //   m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::trans,
       batch_size, m_net_width, m_output_width, 1, A, m_output_width, B,
       m_net_width, 0, C, m_net_width);
 
@@ -1447,7 +1580,7 @@ void SwiftNetMLP<WIDTH>::backward_pass(
   const int offset_f = m_inputs_width * batch_size +
                        m_n_hidden_matrices * m_net_width * batch_size;
 
-  const size_t alignment = 1024;
+  //   const size_t alignment = 1024;
   //   std::vector<bf16> grad_vec_out(m_grads_matrices.size());
   //   std::cout << " grads before " << std::endl;
   //   m_q.memcpy(grad_vec_out.data(), m_grads_matrices.data(),
@@ -1456,8 +1589,33 @@ void SwiftNetMLP<WIDTH>::backward_pass(
   //   for (int i = 0; i < grad_vec_out.size(); i++) {
   //     std::cout << "Grad at " << i << ": " << grad_vec_out[i] << std::endl;
   //   }
-  //   std::cout << "
-  //   =========================================================="
+  //   std::cout << "== == == == == == == == == == == == == == == == == == == ==
+  //   == "
+  //                "== == == == == == == == "
+  //             << std::endl;
+
+  //   std::vector<bf16> weights(m_weights_matrices.size());
+  //   std::cout << " grads T before " << std::endl;
+  //   m_q.memcpy(weights.data(), m_weights_matrices.data(),
+  //              m_weights_matrices.size() * sizeof(bf16))
+  //       .wait();
+  //   for (int i = 0; i < weights.size(); i++) {
+  //     std::cout << "Weight at " << i << ": " << weights[i] << std::endl;
+  //   }
+  //   std::cout << "== == == == == == == == == == == == == == == == == == == ==
+  //   == "
+  //                "== == == == == == == == "
+  //             << std::endl;
+  //   std::vector<bf16> weightsT(m_weightsT_matrices.size());
+  //   m_q.memcpy(weightsT.data(), m_weightsT_matrices.data(),
+  //              m_weightsT_matrices.size() * sizeof(bf16))
+  //       .wait();
+  //   for (int i = 0; i < weightsT.size(); i++) {
+  //     std::cout << "Weight T at " << i << ": " << weightsT[i] << std::endl;
+  //   }
+  //   std::cout << "== == == == == == == == == == == == == == == == == == == ==
+  //   == "
+  //                "== == == == == == == == "
   //             << std::endl;
   // Compute activation backpropagation using parallel_for
   m_q.parallel_for<>(range<1>(WIDTH * batch_size),
@@ -1522,13 +1680,7 @@ void SwiftNetMLP<WIDTH>::backward_pass(
                        //        b_second);
                      })
       .wait();
-  //   std::cout << " grads after (should be last layer)" << std::endl;
-  //   m_q.memcpy(grad_vec_out.data(), m_grads_matrices.data(),
-  //              m_grads_matrices.size() * sizeof(bf16))
-  //       .wait();
-  //   for (int i = 0; i < grad_vec_out.size(); i++) {
-  //     std::cout << "Grad at " << i << ": " << grad_vec_out[i] << std::endl;
-  //   }
+
   // Backpropagation through last layer using dgemm_last_layer_backward
   dgemm_last_layer_backward(grads, forward, loss, batch_size,
                             A_backward_last_layer, B_backward_last_layer,

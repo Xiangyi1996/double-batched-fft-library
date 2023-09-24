@@ -20,7 +20,6 @@ class Trainer {
                      const int WIDTH, int forward_only = 1) {
     // const int input_size = input.size();
     // const int batch_size = std::pow(2, 19);
-
     auto p = m_network->m_forward;
     m_network->get_queue().parallel_for<>(
         range<1>(input.size()), [=](id<1> idx) { p[idx] = input.data()[idx]; });

@@ -7,7 +7,7 @@ import time
 from utils import create_models
 
 # BATCH_SIZE = 2**6 # 64
-BATCH_SIZE = 2**6  # 64
+BATCH_SIZE = 2**20  # 64
 DEVICE_NAME = "xpu"
 
 
@@ -36,8 +36,8 @@ def test_fwd(model, name, iters=1000):
 
 if __name__ == "__main__":
     input_width = 64
-    output_width = 32
-    n_hidden_layers = 1
+    output_width = 64
+    n_hidden_layers = 2
     activation_func = "relu"
     output_func = "linear"
 

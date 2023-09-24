@@ -1,5 +1,31 @@
 #include "DeviceMem.h"
 
+#ifdef __SYCL_DEVICE_ONLY__
+
+#define CONSTANT __attribute__((opencl_constant))
+
+#else
+
+#define CONSTANT
+
+#endif
+void get_float(float value, int& integer_val, int& fractional_val) {
+  // careful with the code. Leading zeros not shown in fractional_val. This is
+  // only to debug whether it's zero or non-zero. only for 4 decimals after
+  // comma
+
+  // Extract the integer part
+  int integerPart = static_cast<int>(value);
+
+  // Extract the fractional part as an integer
+  int fractionalPart =
+      //   static_cast<int>(std::fabs((value - static_cast<float>(integerPart))
+      //   *
+      static_cast<int>(((value - static_cast<float>(integerPart)) *
+                        1000000));  // Adjust the multiplier as needed
+  integer_val = integerPart;
+  fractional_val = fractionalPart;
+}
 // Using namespace and alias for bfloat16
 using namespace sycl;
 using bf16 = sycl::ext::oneapi::bfloat16;
@@ -364,20 +390,37 @@ void DeviceMem<T>::make_transposed(DeviceMem<T>& transposed, int input_width,
           transposed
               .data()[toPackedLayoutCoord(j * width + i, width, input_width)] =
               p[toPackedLayoutCoord(i * width + j, input_width, width)];
-        }
+          //   int b_first;
+          //   int b_second;
+          //   static const CONSTANT char FMT[] =
+          //       "Input Writing from %d to %d: %d.%d,\n";
+          //   get_float(p[toPackedLayoutCoord(i * width + j, input_width,
+          //   width)],
+          //             b_first, b_second);
+          //   sycl::ext::oneapi::experimental::printf(
+          //       FMT, toPackedLayoutCoord(i * width + j, input_width, width),
+          //       toPackedLayoutCoord(j * width + i, width, input_width),
+          //       b_first, b_second);
 
-        else if (idx < input_width * width + n_hidden * width * width) {
-          mat_num = idx / (width * width);
+        } else if (idx < input_width * width + n_hidden * width * width) {
+          mat_num = (idx - input_width * width) / (width * width);
           mat_offset = (idx - input_width * width) % (width * width);
           i = mat_offset / input_width;
           j = mat_offset % input_width;
+
+          //   static const CONSTANT char FMT[] =
+          //       "Writing from %d, idx: %d i: %d, j: %d, mat offset: %d,
+          //       packed: "
+          //       "%d\n";
+          //   sycl::ext::oneapi::experimental::printf(
+          //       FMT, input_width * width + mat_num * width * width, int(idx),
+          //       i, j, mat_offset, toPackedLayoutCoord(j * width + i, width,
+          //       width));
           transposed.data()[input_width * width + mat_num * width * width +
                             toPackedLayoutCoord(j * width + i, width, width)] =
               p[input_width * width + mat_num * width * width +
                 toPackedLayoutCoord(i * width + j, width, width)];
-        }
-
-        else {
+        } else {
           mat_offset = (idx - input_width * width - n_hidden * width * width) %
                        (width * output_width);
           i = mat_offset / input_width;
@@ -387,6 +430,24 @@ void DeviceMem<T>::make_transposed(DeviceMem<T>& transposed, int input_width,
                       toPackedLayoutCoord(j * width + i, output_width, width)] =
               p[input_width * width + n_hidden * width * width +
                 toPackedLayoutCoord(i * width + j, width, output_width)];
+          //   int b_first;
+          //   int b_second;
+          //   static const CONSTANT char FMT[] =
+          //       "Out Writing from %d to %d: %d.%d,\n";
+          //   get_float(
+          //       transposed.data()[input_width * width + n_hidden * width *
+          //       width +
+          //                         toPackedLayoutCoord(j * width + i,
+          //                         output_width,
+          //                                             width)],
+          //       b_first, b_second);
+          //   sycl::ext::oneapi::experimental::printf(
+          //       FMT,
+          //       input_width * width + n_hidden * width * width +
+          //           toPackedLayoutCoord(i * width + j, width, output_width),
+          //       input_width * width + n_hidden * width * width +
+          //           toPackedLayoutCoord(j * width + i, output_width, width),
+          //       b_first, b_second);
         }
       });
 }

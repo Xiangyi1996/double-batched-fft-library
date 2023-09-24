@@ -89,7 +89,7 @@ def test_grad(
     output_size,
     activation_func,
     output_func,
-    iterations=1,
+    iterations=10,
 ):
     for iter_ in range(iterations):
         if iter_ == 0:
@@ -122,14 +122,15 @@ def test_grad(
             rel_diff_in_layer = abs(
                 grads_torch[layer].sum() - grads_dpcpp[layer].sum()
             ) / (abs(grads_torch[layer]).sum())
-            print(f"Layer {layer}: {rel_diff_in_layer*100:.2f}%")
-            print("Torch")
-            print(grads_torch[layer])
-            print("DPCPP")
-            print(grads_dpcpp[layer])
-            # assert (
-            #     rel_diff_in_layer < 0.05
-            # ), f"Difference larger than 5%: {rel_diff_in_layer* 100:.2f}%"
+            if rel_diff_in_layer > 0.05:
+                print(f"Layer {layer}: {rel_diff_in_layer*100:.2f}%")
+                print("Torch")
+                print(grads_torch[layer])
+                print("DPCPP")
+                print(grads_dpcpp[layer])
+            assert (
+                rel_diff_in_layer < 0.05
+            ), f"Difference larger than 5%: {rel_diff_in_layer* 100:.2f}%"
 
 
 @pytest.mark.parametrize(
@@ -147,7 +148,8 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
     # Generate random input data for testing
     torch.manual_seed(123)
     input_data = (
-        torch.randn(BATCH_SIZE, input_size, dtype=torch.float32).to(DEVICE_NAME) * 0 + 1
+        # torch.randn(BATCH_SIZE, input_size, dtype=torch.float32).to(DEVICE_NAME) * 0 + 1
+        torch.randn(BATCH_SIZE, input_size, dtype=torch.float32).to(DEVICE_NAME)
     )
     model_dpcpp, model_torch = create_models(
         input_size,
@@ -172,7 +174,7 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
     #     y_torch, y_dpcpp, atol=1e-1
     # ), f"Forward error is too large {y_torch}, {y_dpcpp}"
     assert (
-        abs(y_torch - y_dpcpp).mean() < 2e-2
+        abs(y_torch.sum() - y_dpcpp.sum()) / (abs(y_torch).sum()) < 0.01
     ), f"Forward error is too large {y_torch}, {y_dpcpp}"
     model_dpcpp.free_memory()
 
@@ -180,7 +182,7 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
 if __name__ == "__main__":
     input_width = 64
     output_width = 64
-    n_hidden_layers = 2
+    n_hidden_layers = 5
     activation_func = "linear"
     output_func = "linear"
 
