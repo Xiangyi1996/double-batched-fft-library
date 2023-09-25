@@ -105,7 +105,8 @@ torch::Tensor SwiftNetModule::get_converted_tensor_from_array(T *array,
 }
 
 torch::Tensor SwiftNetModule::forward_pass(torch::Tensor input_tensor,
-                                           torch::Tensor params) {
+                                           torch::Tensor params,
+                                           int use_inference = 0) {
   //   std::cout << "Input tensor: " << input_tensor << std::endl;
   if (m_device_name == "cpu") {
     std::vector<bf16> params_bf16 = get_vector_from_tensor(params);
@@ -129,35 +130,18 @@ torch::Tensor SwiftNetModule::forward_pass(torch::Tensor input_tensor,
               << ". Exiting code." << std::endl;
     exit(1);
   }
-  // Calling forward pass of Swiftnet
-  network->forward_pass(input, network->m_forward, network->m_B_forward,
-                        network->m_C_forward, output);
-  //   std::cout << "Size: "
-  //             << network->m_batch_size *
-  //                    (network->m_inputs_width + network->m_output_width +
-  //                     network->m_net_width * network->m_n_hidden_layers)
-  //             << std::endl;
-  //   int batch_size = 64;
-  //   int input_width = 64;
-  //   int output_width = 2;
-  //   int width = 64;
-  //   int n_hidden_layers = 1;
-  //   std::vector<float> fwd(
-  //       batch_size * (input_width + output_width + width * n_hidden_layers));
-  //   network->m_q.memcpy(fwd.data(), forward, fwd.size() *
-  //   sizeof(float)).wait(); std::cout << "FWD" << std::endl; for (int i = 0; i
-  //   < fwd.size(); i++) {
-  //     if ((i == (batch_size * input_width)) ||
-  //         (i == batch_size * (input_width + width))) {
-  //       std::cout << "================================================"
-  //                 << std::endl;
-  //     }
-  //     std::cout << i << ":" << fwd[i] << std::endl;
-  //   }
-  // std::cout << "AFter " << std::endl;
+  if (use_inference) {
+    // Calling forward pass of Swiftnet
+    network->inference(input, network->m_forward, network->m_A_forward,
+                       network->m_B_forward, network->m_C_forward, output);
+
+  } else {
+    // Calling forward pass of Swiftnet
+    network->forward_pass(input, network->m_forward, network->m_A_forward,
+                          network->m_B_forward, network->m_C_forward, output);
+  }
 
   torch::Tensor output_tensor = get_converted_tensor_from_dev_mem(output);
-  //   std::cout << "Output tensor " << output_tensor << std::endl;
 
   return output_tensor;
 }

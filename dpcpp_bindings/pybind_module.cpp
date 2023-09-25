@@ -25,7 +25,13 @@ class Module {
   torch::Tensor fwd(torch::Tensor input, torch::Tensor params) {
     // CHECK_INPUT(input);
     // CHECK_INPUT(params);
-    return m_module->forward_pass(input, params);
+    return m_module->forward_pass(input, params, 0);
+  }
+
+  torch::Tensor inference(torch::Tensor input, torch::Tensor params) {
+    // CHECK_INPUT(input);
+    // CHECK_INPUT(params);
+    return m_module->forward_pass(input, params, 1);
   }
 
   torch::Tensor bwd(torch::Tensor input_tensor, torch::Tensor grad_output,
@@ -78,6 +84,7 @@ PYBIND11_MODULE(tiny_nn, m) {
   pybind11::class_<Module>(m, "Module")
       .def(pybind11::init<tnn::SwiftNetModule*>())
       .def("fwd", &Module::fwd)
+      .def("inference", &Module::inference)
       .def("bwd", &Module::bwd)
       .def("initial_params", &Module::initial_params)
       .def("n_params", &Module::n_params)
