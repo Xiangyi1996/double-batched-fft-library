@@ -11,22 +11,13 @@
 #include "oneapi/mkl.hpp"
 #include "sgd.h"
 #include "trainer.h"
-// #include "config.h"
 
 using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;
 using bf16 = sycl::ext::oneapi::bfloat16;
 
-#define TM 8
-#define TK 16
-#define TN 8
-
 #define INPUT_WIDTH 64
 #define OUTPUT_WIDTH 64
-
-#define SG_SIZE 8
-#define WG_SIZE 8 * SG_SIZE
-#define BATCH_CHUNK 64
 
 class MultilayerPerceptron {
   struct WeightMatrix {

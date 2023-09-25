@@ -25,10 +25,13 @@ class Trainer {
     m_network->get_queue().parallel_for<>(
         range<1>(input.size()), [=](id<1> idx) { p[idx] = input.data()[idx]; });
 
-    m_network->forward_pass(input, m_network->m_forward, m_network->m_B_forward,
-                            m_network->m_C_forward, output);
-    // m_network->inference(input, m_network->m_forward, m_network->m_B_forward,
-    //                      m_network->m_C_forward, output);
+    // m_network->forward_pass(input, m_network->m_forward,
+    // m_network->m_A_forward,
+    //                         m_network->m_B_forward, m_network->m_C_forward,
+    //                         output);
+    m_network->inference(input, m_network->m_forward, m_network->m_A_forward,
+                         m_network->m_B_forward, m_network->m_C_forward,
+                         output);
     if (forward_only) {
       return;
     }

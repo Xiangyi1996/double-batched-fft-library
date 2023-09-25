@@ -530,8 +530,7 @@ void DeviceMem<T>::initialize_arange(queue q, int input_width, int net_width,
   // Repeat the col_vector and perform the operations
   for (int i = 0; i < net_width; i++) {
     for (int j = 0; j < input_width; j++) {
-      data[i * input_width + j] = col_vector[j] * 0.001;
-      //   data[j * input_width + i] = col_vector[j] * 0.001;
+      data[j * input_width + i] = col_vector[j] * 0.001;
     }
   }
   // middle layers
@@ -544,10 +543,10 @@ void DeviceMem<T>::initialize_arange(queue q, int input_width, int net_width,
     // Repeat the col_vector and perform the operations
     for (int i = 0; i < net_width; ++i) {
       for (int j = 0; j < net_width; ++j) {
-        data[net_width * input_width + k * net_width * net_width +
-             i * net_width + j] = col_vector[j] * 0.001;
         // data[net_width * input_width + k * net_width * net_width +
-        //      j * net_width + i] = col_vector[j] * 0.001;
+        //      i * net_width + j] = col_vector_mid[j] * 0.001;
+        data[net_width * input_width + k * net_width * net_width +
+             j * net_width + i] = col_vector_mid[j] * 0.001;
       }
     }
   }
