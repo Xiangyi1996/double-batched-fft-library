@@ -1,7 +1,7 @@
 #define TM 8
 #define TK 16
 #define TN 8
-#define SKEW 0
+#define SKEW 4
 
 #define SG_SIZE 8
 #define WG_SIZE 8*SG_SIZE
@@ -38,29 +38,6 @@ void get_float_as_integers_own(float value, int& integer_val,
                         1000000));  // Adjust the multiplier as needed
   integer_val = integerPart;
   fractional_val = fractionalPart;
-}
-void get_float_as_integers_own(float value, int& integer_val,
-                               int& fractional_val) {
-  // careful with the code. Leading zeros not shown in fractional_val. This is
-  // only to debug whether it's zero or non-zero. only for 4 decimals after
-  // comma
-
-  // Extract the integer part
-  int integerPart = static_cast<int>(value);
-
-  // Extract the fractional part as an integer
-  int fractionalPart =
-      //   static_cast<int>(std::fabs((value - static_cast<float>(integerPart))
-      //   *
-      static_cast<int>(((value - static_cast<float>(integerPart)) *
-                        1000000));  // Adjust the multiplier as needed
-  integer_val = integerPart;
-  fractional_val = fractionalPart;
-  //   // Print the integer and fractional parts as integers
-  //   std::cout << "Integer part: " << integerPart << std::endl;
-  //   std::cout << "Fractional part: " << fractionalPart << std::endl;
-
-  // Count leading zeros in the fractional part
 }
 void get_float_as_integers_own(float value, int& integer_val,
                                int& fractional_val, int& leading_zeros) {
@@ -880,8 +857,7 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(queue q, int input_width, int output_width,
   // Allocate and initialize various memory buffers
   m_forward =
       malloc_device<float>(m_batch_size * (m_inputs_width + m_output_width +
-                                           //    WIDTH * m_n_hidden_layers),
-                                           WIDTH * m_n_hidden_matrices),
+                                           WIDTH * m_n_hidden_layers),
                            q);
 
   m_A_forward =
@@ -891,11 +867,8 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(queue q, int input_width, int output_width,
   m_C_forward = sycl::aligned_alloc_device<float>(
       m_alignment, m_output_width * m_batch_size, q);
 
-  m_out_inter =
-      malloc_device<float>(m_batch_size * (m_output_width +
-                                           //   WIDTH * m_n_hidden_layers),
-                                           WIDTH * m_n_hidden_matrices),
-                           q);
+  m_out_inter = malloc_device<float>(
+      m_batch_size * (m_output_width + WIDTH * m_n_hidden_matrices), q);
   //   malloc_device<float>(m_batch_size * WIDTH * (m_n_hidden_layers), q);
   m_deltas_temp = sycl::aligned_alloc_device<float>(
       m_alignment, m_output_width * m_batch_size, q);
@@ -974,46 +947,17 @@ void SwiftNetMLP<WIDTH>::initialize_params() {
   //   m_weights_matrices.initialize_uniform(
   //       0.01, m_weightsT_matrices, m_inputs_width, m_net_width,
   //       m_output_width, m_n_hidden_matrices, m_q);
-  //   m_weights_matrices.intitialize_he_normal(m_inputs_width, m_q);
+  m_weights_matrices.intitialize_he_normal(m_inputs_width, m_q);
 
-  //   std::vector<bf16> weightsT(m_weightsT_matrices.size());
-  //   m_q.memcpy(weightsT.data(), m_weightsT_matrices.data(),
-  //              m_weightsT_matrices.size() * sizeof(bf16))
-  //       .wait();
-  //   for (int i = 0; i < weightsT.size(); i++) {
-  //     std::cout << "Weight T at " << i << ": " << weightsT[i] << std::endl;
-  //   }
-  //   m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width,
-  //                                      m_net_width, m_output_width,
-  //                                      m_n_hidden_matrices, m_q);
-
-  //   std::cout << "== == == == == == == == == == == == == == == == == == == ==
-  //   =="
-  //                "== == == == == == == == "
-  //             << std::endl;
-
-  //   std::cout << m_weightsT_matrices.size() << std::endl;
-  //   std::vector<bf16> weightsT(m_weightsT_matrices.size());
-  //   m_q.memcpy(weightsT.data(), m_weightsT_matrices.data(),
-  //              m_weightsT_matrices.size() * sizeof(bf16))
-  //       .wait();
-  //   for (int i = 0; i < weightsT.size(); i++) {
-  //     if (weightsT[i] == 0) {
-  //       std::cout << "Weight T at " << i << ": " << weightsT[i] << std::endl;
-  //     }
-  //   }
-
-  m_weights_matrices.initialize_constant(0.01, m_q);
-  m_weightsT_matrices.initialize_constant(0.01, m_q);
+  //   m_weights_matrices.initialize_constant(0.01, m_q);
 
   //   m_weights_matrices.initialize_arange(m_q, m_inputs_width, m_net_width,
   //                                        m_output_width,
   //                                        m_n_hidden_matrices);
-  // m_weights_matrices.make_transposed(m_weightsT_mas
-  //   m_weightsT_matrices.initialize_arange(m_q, m_inputs_width, m_net_width,
-  //                                         m_output_width,
-  //                                         m_n_hidden_matrices);
-  //   std::cout << "INITIALISING WITH CONSTANT. CHANGE LATER" << std::endl;
+
+  m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width,
+                                     m_net_width, m_output_width,
+                                     m_n_hidden_matrices, m_q);
 };
 // };
 

@@ -1,4 +1,5 @@
 #include <CL/sycl.hpp>
+#include <cmath>
 #include <iostream>
 #include <vector>
 
@@ -11,14 +12,23 @@
 #include "oneapi/mkl.hpp"
 #include "sgd.h"
 #include "trainer.h"
+// #include "config.h"
+#include <chrono>
 
 using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;
 using bf16 = sycl::ext::oneapi::bfloat16;
 
+#define TM 8
+#define TK 16
+#define TN 8
+
 #define INPUT_WIDTH 64
 #define OUTPUT_WIDTH 64
-#define HIDDEN_LAYERS 5
+
+#define SG_SIZE 8
+#define WG_SIZE 8 * SG_SIZE
+#define BATCH_CHUNK 64
 
 class MultilayerPerceptron {
   struct WeightMatrix {
@@ -159,11 +169,11 @@ class MultilayerPerceptron {
 
   void calcLayerOutput(int h_, int use_linear = 0) {
     for (int i = 0; i < layers[h_].dim; ++i) {
-      //   if (use_linear) {
-      layers[h_].out[i] = nonef(layers[h_].in[i]);
-      //   } else {
-      //   layers[h_].out[i] = relu(layers[h_].in[i]);
-      //   }
+      if (use_linear) {
+        layers[h_].out[i] = nonef(layers[h_].in[i]);
+      } else {
+        layers[h_].out[i] = relu(layers[h_].in[i]);
+      }
     }
   }
 
@@ -306,21 +316,23 @@ class MultilayerPerceptron {
   }
 };
 
-void test_exactitude() {
-  // SWIFTNET
-  const int batch_size = 64;
-  const int output_width = OUTPUT_WIDTH;
-  const int WIDTH = 64;
-  const int m_n_hidden_layers = HIDDEN_LAYERS;
-  const int net_width = 64;
-
-  const float scale = 1e-3f;
+void test_time() {
   // REFERENCE
 
   MultilayerPerceptron my_mlp(INPUT_WIDTH, OUTPUT_WIDTH);
-  for (int i = 0; i < m_n_hidden_layers; i++) {
-    my_mlp.addHiddenLayer(64);
-  }
+  my_mlp.addHiddenLayer(64);
+  // my_mlp.addHiddenLayer(64);
+
+  // SWIFTNET
+  //   const int batch_size = 64;
+  const int batch_size = std::pow(2, 21);
+  const int output_width = OUTPUT_WIDTH;
+  const int WIDTH = 64;
+  const int intermediate_output_size = batch_size * WIDTH * 2;
+  const int m_n_hidden_layers = 1;
+  const int net_width = 64;
+
+  const float scale = 1e-3f;
 
   queue q = queue();
 
@@ -335,41 +347,41 @@ void test_exactitude() {
       SGDOptimizer(OUTPUT_WIDTH, m_n_hidden_layers, 1e-3f, 1e-8f);
   SwiftNetMLP<64> network =
       SwiftNetMLP<64>(q, INPUT_WIDTH, output_width, m_n_hidden_layers,
-                      //   Activation::ReLU, Activation::ReLU, batch_size);
-                      Activation::None, Activation::None, batch_size);
+                      Activation::ReLU, Activation::None, batch_size);
   Trainer train(network, loss, optim);
 
   train.initialize_params();
   my_mlp.init(1e-4f);
-  //   std::cout << "Network size: " << network.m_weights_matrices.size()
-  //             << std::endl;
+
   std::vector<bf16> w_swift(network.m_weights_matrices.size());
   q.memcpy(w_swift.data(), train.m_network->m_weights_matrices.data(),
            network.m_weights_matrices.size() * sizeof(bf16));
   q.wait();
-  //   std::cout << " weights" << std::endl;
 
-  //   for (int i = 0; i < 10; i++) {
-  //     for (int j = 0; j < 10; j++) {
-  //       std::cout << my_mlp.weights[0].w[j * 64 + i] << " ; "
-  //                 << w_swift[toPackedLayoutCoord(i * 64 + j, 64, 64) +
-  //                            0 * batch_size * WIDTH]
-  //                 << std::endl;
-  //       std::cout << w_swift[toPackedLayoutCoord(i * 64 + j, 64, 64) +
-  //                            0 * batch_size * WIDTH]
-  //                 << ", ";
-  //     }
-  //   }
-  //   for (int i = 0; i < w_swift.size(); i++) {
-  //     std::cout << i << ": " << w_swift[i] << std::endl;
-  //   }
-
-  my_mlp.copyWeights(w_swift, m_n_hidden_layers);
+  my_mlp.copyWeights(w_swift, 1);
   std::vector<float> x(INPUT_WIDTH);
   for (int i = 0; i < INPUT_WIDTH; i++) {
+    //   x[i] = i * 1e-2f;
     x[i] = 1.0f;
   }
-  std::vector<float> res_ref = my_mlp.classify(x);
+
+  auto start_time = std::chrono::high_resolution_clock::now();
+  int iter_steps = 1000;
+  //   // Code to profile (Section 1)
+  //   std::vector<float> res_ref;
+  //   for (int i = 0; i < iter_steps; ++i) {
+  //     for (int j = 0; j < batch_size; ++j) {
+  //       // Some computation
+  //       res_ref = my_mlp.classify(x);
+  //     }
+  //   }
+
+  auto end_time = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+      end_time - start_time);
+
+  //   std::cout << "MLP Execution Time: " << duration.count() << " ms" <<
+  //   std::endl;
 
   inputs.initialize_constant(1.0f, q);
   output.initialize_constant(0.0f, q);
@@ -377,80 +389,38 @@ void test_exactitude() {
   grads.initialize_constant(bf16(0.0f), q);
   losses.initialize_constant(0.0f, q);
 
-  train.training_step(inputs, output, target, grads, losses, scale, WIDTH);
-
-  std::vector<float> fwd(batch_size * (INPUT_WIDTH + OUTPUT_WIDTH +
-                                       WIDTH * (m_n_hidden_layers - 1)));
-  q.memcpy(fwd.data(), network.m_forward, fwd.size() * sizeof(float));
-  q.wait();
-
-  //   for (int i = 0; i < fwd.size(); i++) {
-  //     std::cout << i << ": " << fwd[i] << std::endl;
-  //   }
-  std::vector<float> out(batch_size * (OUTPUT_WIDTH));
-  output.copy_to_host(out, q);
-
-  std::cout
-      << "====================================================================="
-         "=================================================================="
-      << std::endl;
-  std::cout << "Layer 0" << std::endl;
-  std::cout
-      << "====================================================================="
-         "=================================================================="
-      << std::endl;
-  for (int j = 0; j < INPUT_WIDTH; j++) {
-    std::cout << "Idx " << j << " - " << my_mlp.layers[0].out[j] << ": "
-              << fwd[j] << std::endl;
+  start_time = std::chrono::high_resolution_clock::now();
+  for (int i = 0; i < iter_steps; ++i) {
+    train.training_step(inputs, output, target, grads, losses, scale, 64, 1);
   }
+  end_time = std::chrono::high_resolution_clock::now();
+  duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time -
+                                                                   start_time);
 
-  std::cout
-      << "====================================================================="
-         "=================================================================="
-      << std::endl;
-  std::cout << "Layer 1" << std::endl;
-  std::cout
-      << "====================================================================="
-         "=================================================================="
-      << std::endl;
-  for (int j = 0; j < WIDTH; j++) {
-    std::cout << "Idx " << j << " - " << my_mlp.layers[1].out[j] << ": "
-              << fwd[j + (batch_size * INPUT_WIDTH)] << std::endl;
+  std::cout << "DPCPP Execution Time fwd: " << duration.count() << " ms"
+            << std::endl;
+  auto p = network.m_forward;
+  q.parallel_for<>(range<1>(inputs.size()),
+                   [=](id<1> idx) { p[idx] = inputs.data()[idx]; });
+
+  start_time = std::chrono::high_resolution_clock::now();
+  for (int i = 0; i < iter_steps; ++i) {
+    network.inference(inputs, network.m_forward, network.m_A_forward,
+                      network.m_B_forward, network.m_C_forward, output);
   }
+  end_time = std::chrono::high_resolution_clock::now();
+  duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time -
+                                                                   start_time);
 
-  std::cout
-      << "====================================================================="
-         "=================================================================="
-      << std::endl;
-  for (int layer = 1; layer < m_n_hidden_layers + 1; layer++) {
-    std::cout << "Layer " << layer + 1 << std::endl;
-    std::cout
-        << "==================================================================="
-           "=="
-           "=================================================================="
-        << std::endl;
-
-    for (int j = 0; j < WIDTH; j++) {
-      std::cout
-          << "Idx " << j << " - " << my_mlp.layers[layer + 1].out[j] << ": "
-          << fwd[j + batch_size * INPUT_WIDTH + batch_size * WIDTH * (layer)];
-      if (layer == m_n_hidden_layers) {
-        std::cout << "/ " << out[j] << std::endl;
-        if (j == (output_width - 1)) {
-          break;
-        }
-      } else {
-        std::cout << std::endl;
-      }
-    }
-  }
+  std::cout << "DPCPP Execution Time inference: " << duration.count() << "ms "
+            << std::endl;
   inputs.free_mem(q);
   output.free_mem(q);
   target.free_mem(q);
   grads.free_mem(q);
   losses.free_mem(q);
 }
-int main() {
-  test_exactitude();
-  return 0;
-}
+// int main() {
+//   test_time();
+//   return 0;
+// }

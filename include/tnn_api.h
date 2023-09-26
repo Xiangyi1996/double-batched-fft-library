@@ -46,7 +46,7 @@ class SwiftNetModule {
                  std::string device_name);
 
   torch::Tensor forward_pass(torch::Tensor input_list, torch::Tensor params,
-                             int use_inference = 0);
+                             int use_inference);
 
   torch::Tensor backward_pass(torch::Tensor input_tensor,
                               torch::Tensor grad_output, torch::Tensor params);
