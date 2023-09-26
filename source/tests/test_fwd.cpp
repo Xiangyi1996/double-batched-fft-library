@@ -11,15 +11,14 @@
 #include "oneapi/mkl.hpp"
 #include "sgd.h"
 #include "trainer.h"
-// #include "config.h"
 
 using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;
 using bf16 = sycl::ext::oneapi::bfloat16;
 
-#define INPUT_WIDTH 8
-#define OUTPUT_WIDTH 1
-#define HIDDEN_LAYERS 2
+#define INPUT_WIDTH 64
+#define OUTPUT_WIDTH 64
+#define HIDDEN_LAYERS 5
 
 class MultilayerPerceptron {
   struct WeightMatrix {
@@ -380,11 +379,9 @@ void test_exactitude() {
 
   train.training_step(inputs, output, target, grads, losses, scale, WIDTH);
 
-  std::vector<float> fwd(
-      batch_size * (INPUT_WIDTH + OUTPUT_WIDTH + WIDTH * m_n_hidden_layers));
-  q.memcpy(fwd.data(), network.m_forward,
-           batch_size * (WIDTH + output_width + WIDTH * m_n_hidden_layers) *
-               sizeof(float));
+  std::vector<float> fwd(batch_size * (INPUT_WIDTH + OUTPUT_WIDTH +
+                                       WIDTH * (m_n_hidden_layers - 1)));
+  q.memcpy(fwd.data(), network.m_forward, fwd.size() * sizeof(float));
   q.wait();
 
   //   for (int i = 0; i < fwd.size(); i++) {

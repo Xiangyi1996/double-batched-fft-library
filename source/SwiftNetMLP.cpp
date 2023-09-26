@@ -1,10 +1,10 @@
 #define TM 8
 #define TK 16
 #define TN 8
-#define SKEW 4
+#define SKEW 0
 
 #define SG_SIZE 8
-#define WG_SIZE 8 * SG_SIZE
+#define WG_SIZE 8*SG_SIZE
 
 #define BATCH_CHUNK 16
 #define SHMEM_SIZE 1024
@@ -893,7 +893,7 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(queue q, int input_width, int output_width,
 
   m_out_inter =
       malloc_device<float>(m_batch_size * (m_output_width +
-                                           //    WIDTH * m_n_hidden_layers),
+                                           //   WIDTH * m_n_hidden_layers),
                                            WIDTH * m_n_hidden_matrices),
                            q);
   //   malloc_device<float>(m_batch_size * WIDTH * (m_n_hidden_layers), q);
@@ -1009,10 +1009,7 @@ void SwiftNetMLP<WIDTH>::initialize_params() {
   //   m_weights_matrices.initialize_arange(m_q, m_inputs_width, m_net_width,
   //                                        m_output_width,
   //                                        m_n_hidden_matrices);
-  //   m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width,
-  //                                      m_net_width, m_output_width,
-  //                                      m_n_hidden_matrices, m_q);
-
+  // m_weights_matrices.make_transposed(m_weightsT_mas
   //   m_weightsT_matrices.initialize_arange(m_q, m_inputs_width, m_net_width,
   //                                         m_output_width,
   //                                         m_n_hidden_matrices);
@@ -1765,17 +1762,21 @@ void SwiftNetMLP<WIDTH>::backward_pass(
 
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::set_params(float* params) {
-  auto p = m_grads_matrices.data();
-  int s = m_grads_matrices.size();
+  auto p = m_weights_matrices.data();
+  int s = m_weights_matrices.size();
 
   m_q.parallel_for<>(range<1>(s),
                      [=](id<1> idx) { p[idx] = bf16(params[idx]); })
       .wait();
+  m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width, WIDTH,
+                                     m_output_width, m_n_hidden_matrices, m_q);
 }
 
 template <int WIDTH>
 void SwiftNetMLP<WIDTH>::set_params(std::vector<bf16> params) {
   m_weights_matrices.copy_from_host(params, m_q);
+  m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width, WIDTH,
+                                     m_output_width, m_n_hidden_matrices, m_q);
 }
 
 template <int WIDTH>

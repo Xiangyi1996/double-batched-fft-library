@@ -116,8 +116,8 @@ torch::Tensor SwiftNetModule::forward_pass(torch::Tensor input_tensor,
     float *tensor_data = params.data_ptr<float>();
     network->set_params(tensor_data);
     // TODO: refactor and make own function
-    // set the DeviceMem input vals to the ones from input_tensor. Because it's
-    // on device, we need to sycl_queue it
+    // set the DeviceMem input vals to the ones from input_tensor. Because
+    // it's on device, we need to sycl_queue it
     float *input_data = input_tensor.data_ptr<float>();
     auto p = input.data();
     int s = input.size();
