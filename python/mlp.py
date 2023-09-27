@@ -20,9 +20,9 @@ class MLP(torch.nn.Module):
         # Used for gradecheck and naming consistency with modules.py (Swiftnet)
         self.input_width = input_size
         self.output_width = output_size
-        if input_size < 16:
-            print("Currently we do manual encoding for input size < 16.")
-            hidden_sizes.insert(0, 64)
+        # if input_size < 16:
+        #     print("Currently we do manual encoding for input size < 16.")
+        #     hidden_sizes.insert(0, 64)
         self.layers = torch.nn.ModuleList()
         assert isinstance(activation_func, str) or None
         self.activation_func = activation_func
@@ -31,10 +31,10 @@ class MLP(torch.nn.Module):
 
         # Input layer
         self.layers.append(torch.nn.Linear(input_size, hidden_sizes[0], bias=BIAS))
-        if input_size < 16:
-            # the encoding in the current implementaiton doesn't have grad.
-            # Set requires_grad to False for the parameters of the first layer (layers[0])
-            self.layers[0].weight.requires_grad = False
+        # if input_size < 16:
+        #     # the encoding in the current implementaiton doesn't have grad.
+        #     # Set requires_grad to False for the parameters of the first layer (layers[0])
+        #     self.layers[0].weight.requires_grad = False
 
         if self.use_batchnorm:
             self.layers.append(torch.nn.BatchNorm1d(hidden_sizes[0]))
@@ -81,26 +81,24 @@ class MLP(torch.nn.Module):
             raise ValueError("Invalid activation function")
 
     def set_weights(self, parameters):
-        if parameters["input_weights"] is not None:
-            assert (
-                self.layers[0].weight.shape
-                == torch.nn.Parameter(parameters["input_weights"]).shape
-            )
-            self.layers[0].weight = copy.deepcopy(
-                torch.nn.Parameter(parameters["input_weights"])
-            )
-            if self.input_width < 16:
-                # the encoding in the current implementaiton doesn't have grad.
-                # Set requires_grad to False for the parameters of the first layer (layers[0])
-                self.layers[0].weight.requires_grad = False
+        # if parameters["input_weights"] is not None:
+        #     assert (
+        #         self.layers[0].weight.shape
+        #         == torch.nn.Parameter(parameters["input_weights"]).shape
+        #     )
+        #     self.layers[0].weight = copy.deepcopy(
+        #         torch.nn.Parameter(parameters["input_weights"])
+        #     )
+        #     if self.input_width < 16:
+        #         # the encoding in the current implementaiton doesn't have grad.
+        #         # Set requires_grad to False for the parameters of the first layer (layers[0])
+        #         self.layers[0].weight.requires_grad = False
 
-            offset = 1
-        else:
-            offset = 0
+        #     offset = 1
+        # else:
+        offset = 0
 
-        if "middle_weights" in parameters:
-            for i, weight in enumerate(parameters["middle_weights"]):
-                assert self.layers[i + offset].weight.shape == weight.shape
-                self.layers[i + offset].weight = copy.deepcopy(
-                    torch.nn.Parameter(weight)
-                )
+        # if "middle_weights" in parameters:
+        for i, weight in enumerate(parameters):
+            assert self.layers[i + offset].weight.shape == weight.shape
+            self.layers[i + offset].weight = copy.deepcopy(torch.nn.Parameter(weight))

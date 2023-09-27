@@ -37,8 +37,8 @@ class Trainer {
                      target, grads, losses);
 
     m_network->backward_pass(
-        input, grads, m_network->m_out_inter, m_network->m_deltas_temp,
-        m_network->m_deltas, m_network->m_A_backward, m_network->m_B_backward,
+        input, grads, m_network->m_out_inter, m_network->m_deltas,
+        m_network->m_A_backward, m_network->m_B_backward,
         m_network->m_C_backward, m_network->m_A_backward_last_layer,
         m_network->m_B_backward_last_layer, m_network->m_C_backward_last_layer,
         m_network->m_D_backward_last_layer, m_network->m_E_backward_last_layer,

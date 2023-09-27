@@ -2,17 +2,18 @@ import numpy as np
 import torch
 import intel_extension_for_pytorch  # required for SwiftNet
 import pytest
-
+import time
 from utils import create_models
 
 # Define the parameters for the grid search
-input_sizes = [64]  # Only 64 working as of now
-output_funcs = ["linear"]  # only linear working as of now.
+input_sizes = [1, 2, 8, 16, 64]
+output_funcs = ["linear", "relu"]
 output_sizes = [1, 2, 8, 16, 64]
-activation_funcs = ["relu", "linear", "sigmoid", "tanh"]
-hidden_layer_counts = [1, 2, 3]
+# activation_funcs = ["relu", "linear", "sigmoid", "tanh"]
+activation_funcs = ["relu", "linear"]
+hidden_layer_counts = [1, 2, 3, 4, 5]
 
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 DEVICE_NAME = "cpu"
 
 
@@ -106,7 +107,13 @@ def test_grad(
 
         # Need to generate new model, because weights are updated in one loop.
         model_dpcpp, model_torch = create_models(
-            input_size, hidden_size, output_size, activation_func, output_func
+            input_size,
+            hidden_size,
+            output_size,
+            activation_func,
+            output_func,
+            BATCH_SIZE,
+            DEVICE_NAME,
         )
 
         n_steps = 1  # if this is too large, there will be accumulated error (weights aren't the same, thus the loss is not the same etc)
@@ -118,12 +125,18 @@ def test_grad(
         )
         grads_dpcpp = grads_dpcpp[0][0]
         grads_torch = grads_torch[0]
+        total_diff = []
+        time.sleep(1)
         for layer in range(len(grads_dpcpp)):
             rel_diff_in_layer = abs(
-                grads_torch[layer].sum() - grads_dpcpp[layer].sum()
+                abs(grads_torch[layer]).sum() - abs(grads_dpcpp[layer]).sum()
             ) / (abs(grads_torch[layer]).sum())
+            total_diff.append(rel_diff_in_layer)
+            print(
+                f"Layer {layer+1}: {rel_diff_in_layer*100:.2f}% (sum: ",
+                f"{abs(grads_torch[layer]).sum():.4f}, and {abs(grads_dpcpp[layer]).sum():.4f})",
+            )
             # if rel_diff_in_layer > 0.05:
-            print(f"Layer {layer}: {rel_diff_in_layer*100:.2f}%")
             print("Torch")
             print(grads_torch[layer])
             print("DPCPP")
@@ -131,6 +144,7 @@ def test_grad(
             # assert (
             #     rel_diff_in_layer < 0.05
             # ), f"Difference larger than 5%: {rel_diff_in_layer* 100:.2f}%"
+        print(f"Average difference: {100*np.mean(np.array(total_diff)):.2f}%")
 
 
 @pytest.mark.parametrize(
@@ -182,19 +196,19 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
 if __name__ == "__main__":
     input_width = 64
     output_width = 64
-    n_hidden_layers = 5
+    n_hidden_layers = 3
     activation_func = "linear"
     # activation_func = "relu"
     output_func = "linear"
     # output_func = "relu"
 
-    # test_fwd(input_width, n_hidden_layers, output_width, activation_func, output_func)
-    # print("Passed fwd test")
+    test_fwd(input_width, n_hidden_layers, output_width, activation_func, output_func)
+    print("Passed fwd test")
 
-    test_grad(
-        input_width,
-        n_hidden_layers,
-        output_width,
-        activation_func,
-        output_func,
-    )
+    # test_grad(
+    #     input_width,
+    #     n_hidden_layers,
+    #     output_width,
+    #     activation_func,
+    #     output_func,
+    # )

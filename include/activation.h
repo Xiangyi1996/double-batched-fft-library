@@ -22,7 +22,7 @@ template <typename T, typename resT>
 void elt_activation(Activation activation, T& elt, resT& res) {
   switch (activation) {
     case Activation::ReLU:
-      if (elt < (T)0.0f) {
+      if (elt <= (T)0.0f) {
         res = (resT)0.0f;
       } else {
         res = (resT)elt;
@@ -70,7 +70,7 @@ T elt_activation_ret(Activation activation, T& elt) {
 
   switch (activation) {
     case Activation::ReLU:
-      if (elt < (T)0.0f) {
+      if (elt <= (T)0.0f) {
         return (T)0.0f;
       }
       return elt;
@@ -106,7 +106,7 @@ template <typename outT, typename fwdT>
 void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd) {
   switch (activation) {
     case Activation::ReLU:
-      if (fwd < (fwdT)0.0f) {
+      if (fwd <= (fwdT)0.0f) {
         elt = (outT)0.0f;
       }
       return;
@@ -151,7 +151,7 @@ template <typename outT, typename fwdT, typename resT>
 void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd, resT& res) {
   switch (activation) {
     case Activation::ReLU:
-      if (fwd < (fwdT)0.0f) {
+      if (fwd <= (fwdT)0.0f) {
         res = (resT)0.0f;
       } else {
         res = (resT)elt;

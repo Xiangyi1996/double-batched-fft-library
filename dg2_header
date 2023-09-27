@@ -1,7 +1,7 @@
 #define TM 8
 #define TK 16
 #define TN 8
-#define SKEW 4
+#define SKEW 0
 
 #define SG_SIZE 8
 #define WG_SIZE 8*SG_SIZE

@@ -149,15 +149,16 @@ torch::Tensor SwiftNetModule::forward_pass(torch::Tensor input_tensor,
 torch::Tensor SwiftNetModule::backward_pass(torch::Tensor input_tensor,
                                             torch::Tensor grad_output,
                                             torch::Tensor params) {
-  //   std::cout << "Grad output " << grad_output << std::endl;
+  //   std::cout << "Params " << params << std::endl;
+
   convert_tensor_to_dev_mem(grad_output, grads);
   convert_tensor_to_dev_mem(input_tensor, input_backward);
 
   std::vector<bf16> params_bf16 = get_vector_from_tensor(params);
-  network->set_params(params_bf16);
+  //   network->set_params(params_bf16);
 
   network->backward_pass(
-      input_backward, grads, network->m_out_inter, network->m_deltas_temp,
+      input_backward, grads, network->m_out_inter,
       network->m_deltas, network->m_A_backward, network->m_B_backward,
       network->m_C_backward, network->m_A_backward_last_layer,
       network->m_B_backward_last_layer, network->m_C_backward_last_layer,
@@ -170,6 +171,7 @@ torch::Tensor SwiftNetModule::backward_pass(torch::Tensor input_tensor,
   torch::Tensor grad_loss =
       get_converted_tensor_from_dev_mem(grads_matrices, 0);
   //   std::cout << "Tensor grad_loss: " << grad_loss << std::endl;
+  std::cout << "Flush the printfs on kernel" << std::endl;
   return grad_loss;
 }
 

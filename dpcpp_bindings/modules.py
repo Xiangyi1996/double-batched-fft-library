@@ -53,35 +53,27 @@ class _module_function(torch.autograd.Function):
         return None, None, grad
 
 
-class Embedding(torch.nn.Module):
-    def __init__(self, input_dim, output_dim, requires_grad=False):
-        super(Embedding, self).__init__()
+# class Embedding(torch.nn.Module):
+#     def __init__(self, input_dim, output_dim, requires_grad=False):
+#         super(Embedding, self).__init__()
 
-        self.embedding = torch.nn.Linear(input_dim, output_dim, bias=False)
-        if not requires_grad:
-            # Initialize the parameters with the specified value
-            torch.nn.init.constant_(self.embedding.weight, 0.1)
+#         self.embedding = torch.nn.Linear(input_dim, output_dim, bias=False)
+#         if not requires_grad:
+#             # Initialize the parameters with the specified value
+#             torch.nn.init.constant_(self.embedding.weight, 0.1)
 
-        for param in self.embedding.parameters():
-            param.requires_grad = requires_grad
+#         for param in self.embedding.parameters():
+#             param.requires_grad = requires_grad
 
-    def forward(self, x):
-        x = self.embedding(x)
-        return x
+#     def forward(self, x):
+#         x = self.embedding(x)
+#         return x
 
 
 class Module(torch.nn.Module):
     def __init__(self, device="xpu"):
         super(Module, self).__init__()
         self.device = device
-
-        if self.input_width < 16:
-            self.input_swiftnet_width = 64
-            self.embedding = Embedding(
-                self.input_width, self.input_swiftnet_width, requires_grad=False
-            ).to(device)
-        else:
-            self.input_swiftnet_width = self.input_width
 
         self.tnn_module = self.create_module()
         initial_params = self.tnn_module.initial_params()
@@ -92,18 +84,13 @@ class Module(torch.nn.Module):
         all_weights = []
         if weights is None:
             weights = self.params
-        # Split the weights tensor
-        # input_matrix = (
-        #     weights[: self.width * self.input_swiftnet_width]
-        #     .reshape(self.input_swiftnet_width, self.width)
-        #     .T
-        # )
-        input_matrix = torch.zeros(self.width, self.input_swiftnet_width)
 
-        for i in range(self.input_swiftnet_width):
+        input_matrix = torch.zeros(self.width, self.input_width)
+
+        for i in range(self.input_width):
             for j in range(self.width):
                 idx = to_packed_layout_coord(
-                    i * self.width + j, self.input_swiftnet_width, self.width
+                    i * self.width + j, self.input_width, self.width
                 )
                 input_matrix[j, i] = weights[idx]
 
@@ -112,7 +99,7 @@ class Module(torch.nn.Module):
         hidden_matrices = []
 
         for nth_hidden in range(self.n_hidden_layers - 1):
-            hidden_matrix = torch.zeros(self.width, self.input_swiftnet_width)
+            hidden_matrix = torch.zeros(self.width, self.width)
 
             for i in range(self.width):
                 for j in range(self.width):
@@ -143,7 +130,7 @@ class Module(torch.nn.Module):
     def create_module(self):
         return tnn.create_network(
             self.width,
-            self.input_swiftnet_width,
+            self.input_width,
             self.output_width,
             self.n_hidden_layers,
             self.activation,
@@ -153,8 +140,6 @@ class Module(torch.nn.Module):
         )
 
     def forward(self, x):
-        if self.input_width < 16:
-            x = self.embedding(x)
         x = x.reshape(-1, 1)  # flatten for tiny nn
         output = _module_function.apply(self.tnn_module, x, self.params)
 

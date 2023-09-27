@@ -12,8 +12,6 @@ import gdown
 import zipfile
 
 WIDTH = 64
-BATCH_SIZE = 64
-DEVICE_NAME = "cpu"
 
 
 def get_dpcpp_activation(name):
@@ -38,8 +36,8 @@ def create_models(
     output_size,
     activation_func,
     output_func,
-    batch_size=BATCH_SIZE,
-    device_name=DEVICE_NAME,
+    batch_size,
+    device_name,
 ):
     # Create and test CustomMLP
     hidden_sizes = [WIDTH] * hidden_size
@@ -58,11 +56,11 @@ def create_models(
     output_activation = get_dpcpp_activation(output_func)
 
     model_dpcpp = SwiftNet(
-        batch_size,
-        WIDTH,
-        input_size,
-        output_size,
-        hidden_size,
+        batch_size=batch_size,
+        width=WIDTH,
+        input_width=input_size,
+        output_width=output_size,
+        n_hidden_layers=hidden_size,
         activation=activation,
         output_activation=output_activation,
         device=device_name,
@@ -70,14 +68,9 @@ def create_models(
     # model_dpcpp.eval()
 
     # Set weights of model_torch to the ones of model_dpcpp
-    params = []
-    for param in model_dpcpp.parameters():
-        if len(param.shape) > 1:
-            params.append(param.data)
-    weights = {
-        "input_weights": params[0] if params else None,
-        "middle_weights": model_dpcpp.get_reshaped_params(),
-    }
+
+    weights = model_dpcpp.get_reshaped_params()
+
     model_torch.set_weights(weights)
     return model_dpcpp, model_torch
 

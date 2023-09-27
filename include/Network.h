@@ -19,7 +19,7 @@ class Network {
   // Perform backward pass through the network
   virtual void backward_pass(
       const DeviceMem<bf16>& input, DeviceMem<bf16>& grads, float* out_inter,
-      float* delta_temp, DeviceMem<bf16> loss, float* A, float* B, float* C,
+      DeviceMem<bf16> loss, float* A, float* B, float* C,
       float* A_backward_last_layer, float* B_backward_last_layer,
       float* C_backward_last_layer, float* D_backward_last_layer,
       float* E_backward_last_layer, float* F_backward_last_layer,
@@ -51,7 +51,7 @@ class Network {
   float* m_C_forward;
 
   float* m_out_inter;
-  float* m_deltas_temp;
+  //   float* m_deltas_temp;
   DeviceMem<bf16> m_deltas;
 
   float* m_A_backward;

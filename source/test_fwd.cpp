@@ -16,9 +16,9 @@ using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;
 using bf16 = sycl::ext::oneapi::bfloat16;
 
-#define INPUT_WIDTH 64
-#define OUTPUT_WIDTH 64
-#define HIDDEN_LAYERS 1
+#define INPUT_WIDTH 16
+#define OUTPUT_WIDTH 16
+#define HIDDEN_LAYERS 2
 
 class MultilayerPerceptron {
   struct WeightMatrix {

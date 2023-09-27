@@ -18,7 +18,7 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 
 #define INPUT_WIDTH 64
 #define OUTPUT_WIDTH 64
-#define HIDDEN_LAYERS 5
+#define HIDDEN_LAYERS 3
 
 class MultilayerPerceptron {
   struct WeightMatrix {
@@ -309,7 +309,7 @@ class MultilayerPerceptron {
 
 void test_bwd() {
   // SWIFTNET
-  const int batch_size = 64;
+  const int batch_size = 128;
   const int output_width = OUTPUT_WIDTH;
   const int WIDTH = 64;
   const int m_n_hidden_layers = HIDDEN_LAYERS;
@@ -317,10 +317,10 @@ void test_bwd() {
 
   const float scale = 1e-3f;
 
-  MultilayerPerceptron my_mlp(INPUT_WIDTH, OUTPUT_WIDTH);
-  for (int i = 0; i < m_n_hidden_layers; i++) {
-    my_mlp.addHiddenLayer(64);
-  }
+  //   MultilayerPerceptron my_mlp(INPUT_WIDTH, OUTPUT_WIDTH);
+  //   for (int i = 0; i < m_n_hidden_layers; i++) {
+  //     my_mlp.addHiddenLayer(64);
+  //   }
   queue q = queue();
 
   DeviceMem<bf16> inputs = DeviceMem<bf16>(INPUT_WIDTH * batch_size, q);
@@ -334,12 +334,12 @@ void test_bwd() {
       SGDOptimizer(OUTPUT_WIDTH, m_n_hidden_layers, 1e-3f, 1e-8f);
   SwiftNetMLP<64> network =
       SwiftNetMLP<64>(q, INPUT_WIDTH, output_width, m_n_hidden_layers,
-                      //   Activation::ReLU, Activation::None, batch_size);
-                      Activation::None, Activation::None, batch_size);
+                      Activation::ReLU, Activation::None, batch_size);
+  //   Activation::None, Activation::None, batch_size);
   Trainer train(network, loss, optim);
 
   train.initialize_params();
-  my_mlp.init(1e-4f);
+  //   my_mlp.init(1e-4f);
   std::cout << "Network size: " << network.m_weights_matrices.size()
             << std::endl;
   std::vector<bf16> w_swift(network.m_weights_matrices.size());
@@ -364,42 +364,40 @@ void test_bwd() {
   //                 << ", ";
   //     }
   //   }
-  std::cout << "Weights: " << std::endl;
   for (int i = 0; i < w_swift.size(); i++) {
     if (w_swift[i] == 0) {
-      std::cout << "Got a zero val at: " << i << ": " << w_swift[i]
+      std::cout << "Weights: Got a zero val at: " << i << ": " << w_swift[i]
                 << std::endl;
     }
   }
 
-  std::cout << "Weights T: " << std::endl;
   for (int i = 0; i < w_swiftT.size(); i++) {
     if (w_swiftT[i] == 0) {
-      std::cout << "Got a zero val at: " << i << ": " << w_swiftT[i]
+      std::cout << "Weights T Got a zero val at: " << i << ": " << w_swiftT[i]
                 << std::endl;
     }
   }
 
-  my_mlp.copyWeights(w_swift, m_n_hidden_layers);
-  std::vector<float> x(INPUT_WIDTH);
-  for (int i = 0; i < INPUT_WIDTH; i++) {
-    x[i] = 1e-1f;
-    // x[i] = 1.0f;
-  }
-  std::vector<float> res_ref = my_mlp.classify(x);
+  //   my_mlp.copyWeights(w_swift, m_n_hidden_layers);
+  //   std::vector<float> x(INPUT_WIDTH);
+  //   for (int i = 0; i < INPUT_WIDTH; i++) {
+  //     x[i] = 1e-1f;
+  //     // x[i] = 1.0f;
+  //   }
+  //   std::vector<float> res_ref = my_mlp.classify(x);
 
-  std::vector<MultilayerPerceptron::TrainingElement> training_set(
-      1, MultilayerPerceptron::TrainingElement(
-             x, std::vector<float>(OUTPUT_WIDTH, 1.0f)));
-  my_mlp.setTrainingSet(training_set);
-  my_mlp.train(1e-3f);
+  //   std::vector<MultilayerPerceptron::TrainingElement> training_set(
+  //       1, MultilayerPerceptron::TrainingElement(
+  //              x, std::vector<float>(OUTPUT_WIDTH, 1.0f)));
+  //   my_mlp.setTrainingSet(training_set);
+  //   my_mlp.train(1e-3f);
 
   inputs.initialize_constant(0.1f, q);
   output.initialize_constant(0.0f, q);
   target.initialize_constant(1.0f, q);
   grads.initialize_constant(bf16(0.0f), q);
   losses.initialize_constant(0.0f, q);
-
+  //   std::cout << "About to train" << std::endl;
   train.training_step(inputs, output, target, grads, losses, scale, WIDTH, 0);
 
   std::vector<float> fwd(
@@ -407,68 +405,22 @@ void test_bwd() {
   q.memcpy(fwd.data(), network.m_forward, fwd.size() * sizeof(float));
   q.wait();
 
-  std::cout
-      << "====================================================================="
-         "=================================================================="
-      << std::endl;
-  std::cout << "Layer 0" << std::endl;
-  std::cout
-      << "====================================================================="
-         "=================================================================="
-      << std::endl;
-  for (int j = 0; j < INPUT_WIDTH; j++) {
-    std::cout << "Idx " << j << " - " << my_mlp.layers[0].out[j] << ": "
-              << fwd[j] << std::endl;
-  }
-  std::cout
-      << "====================================================================="
-         "=================================================================="
-      << std::endl;
-  std::cout << "Layer 1" << std::endl;
-  std::cout
-      << "====================================================================="
-         "=================================================================="
-      << std::endl;
-
-  for (int j = 0; j < WIDTH; j++) {
-    std::cout << "Idx " << j << " - " << my_mlp.layers[1].out[j] << ": "
-              << fwd[j + batch_size * INPUT_WIDTH] << std::endl;
-  }
-
-  std::cout
-      << "====================================================================="
-         "=================================================================="
-      << std::endl;
-  std::cout << "Layer 2" << std::endl;
-  std::cout
-      << "====================================================================="
-         "=================================================================="
-      << std::endl;
-  for (int j = 0; j < output_width; j++) {
-    std::cout << "Idx " << j << " - " << my_mlp.layers[2].out[j] << ": "
-              << fwd[j + (batch_size * INPUT_WIDTH) + batch_size * WIDTH * 1]
-              << std::endl;
-  }
-  std::cout << "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
-               "+++++++++"
-               "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
-               "+++++++++"
-            << std::endl;
-
   std::vector<bf16> grad(train.m_network->m_grads_matrices.size());
   q.memcpy(grad.data(), train.m_network->m_grads_matrices.data(),
            train.m_network->m_grads_matrices.size() * sizeof(bf16))
       .wait();
 
-  std::cout << " grads " << std::endl;
+  std::cout << " grads with size " << train.m_network->m_grads_matrices.size()
+            << std::endl;
+  //   for (int i = 0; i < 4096; i++) {
   for (int i = 0; i < grad.size(); i++) {
     // if (i == INPUT_WIDTH * WIDTH) {
     //   std::cout << "===================" << std::endl;
     // }
-    if (grad[i] == 0) {
-      std::cout << i << ": " << grad[i] << std::endl;
-      break;
-    }
+    // if (grad[i] == 0) {
+    std::cout << i << ": " << grad[i] << std::endl;
+    //   break;
+    // }
   }
 
   //   std::cout << "Grad compare " << std::endl;
@@ -492,8 +444,7 @@ void test_bwd() {
   //   for (int i = 0; i < WIDTH; i++) {
   //     for (int j = 0; j < OUTPUT_WIDTH; j++) {
   //       std::cout << i << ", " << j << ": "
-  //                 << my_mlp.layers[3].err[j] * my_mlp.layers[2].out[i] << ":
-  //                 "
+  //                 << my_mlp.layers[3].err[j] * my_mlp.layers[2].out[i] << ":"
   //                 << grad[INPUT_WIDTH * WIDTH + WIDTH * WIDTH + i + j]
   //                 << std::endl;
   //     }

@@ -322,22 +322,6 @@ void DeviceMem<T>::initialize_uniform(double scale, DeviceMem<T>& transposed,
       //             << std::endl;
     }
   }
-  //   std::cout << "NO ISSUE" << std::endl;
-  //   std::cout << "Data size " << data.size() << ", " << dataT.size() <<
-  //   std::endl; std::cout << "m size " << m_size << std::endl; std::cout <<
-  //   "Transposed size " << transposed.size() << std::endl; std::cout << "data
-  //   size " << data.size() << std::endl;
-
-  //   for (int i = 0; i < data.size(); ++i) {
-  //     std::cout << "data[" << i << "] = " << data[i] << std::endl;
-  //   }
-  //   std::cout << "dataT size " << dataT.size() << std::endl;
-  //   // Before submitting the kernel
-  //   for (int i = 0; i < dataT.size(); ++i) {
-  //     std::cout << "dataT[" << i << "] = " << dataT[i] << std::endl;
-  //   }
-
-  //   std::cout << "Crashes here0" << std::endl;
   buffer<T, 1> buf(data.data(), data.size());
 
   //   std::cout << "Crashes here1" << std::endl;
@@ -388,8 +372,8 @@ void DeviceMem<T>::make_transposed(DeviceMem<T>& transposed, int input_width,
           i = idx / input_width;
           j = idx % input_width;
           transposed
-              .data()[toPackedLayoutCoord(j * width + i, width, input_width)] =
-              p[toPackedLayoutCoord(i * width + j, input_width, width)];
+              .data()[toPackedLayoutCoord(j * width + i, input_width, width)] =
+              p[toPackedLayoutCoord(i * input_width + j, width, input_width)];
           //   int b_first;
           //   int b_second;
           //   static const CONSTANT char FMT[] =
@@ -405,8 +389,8 @@ void DeviceMem<T>::make_transposed(DeviceMem<T>& transposed, int input_width,
         } else if (idx < input_width * width + n_hidden * width * width) {
           mat_num = (idx - input_width * width) / (width * width);
           mat_offset = (idx - input_width * width) % (width * width);
-          i = mat_offset / input_width;
-          j = mat_offset % input_width;
+          i = mat_offset / width;
+          j = mat_offset % width;
 
           //   static const CONSTANT char FMT[] =
           //       "Writing from %d, idx: %d i: %d, j: %d, mat offset: %d,
@@ -423,31 +407,30 @@ void DeviceMem<T>::make_transposed(DeviceMem<T>& transposed, int input_width,
         } else {
           mat_offset = (idx - input_width * width - n_hidden * width * width) %
                        (width * output_width);
-          i = mat_offset / input_width;
-          j = mat_offset % input_width;
+          i = mat_offset / output_width;
+          j = mat_offset % output_width;
           transposed
               .data()[input_width * width + n_hidden * width * width +
                       toPackedLayoutCoord(j * width + i, output_width, width)] =
               p[input_width * width + n_hidden * width * width +
-                toPackedLayoutCoord(i * width + j, width, output_width)];
+                toPackedLayoutCoord(i * output_width + j, width, output_width)];
+
           //   int b_first;
           //   int b_second;
           //   static const CONSTANT char FMT[] =
-          //       "Out Writing from %d to %d: %d.%d,\n";
+          //       "Out Writing from %d to %d  i: %d, j: %d\n";
           //   get_float(
           //       transposed.data()[input_width * width + n_hidden * width *
           //       width +
-          //                         toPackedLayoutCoord(j * width + i,
-          //                         output_width,
-          //                                             width)],
+          //                         toPackedLayoutCoord(i * output_width + j,
+          //                         width,
+          //                                             output_width)],
           //       b_first, b_second);
           //   sycl::ext::oneapi::experimental::printf(
           //       FMT,
-          //       input_width * width + n_hidden * width * width +
-          //           toPackedLayoutCoord(i * width + j, width, output_width),
-          //       input_width * width + n_hidden * width * width +
-          //           toPackedLayoutCoord(j * width + i, output_width, width),
-          //       b_first, b_second);
+          //       toPackedLayoutCoord(i * output_width + j, width,
+          //       output_width), toPackedLayoutCoord(j * width + i,
+          //       output_width, width), i, j);
         }
       });
 }
@@ -585,20 +568,20 @@ void DeviceMem<T>::initialize_arange(queue q, int input_width, int net_width,
   //  Create a 1D vector that goes from 1 to input_width
   std::vector<T> col_vector;
   for (int i = 1; i <= input_width; ++i) {
-    col_vector.push_back(static_cast<T>(i));
+    col_vector.push_back(static_cast<T>(i) - 32);
   }
 
   // Repeat the col_vector and perform the operations
   for (int i = 0; i < net_width; i++) {
     for (int j = 0; j < input_width; j++) {
-      data[j * input_width + i] = col_vector[j] * 0.001;
+      data[j * input_width + i] = col_vector[j] * 0.01;
     }
   }
   // middle layers
   // Create a 1D vector that goes from 1 to input_width
   std::vector<T> col_vector_mid;
   for (int i = 1; i <= net_width; ++i) {
-    col_vector_mid.push_back(static_cast<T>(i));
+    col_vector_mid.push_back(static_cast<T>(i) - 32);
   }
   for (int k = 0; k < hidden_matrices; ++k) {
     // Repeat the col_vector and perform the operations
@@ -607,7 +590,7 @@ void DeviceMem<T>::initialize_arange(queue q, int input_width, int net_width,
         // data[net_width * input_width + k * net_width * net_width +
         //      i * net_width + j] = col_vector_mid[j] * 0.001;
         data[net_width * input_width + k * net_width * net_width +
-             j * net_width + i] = col_vector_mid[j] * 0.001;
+             j * net_width + i] = col_vector_mid[j] * 0.01;
       }
     }
   }
@@ -617,7 +600,7 @@ void DeviceMem<T>::initialize_arange(queue q, int input_width, int net_width,
   // Create a 1D vector that goes from 1 to input_width
   std::vector<T> col_vector_out;
   for (int i = 1; i <= out_width; ++i) {
-    col_vector_out.push_back(static_cast<T>(i));
+    col_vector_out.push_back(static_cast<T>(i) - 32);
   }
   // Repeat the col_vector and perform the operations
   for (int i = 0; i < net_width; i++) {
@@ -626,7 +609,7 @@ void DeviceMem<T>::initialize_arange(queue q, int input_width, int net_width,
       //   net_width +
       //        j * out_width + i] = col_vector_out[j] * 0.001;
       data[net_width * input_width + hidden_matrices * net_width * net_width +
-           i * out_width + j] = col_vector_out[j] * 0.001;
+           i * out_width + j] = col_vector_out[j] * 0.01;
     }
   }
 
