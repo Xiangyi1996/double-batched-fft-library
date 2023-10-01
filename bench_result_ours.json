@@ -1,0 +1,44 @@
+{
+    "SwiftNet": [
+        {
+            "batch_size": 2097152,
+            "inference_throughput": 763367023.2346565,
+            "training_throughput": 155161880.44158086
+        },
+        {
+            "batch_size": 1048576,
+            "inference_throughput": 380437336.14773285,
+            "training_throughput": 76967338.05317411
+        },
+        {
+            "batch_size": 524288,
+            "inference_throughput": 189410144.75998265,
+            "training_throughput": 38429411.48833164
+        },
+        {
+            "batch_size": 262144,
+            "inference_throughput": 94446625.9036003,
+            "training_throughput": 19290837.16094351
+        },
+        {
+            "batch_size": 131072,
+            "inference_throughput": 47563958.81749314,
+            "training_throughput": 9642774.571372334
+        },
+        {
+            "batch_size": 65536,
+            "inference_throughput": 23290386.25162302,
+            "training_throughput": 4814754.209309986
+        },
+        {
+            "batch_size": 32768,
+            "inference_throughput": 11864184.549664676,
+            "training_throughput": 2430265.0137092327
+        },
+        {
+            "batch_size": 16384,
+            "inference_throughput": 5921340.099166276,
+            "training_throughput": 1208114.5711962655
+        }
+    ]
+}

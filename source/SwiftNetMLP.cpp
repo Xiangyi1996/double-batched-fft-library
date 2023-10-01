@@ -4,7 +4,7 @@
 #define SKEW 0
 
 #define SG_SIZE 8
-#define WG_SIZE 8 * SG_SIZE
+#define WG_SIZE 8*SG_SIZE
 
 #define BATCH_CHUNK 16
 #define SHMEM_SIZE 1024
@@ -913,32 +913,32 @@ void dgemm_multiply(queue q, bf16* grads_device, float* loss_gradients,
     int j = idx % batch_size;
     A[i * batch_size + j] = (float)elt_activation_ret<float>(
         ACTIVATION, fwd[i + j * layer_in_width + offset_g]);
-    int b_first;
-    int b_second;
-    int b_zeroes;
-    static const CONSTANT char FMT[] =
-        "K: %d, offset_g: %d, A[%d] from %d: %d.%d\n";
-    get_float_as_integers_own(A[idx], b_first, b_second, b_zeroes);
-    if (A[i * batch_size + j] == 0) {
-      sycl::ext::oneapi::experimental::printf(
-          FMT, k, int(offset_g), int(idx),
-          int(i + j * layer_in_width + offset_g), b_first, b_second);
-    }
+    // int b_first;
+    // int b_second;
+    // int b_zeroes;
+    // static const CONSTANT char FMT[] =
+    //     "K: %d, offset_g: %d, A[%d] from %d: %d.%d\n";
+    // get_float_as_integers_own(A[idx], b_first, b_second, b_zeroes);
+    // if (A[i * batch_size + j] == 0) {
+    //   sycl::ext::oneapi::experimental::printf(
+    //       FMT, k, int(offset_g), int(idx),
+    //       int(i + j * layer_in_width + offset_g), b_first, b_second);
+    // }
   });
 
   // Assign matrix B using loss gradients
   q.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
     B[idx] = (float)loss_gradients[idx + offset_f1];
-    int b_first;
-    int b_second;
-    int b_zeroes;
-    static const CONSTANT char FMT[] = "K: %d, B[%d]: %d.%d \n";
-    get_float_as_integers_own(loss_gradients[idx + offset_f1], b_first,
-                              b_second, b_zeroes);
-    if (B[idx] == 0) {
-      sycl::ext::oneapi::experimental::printf(FMT, k, int(idx + offset_f1),
-                                              b_first, b_second);
-    }
+    // int b_first;
+    // int b_second;
+    // int b_zeroes;
+    // static const CONSTANT char FMT[] = "K: %d, B[%d]: %d.%d \n";
+    // get_float_as_integers_own(loss_gradients[idx + offset_f1], b_first,
+    //                           b_second, b_zeroes);
+    // if (B[idx] == 0) {
+    //   sycl::ext::oneapi::experimental::printf(FMT, k, int(idx + offset_f1),
+    //                                           b_first, b_second);
+    // }
   });
 
   // Perform GEMM operation
@@ -950,17 +950,18 @@ void dgemm_multiply(queue q, bf16* grads_device, float* loss_gradients,
   // Update gradients_device with the computed values
   q.parallel_for<>(range<1>(layer_in_width * WIDTH), [=](id<1> idx) {
     grads_device[offset_c + idx] += C[idx];
-    int b_first;
-    int b_second;
-    int b_zeroes;
-    static const CONSTANT char FMT[] =
-        "K: %d, offset_c: %d, C last[%d]: %d.%d\n";
-    get_float_as_integers_own(grads_device[offset_c + idx], b_first, b_second,
-                              b_zeroes);
-    if (C[idx] == 0) {
-      sycl::ext::oneapi::experimental::printf(
-          FMT, k, int(offset_c), int(offset_c + idx), b_first, b_second);
-    }
+    // int b_first;
+    // int b_second;
+    // int b_zeroes;
+    // static const CONSTANT char FMT[] =
+    //     "K: %d, offset_c: %d, C last[%d]: %d.%d\n";
+    // get_float_as_integers_own(grads_device[offset_c + idx], b_first,
+    // b_second,
+    //                           b_zeroes);
+    // if (C[idx] == 0) {
+    //   sycl::ext::oneapi::experimental::printf(
+    //       FMT, k, int(offset_c), int(offset_c + idx), b_first, b_second);
+    // }
   });
 }
 
@@ -1308,9 +1309,9 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input,
                                       float* forward, float* A, float* B,
                                       float* C, DeviceMem<float>& output) {
   // Constants and dimensions
-  std::vector<float> fwd(m_batch_size * (m_inputs_width + m_output_width +
-                                         WIDTH * m_n_hidden_layers));
-
+  //   std::vector<float> fwd(m_batch_size * (m_inputs_width + m_output_width +
+  //  WIDTH * m_n_hidden_layers));
+  //   std::cout << "calling fwd" << std::endl;
   //   std::vector<bf16> weightsT(m_weightsT_matrices.size());
   //   //   std::cout << " grads T before " << std::endl;
   //   m_q.memcpy(weightsT.data(), m_weightsT_matrices.data(),
@@ -1482,6 +1483,7 @@ template <int WIDTH>
 void SwiftNetMLP<WIDTH>::inference(const DeviceMem<bf16>& input, float* forward,
                                    float* A, float* B, float* C,
                                    DeviceMem<float>& output) {
+  //   std::cout << "Inference " << std::endl;
   const int input_size = input.size();
   const int n_hidden_matrices = m_n_hidden_matrices;
   const int net_width = m_net_width;
@@ -1802,6 +1804,8 @@ void SwiftNetMLP<WIDTH>::backward_pass(
     float* C_backward_last_layer, float* D_backward_last_layer,
     float* E_backward_last_layer, float* F_backward_last_layer, float* A_dgemm,
     float* B_dgemm, float* C_dgemm, float* forward) {
+  //   std::cout << "calling bwd" << std::endl;
+
   int batch_size = m_batch_size;
   auto p = m_grads_matrices.data();
   int s = m_grads_matrices.size();

@@ -17,19 +17,25 @@ class Trainer {
   void training_step(DeviceMem<bf16>& input, DeviceMem<float>& output,
                      DeviceMem<float>& target, DeviceMem<bf16>& grads,
                      DeviceMem<float>& losses, const float scale,
-                     const int WIDTH, int forward_only = 1) {
+                     const int WIDTH, int forward_only = 1,
+                     int run_inference = 0) {
     // const int input_size = input.size();
     // const int batch_size = std::pow(2, 19);
     auto p = m_network->m_forward;
     m_network->get_queue().parallel_for<>(
         range<1>(input.size()), [=](id<1> idx) { p[idx] = input.data()[idx]; });
 
-    m_network->forward_pass(input, m_network->m_forward, m_network->m_A_forward,
-                            m_network->m_B_forward, m_network->m_C_forward,
-                            output);
-    // m_network->inference(input, m_network->m_forward, m_network->m_A_forward,
-    //                      m_network->m_B_forward, m_network->m_C_forward,
-    //                      output);
+    if (run_inference) {
+      forward_only = 1;
+      m_network->inference(input, m_network->m_forward, m_network->m_A_forward,
+                           m_network->m_B_forward, m_network->m_C_forward,
+                           output);
+
+    } else {
+      m_network->forward_pass(input, m_network->m_forward,
+                              m_network->m_A_forward, m_network->m_B_forward,
+                              m_network->m_C_forward, output);
+    }
     if (forward_only) {
       return;
     }

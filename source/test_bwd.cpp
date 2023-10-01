@@ -471,7 +471,7 @@ void test_bwd() {
   grads.free_mem(q);
   losses.free_mem(q);
 }
-int main() {
-  test_bwd();
-  return 0;
-}
+// int main() {
+//   test_bwd();
+//   return 0;
+// }
