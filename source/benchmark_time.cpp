@@ -223,7 +223,7 @@ void benchmark_time() {
   std::ofstream out{"bench_result_ours.json"};
   out << json_string;
 }
-int main() {
-  benchmark_time();
-  return 0;
-}
+// int main() {
+//   benchmark_time();
+//   return 0;
+// }

@@ -19,7 +19,7 @@
 
 class Module {
  public:
-  Module(tnn::SwiftNetModule* module) : m_module{module} {}
+  Module(tnn::Module* module) : m_module{module} {}
   //   Module() {}
 
   torch::Tensor fwd(torch::Tensor input, torch::Tensor params) {
@@ -54,7 +54,7 @@ class Module {
   void free_memory() { m_module->free_memory(); }
 
  private:
-  std::unique_ptr<tnn::SwiftNetModule> m_module;
+  std::unique_ptr<tnn::Module> m_module;
 };
 
 Module create_network(const int width, int input_width, int output_width,
@@ -66,6 +66,15 @@ Module create_network(const int width, int input_width, int output_width,
       output_activation, batch_size, device_name);
 
   return Module{network_module};
+}
+
+Module create_encoding(int input_width, int batch_size, int output_width,
+                       int scale, int offset, std::string device_name) {
+  // TODO make this a json dict later that loads different encodings
+
+  tnn::EncodingModule* encoding_module = tnn::create_encoding(
+      input_width, batch_size, output_width, scale, offset, device_name);
+  return Module{encoding_module};
 }
 
 PYBIND11_MODULE(tiny_nn, m) {
@@ -91,4 +100,5 @@ PYBIND11_MODULE(tiny_nn, m) {
       .def("free_memory", &Module::free_memory);
 
   m.def("create_network", &create_network);
+  m.def("create_encoding", &create_encoding);
 }

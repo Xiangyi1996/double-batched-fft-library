@@ -1,28 +1,15 @@
 #pragma once
 #include <CL/sycl.hpp>
+#include <common.h> //Activation enum
 
 using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;
-
-enum class Activation {
-  ReLU,
-  LeakyReLU,
-  Exponential,
-  Sine,
-  Sigmoid,
-  Squareplus,
-  Softplus,
-  Tanh,
-  None,
-};
-
-static constexpr float PI = 3.14159265358979323846f;
 
 template <typename T, typename resT>
 void elt_activation(Activation activation, T& elt, resT& res) {
   switch (activation) {
     case Activation::ReLU:
-      if (elt <= (T)0.0f) {
+      if (elt < (T)0.0f) {
         res = (resT)0.0f;
       } else {
         res = (resT)elt;
@@ -54,10 +41,9 @@ void elt_activation(Activation activation, T& elt, resT& res) {
       res = elt;
       return;
       break;
-    case Activation::Tanh:
-      res = (resT)(((expf(elt) - expf(-elt))) / (expf(elt) + expf(-elt)));
-      return;
-      break;
+      /*case Activation::Tanh:
+              res = (resT)(((expf(elt) - expf(-elt))) / (expf(elt) +
+         expf(-elt))); return; break;*/
     default:
       return;
       break;
@@ -70,7 +56,7 @@ T elt_activation_ret(Activation activation, T& elt) {
 
   switch (activation) {
     case Activation::ReLU:
-      if (elt <= (T)0.0f) {
+      if (elt < (T)0.0f) {
         return (T)0.0f;
       }
       return elt;
@@ -106,7 +92,7 @@ template <typename outT, typename fwdT>
 void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd) {
   switch (activation) {
     case Activation::ReLU:
-      if (fwd <= (fwdT)0.0f) {
+      if (fwd < (fwdT)0.0f) {
         elt = (outT)0.0f;
       }
       return;
@@ -151,7 +137,7 @@ template <typename outT, typename fwdT, typename resT>
 void elt_activation_bwd(Activation activation, outT& elt, fwdT fwd, resT& res) {
   switch (activation) {
     case Activation::ReLU:
-      if (fwd <= (fwdT)0.0f) {
+      if (fwd < (fwdT)0.0f) {
         res = (resT)0.0f;
       } else {
         res = (resT)elt;

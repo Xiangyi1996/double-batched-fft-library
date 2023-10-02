@@ -1,5 +1,7 @@
 #include "DeviceMem.h"
 
+#include "common_host.h"
+
 #ifdef __SYCL_DEVICE_ONLY__
 
 #define CONSTANT __attribute__((opencl_constant))
@@ -44,7 +46,7 @@ DeviceMem<T>::DeviceMem() {}
  * @param queue              SYCL queue associated with the object.
  */
 template <typename T>
-DeviceMem<T>::DeviceMem(int size, queue q) {
+DeviceMem<T>::DeviceMem(int size, sycl::queue& q) {
   if (m_size != 0 || size <= 0) {
     return;
   }
@@ -59,7 +61,7 @@ DeviceMem<T>::DeviceMem(int size, queue q) {
  * @param queue              SYCL queue associated with the object.
  */
 template <typename T>
-void DeviceMem<T>::allocate(int size, queue q) {
+void DeviceMem<T>::allocate(int size, queue& q) {
   if (m_size != 0 || size <= 0) {
     return;
   }
@@ -73,7 +75,7 @@ void DeviceMem<T>::allocate(int size, queue q) {
  * @param queue              SYCL queue associated with the object.
  */
 template <typename T>
-void DeviceMem<T>::free_mem(queue q) {
+void DeviceMem<T>::free_mem(queue& q) {
   m_size = 0;
   free(m_data, q);
 }
@@ -672,5 +674,87 @@ void DeviceMem<T>::intitialize_he_normal(int input_width, queue q) {
   initialize_normal(dev, q);
 }
 
+template <typename T>
+void DeviceMem<T>::allocate_memory(size_t n_bytes) try {
+  dpct::device_ext& dev_ct1 = dpct::get_current_device();
+  sycl::queue& q_ct1 = dev_ct1.default_queue();
+  if (n_bytes == 0) {
+    return;
+  }
+
+  // fmt::print("GPUMemory: allocating {}.", bytes_to_string(n_bytes));
+
+  uint8_t* rawptr = nullptr;
+  if (m_managed) {
+    /*
+    DPCT1003:63: Migrated API does not return error code.
+    (*, 0) is inserted. You may need to rewrite this code.
+    */
+    /*
+    DPCT1064:110: Migrated cudaMallocManaged call is used in
+    a macro definition and is not valid for all macro uses.
+    Adjust the code.
+    */
+    CUDA_CHECK_THROW(
+        (rawptr = (uint8_t*)sycl::malloc_shared(n_bytes + DEBUG_GUARD_SIZE * 2,
+                                                dpct::get_default_queue()),
+         0));
+  } else {
+    /*
+    DPCT1003:64: Migrated API does not return error code.
+    (*, 0) is inserted. You may need to rewrite this code.
+    */
+    /*
+    DPCT1064:111: Migrated cudaMalloc call is used in a
+    macro definition and is not valid for all macro uses.
+    Adjust the code.
+    */
+    CUDA_CHECK_THROW(
+        (rawptr = (uint8_t*)sycl::malloc_device(n_bytes + DEBUG_GUARD_SIZE * 2,
+                                                dpct::get_default_queue()),
+         0));
+  }
+#if DEBUG_GUARD_SIZE > 0
+  CUDA_CHECK_THROW(cudaMemset(rawptr, 0xff, DEBUG_GUARD_SIZE));
+  CUDA_CHECK_THROW(
+      cudaMemset(rawptr + n_bytes + DEBUG_GUARD_SIZE, 0xfe, DEBUG_GUARD_SIZE));
+#endif
+  if (rawptr) rawptr += DEBUG_GUARD_SIZE;
+  m_data = (T*)(rawptr);
+  total_n_bytes_allocated() += n_bytes;
+} catch (sycl::exception const& exc) {
+  std::cerr << exc.what() << "Exception caught at file:" << __FILE__
+            << ", line:" << __LINE__ << std::endl;
+  std::exit(1);
+}
+
+template <typename T>
+void DeviceMem<T>::resize(size_t size) {
+  if (m_size != size) {
+    if (m_size) {
+      try {
+        free_mem();
+      } catch (const std::runtime_error& error) {
+        throw std::runtime_error{"Could not free memory"};
+        // throw std::runtime_error{fmt::format("Could not free memory: {}",
+        // error.what())};
+      }
+    }
+
+    if (size > 0) {
+      try {
+        allocate_memory(size * sizeof(T));
+      } catch (const std::runtime_error& error) {
+        throw std::runtime_error{"Could not allocate memory"};
+        // throw std::runtime_error{fmt::format("Could not allocate memory: {}",
+        // error.what())};
+      }
+    }
+
+    m_size = size;
+  }
+}
+
 template class DeviceMem<float>;
 template class DeviceMem<bf16>;
+template class DeviceMem<uint8_t>;

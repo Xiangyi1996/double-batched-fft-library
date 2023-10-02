@@ -1,0 +1,1644 @@
+---
+MainSourceFile:  '/home/pascalb/codes/tiny-cuda-nn/dpct_output/include/tiny-cuda-nn/encodings/grid.h'
+Replacements:
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          1866
+    Length:          0
+    ReplacementText: "#include <sycl/sycl.hpp>\n#include <dpct/dpct.hpp>\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          2325
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          2787
+    Length:          0
+    ReplacementText: ",\n\tconst sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          2811
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          2824
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          2837
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          2907
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          7740
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          8223
+    Length:          0
+    ReplacementText: ",\n\tconst sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          8249
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          8262
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          8275
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          8394
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          8479
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          8492
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          8505
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          11173
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          11361
+    Length:          0
+    ReplacementText: ",\n\tconst sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          11385
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          11399
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          11412
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          12053
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          12642
+    Length:          0
+    ReplacementText: ",\n\tconst sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          12668
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          12681
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          12694
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          12813
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          12898
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          12911
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          12924
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          15913
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          16455
+    Length:          0
+    ReplacementText: ",\n\tconst sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          16481
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          16494
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          16507
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          16626
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(1)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          16711
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          16724
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          16737
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          22090
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          22353
+    Length:          0
+    ReplacementText: ",\n\tconst sycl::nd_item<3> &item_ct1"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          22377
+    Length:          10
+    ReplacementText: 'item_ct1.get_group(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          22390
+    Length:          10
+    ReplacementText: 'item_ct1.get_local_range(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          22403
+    Length:          11
+    ReplacementText: 'item_ct1.get_local_id(2)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          26098
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          26831
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          27056
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          27454
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          27478
+    Length:          63
+    ReplacementText: '1, m_n_levels, div_round_up(num_elements, N_THREADS_HASHGRID)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          27986
+    Length:          0
+    ReplacementText: "\t\t/*\n\t\tDPCT1049:31: The work-group size passed to the SYCL kernel may exceed the limit. To get the device limit, query info::device::max_work_group_size. Adjust the work-group size if needed.\n\t\t*/\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          27988
+    Length:          521
+    ReplacementText: "((sycl::queue*)(synced_streams.get(0)))->submit(\n\t\t  [&](sycl::handler &cgh) {\n\t\t    auto m_n_features_ct1 = m_n_features;\n\t\t    auto m_offset_table_ct2 = m_offset_table;\n\t\t    auto m_base_resolution_ct3 = m_base_resolution;\n\t\t    auto std_log2_m_per_level_scale_ct4 = std::log2(m_per_level_scale);\n\t\t    auto this_m_max_level_ct5 = this->m_max_level;\n\t\t    auto this_m_max_level_gpu_ct6 = this->m_max_level_gpu;\n\t\t    auto m_interpolation_type_ct7 = m_interpolation_type;\n\t\t    auto m_grid_type_ct8 = m_grid_type;\n\t\t    auto use_inference_params_this_inference_params_this_params_ct9 = use_inference_params ? this->inference_params() : this->params();\n\t\t    auto forward_positions_data_forward_positions_view_input_view_ct10 = forward->positions.data() ? forward->positions.view() : input.view();\n\t\t    auto forward_dy_dx_data_ct12 = forward->dy_dx.data();\n\n\t\t    cgh.parallel_for(\n\t\t      sycl::nd_range<3>(blocks_hashgrid * sycl::range<3>(1, 1, N_THREADS_HASHGRID), sycl::range<3>(1, 1, N_THREADS_HASHGRID)), \n\t\t      [=](sycl::nd_item<3> item_ct1) {\n\t\t        kernel_grid<T, N_POS_DIMS, N_FEATURES_PER_LEVEL, HASH_TYPE>(num_elements, m_n_features_ct1, m_offset_table_ct2, m_base_resolution_ct3, std_log2_m_per_level_scale_ct4, this_m_max_level_ct5, this_m_max_level_gpu_ct6, m_interpolation_type_ct7, m_grid_type_ct8, use_inference_params_this_inference_params_this_params_ct9, forward_positions_data_forward_positions_view_input_view_ct10, encoded_positions_soa, forward_dy_dx_data_ct12, item_ct1);\n\t\t      });\n\t\t  });"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          28509
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          28628
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          28654
+    Length:          41
+    ReplacementText: '1, 8, m_n_levels * N_FEATURES_PER_LEVEL'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          28762
+    Length:          19
+    ReplacementText: 'threads_transpose[1]'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          28784
+    Length:          0
+    ReplacementText: "\t\t\t/*\n\t\t\tDPCT1049:32: The work-group size passed to the SYCL kernel may exceed the limit. To get the device limit, query info::device::max_work_group_size. Adjust the work-group size if needed.\n\t\t\t*/\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          28787
+    Length:          173
+    ReplacementText: "((sycl::queue*)(synced_streams.get(0)))->submit(\n\t\t\t  [&](sycl::handler &cgh) {\n\t\t\t    auto output_pitched_ptr_ct2 = output->pitched_ptr();\n\n\t\t\t    cgh.parallel_for(\n\t\t\t      sycl::nd_range<3>(sycl::range<3>(1, 1, blocks_transpose) * threads_transpose, threads_transpose), \n\t\t\t      [=](sycl::nd_item<3> item_ct1) {\n\t\t\t        transpose_encoded_position<T>(num_elements, encoded_positions_soa, output_pitched_ptr_ct2, item_ct1);\n\t\t\t      });\n\t\t\t  });"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          28960
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          29012
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          29845
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          29871
+    Length:          41
+    ReplacementText: '1, 8, m_n_levels * N_FEATURES_PER_LEVEL'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          29979
+    Length:          19
+    ReplacementText: 'threads_transpose[1]'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          30001
+    Length:          0
+    ReplacementText: "\t\t\t/*\n\t\t\tDPCT1049:33: The work-group size passed to the SYCL kernel may exceed the limit. To get the device limit, query info::device::max_work_group_size. Adjust the work-group size if needed.\n\t\t\t*/\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          30004
+    Length:          153
+    ReplacementText: "stream->submit(\n\t\t\t  [&](sycl::handler &cgh) {\n\t\t\t    auto workspace_data_ct1 = (T*)workspace.data();\n\t\t\t    auto dL_doutput_pitched_ptr_ct2 = dL_doutput.pitched_ptr();\n\n\t\t\t    cgh.parallel_for(\n\t\t\t      sycl::nd_range<3>(sycl::range<3>(1, 1, blocks_transpose) * threads_transpose, threads_transpose), \n\t\t\t      [=](sycl::nd_item<3> item_ct1) {\n\t\t\t        transpose_gradients<T>(num_elements, workspace_data_ct1, dL_doutput_pitched_ptr_ct2, item_ct1);\n\t\t\t      });\n\t\t\t  });"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          30157
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          30804
+    Length:          0
+    ReplacementText: "\t\t\t\t/*\n\t\t\t\tDPCT1003:197: Migrated API does not return error code. (*, 0) is inserted. You may need to rewrite this code.\n\t\t\t\t*/\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          30825
+    Length:          15
+    ReplacementText: '(stream->memset'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          30886
+    Length:          8
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          30895
+    Length:          0
+    ReplacementText: ', 0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          31058
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          31082
+    Length:          110
+    ReplacementText: '1, m_n_levels, div_round_up(num_elements * N_FEATURES_PER_LEVEL / N_FEATURES_PER_THREAD, N_THREADS_HASHGRID)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          31199
+    Length:          533
+    ReplacementText: "stream->submit(\n\t\t\t  [&](sycl::handler &cgh) {\n\t\t\t    auto m_n_features_ct1 = m_n_features;\n\t\t\t    auto m_offset_table_ct2 = m_offset_table;\n\t\t\t    auto m_base_resolution_ct3 = m_base_resolution;\n\t\t\t    auto std_log2_m_per_level_scale_ct4 = std::log2(m_per_level_scale);\n\t\t\t    auto this_m_max_level_ct5 = this->m_max_level;\n\t\t\t    auto this_m_max_level_gpu_ct6 = this->m_max_level_gpu;\n\t\t\t    auto m_stochastic_interpolation_ct7 = m_stochastic_interpolation;\n\t\t\t    auto m_interpolation_type_ct8 = m_interpolation_type;\n\t\t\t    auto m_grid_type_ct9 = m_grid_type;\n\t\t\t    auto forward_positions_data_forward_positions_view_input_view_ct11 = forward.positions.data() ? forward.positions.view() : input.view();\n\n\t\t\t    cgh.parallel_for(\n\t\t\t      sycl::nd_range<3>(blocks_hashgrid * sycl::range<3>(1, 1, N_THREADS_HASHGRID), sycl::range<3>(1, 1, N_THREADS_HASHGRID)), \n\t\t\t      [=](sycl::nd_item<3> item_ct1) {\n\t\t\t        kernel_grid_backward<T, grad_t, N_POS_DIMS, N_FEATURES_PER_LEVEL, N_FEATURES_PER_THREAD, HASH_TYPE>(num_elements, m_n_features_ct1, m_offset_table_ct2, m_base_resolution_ct3, std_log2_m_per_level_scale_ct4, this_m_max_level_ct5, this_m_max_level_gpu_ct6, m_stochastic_interpolation_ct7, m_interpolation_type_ct8, m_grid_type_ct9, grid_gradient, forward_positions_data_forward_positions_view_input_view_ct11, dL_dy_rm, item_ct1);\n\t\t\t      });\n\t\t\t  });"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          31732
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          31867
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          32186
+    Length:          12
+    ReplacementText: 'dpct::queue_ptr'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          33111
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          33137
+    Length:          41
+    ReplacementText: '1, 8, m_n_levels * N_FEATURES_PER_LEVEL'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          33245
+    Length:          19
+    ReplacementText: 'threads_transpose[1]'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          33267
+    Length:          0
+    ReplacementText: "\t\t\t/*\n\t\t\tDPCT1049:34: The work-group size passed to the SYCL kernel may exceed the limit. To get the device limit, query info::device::max_work_group_size. Adjust the work-group size if needed.\n\t\t\t*/\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          33270
+    Length:          153
+    ReplacementText: "stream->submit(\n\t\t\t  [&](sycl::handler &cgh) {\n\t\t\t    auto workspace_data_ct1 = (T*)workspace.data();\n\t\t\t    auto dL_doutput_pitched_ptr_ct2 = dL_doutput.pitched_ptr();\n\n\t\t\t    cgh.parallel_for(\n\t\t\t      sycl::nd_range<3>(sycl::range<3>(1, 1, blocks_transpose) * threads_transpose, threads_transpose), \n\t\t\t      [=](sycl::nd_item<3> item_ct1) {\n\t\t\t        transpose_gradients<T>(num_elements, workspace_data_ct1, dL_doutput_pitched_ptr_ct2, item_ct1);\n\t\t\t      });\n\t\t\t  });"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          33423
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          34070
+    Length:          0
+    ReplacementText: "\t\t\t\t/*\n\t\t\t\tDPCT1003:198: Migrated API does not return error code. (*, 0) is inserted. You may need to rewrite this code.\n\t\t\t\t*/\n"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          34091
+    Length:          15
+    ReplacementText: '(stream->memset'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          34152
+    Length:          8
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          34161
+    Length:          0
+    ReplacementText: ', 0)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          34324
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          34348
+    Length:          110
+    ReplacementText: '1, m_n_levels, div_round_up(num_elements * N_FEATURES_PER_LEVEL / N_FEATURES_PER_THREAD, N_THREADS_HASHGRID)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          34500
+    Length:          575
+    ReplacementText: "stream->submit(\n\t\t\t  [&](sycl::handler &cgh) {\n\t\t\t    auto m_n_features_ct1 = m_n_features;\n\t\t\t    auto m_offset_table_ct2 = m_offset_table;\n\t\t\t    auto m_base_resolution_ct3 = m_base_resolution;\n\t\t\t    auto std_log2_m_per_level_scale_ct4 = std::log2(m_per_level_scale);\n\t\t\t    auto this_m_max_level_ct5 = this->m_max_level;\n\t\t\t    auto this_m_max_level_gpu_ct6 = this->m_max_level_gpu;\n\t\t\t    auto m_interpolation_type_ct7 = m_interpolation_type;\n\t\t\t    auto m_grid_type_ct8 = m_grid_type;\n\t\t\t    auto dL_ddLdinput_view_ct9 = dL_ddLdinput.view();\n\t\t\t    auto forward_positions_data_forward_positions_view_input_view_ct10 = forward.positions.data() ? forward.positions.view() : input.view();\n\n\t\t\t    cgh.parallel_for(\n\t\t\t      sycl::nd_range<3>(blocks_hashgrid * sycl::range<3>(1, 1, N_THREADS_HASHGRID), sycl::range<3>(1, 1, N_THREADS_HASHGRID)), \n\t\t\t      [=](sycl::nd_item<3> item_ct1) {\n\t\t\t        kernel_grid_backward_input_backward_grid<T, grad_t, N_POS_DIMS, N_FEATURES_PER_LEVEL, N_FEATURES_PER_THREAD, HASH_TYPE>(num_elements, m_n_features_ct1, m_offset_table_ct2, m_base_resolution_ct3, std_log2_m_per_level_scale_ct4, this_m_max_level_ct5, this_m_max_level_gpu_ct6, m_interpolation_type_ct7, m_grid_type_ct8, dL_ddLdinput_view_ct9, forward_positions_data_forward_positions_view_input_view_ct10, dL_dy_rm, grid_gradient, item_ct1);\n\t\t\t      });\n\t\t\t  });"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          35075
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          35210
+    Length:          11
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          35773
+    Length:          4
+    ReplacementText: 'sycl::range<3>'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          35797
+    Length:          110
+    ReplacementText: '1, m_n_levels, div_round_up(num_elements * N_FEATURES_PER_LEVEL / N_FEATURES_PER_THREAD, N_THREADS_HASHGRID)'
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          35946
+    Length:          608
+    ReplacementText: "stream->submit(\n\t\t\t  [&](sycl::handler &cgh) {\n\t\t\t    auto m_n_features_ct1 = m_n_features;\n\t\t\t    auto m_offset_table_ct2 = m_offset_table;\n\t\t\t    auto m_base_resolution_ct3 = m_base_resolution;\n\t\t\t    auto std_log2_m_per_level_scale_ct4 = std::log2(m_per_level_scale);\n\t\t\t    auto this_m_max_level_ct5 = this->m_max_level;\n\t\t\t    auto this_m_max_level_gpu_ct6 = this->m_max_level_gpu;\n\t\t\t    auto m_interpolation_type_ct7 = m_interpolation_type;\n\t\t\t    auto m_grid_type_ct8 = m_grid_type;\n\t\t\t    auto dL_ddLdinput_view_ct9 = dL_ddLdinput.view();\n\t\t\t    auto forward_positions_data_forward_positions_view_input_view_ct10 = forward.positions.data() ? forward.positions.view() : input.view();\n\t\t\t    auto use_inference_params_this_inference_params_this_params_ct12 = use_inference_params ? this->inference_params() : this->params();\n\t\t\t    auto dL_dinput_view_ct13 = dL_dinput->view();\n\n\t\t\t    cgh.parallel_for(\n\t\t\t      sycl::nd_range<3>(blocks_hashgrid * sycl::range<3>(1, 1, N_THREADS_HASHGRID), sycl::range<3>(1, 1, N_THREADS_HASHGRID)), \n\t\t\t      [=](sycl::nd_item<3> item_ct1) {\n\t\t\t        kernel_grid_backward_input_backward_input<T, N_POS_DIMS, N_FEATURES_PER_LEVEL, N_FEATURES_PER_THREAD, HASH_TYPE>(num_elements, m_n_features_ct1, m_offset_table_ct2, m_base_resolution_ct3, std_log2_m_per_level_scale_ct4, this_m_max_level_ct5, this_m_max_level_gpu_ct6, m_interpolation_type_ct7, m_grid_type_ct8, dL_ddLdinput_view_ct9, forward_positions_data_forward_positions_view_input_view_ct10, dL_dy_rm, use_inference_params_this_inference_params_this_params_ct12, dL_dinput_view_ct13, item_ct1);\n\t\t\t      });\n\t\t\t  });"
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: true
+  - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Offset:          36554
+    Length:          1
+    ReplacementText: ''
+    ConstantFlag:    ''
+    ConstantOffset:  0
+    InitStr:         ''
+    NewHostVarName:  ''
+    BlockLevelFormatFlag: false
+MainSourceFilesDigest:
+  - MainSourceFile:  '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+    Digest:          54d16126d346ba20e8ce7f5a7a7533d3
+DpctVersion:     2023.1.0
+MainHelperFileName: dpct
+USMLevel:        ''
+FeatureMap:
+  atomic.hpp:
+    atomic_fetch_add:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/reduce_sum.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/vec.h'
+      FeatureName:     atomic_fetch_add
+      SubFeatureMap:   {}
+  device.hpp:
+    destroy_event:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/multi_stream.h'
+      FeatureName:     destroy_event
+      SubFeatureMap:   {}
+    dev_mgr:
+      IsCalled:        false
+      FeatureName:     ''
+      SubFeatureMap:
+        dev_mgr_current_device_id:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/src/common_host.cu'
+          FeatureName:     'dev_mgr::current_device_id'
+          SubFeatureMap:   {}
+        dev_mgr_device_count:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/src/common_host.cu'
+          FeatureName:     'dev_mgr::device_count'
+          SubFeatureMap:   {}
+        dev_mgr_get_device:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/src/common_host.cu'
+          FeatureName:     'dev_mgr::get_device'
+          SubFeatureMap:   {}
+    device_ext:
+      IsCalled:        false
+      FeatureName:     ''
+      SubFeatureMap:
+        device_ext_create_queue:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+            - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/multi_stream.h'
+            - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+          FeatureName:     'device_ext::create_queue'
+          SubFeatureMap:   {}
+        device_ext_default_queue:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/cuda_graph.h'
+            - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_memory.h'
+            - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/trainer.h'
+            - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+          FeatureName:     'device_ext::default_queue'
+          SubFeatureMap:   {}
+        device_ext_destroy_queue:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/multi_stream.h'
+          FeatureName:     'device_ext::destroy_queue'
+          SubFeatureMap:   {}
+        device_ext_get_device_info_return_info:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/src/common_host.cu'
+          FeatureName:     'device_ext::get_device_info'
+          SubFeatureMap:   {}
+        device_ext_get_major_version:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/src/common_host.cu'
+          FeatureName:     'device_ext::get_major_version'
+          SubFeatureMap:   {}
+        device_ext_get_memory_info:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/src/common_host.cu'
+          FeatureName:     device_ext_get_memory_info
+          SubFeatureMap:   {}
+        device_ext_queues_wait_and_throw:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+            - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/cuda_graph.h'
+            - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_memory.h'
+            - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/trainer.h'
+          FeatureName:     'device_ext::queues_wait_and_throw'
+          SubFeatureMap:   {}
+    device_info:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/src/common_host.cu'
+      FeatureName:     device_info
+      SubFeatureMap:
+        device_info_get_major_version:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/src/common_host.cu'
+          FeatureName:     'device_info::get_major_version'
+          SubFeatureMap:   {}
+        device_info_get_minor_version:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/src/common_host.cu'
+          FeatureName:     'device_info::get_minor_version'
+          SubFeatureMap:   {}
+        device_info_get_name:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/src/common_host.cu'
+          FeatureName:     'device_info::get_name'
+          SubFeatureMap:   {}
+    get_current_device:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/cuda_graph.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_memory.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/multi_stream.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/trainer.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+        - '/home/pascalb/codes/tiny-cuda-nn/src/common_host.cu'
+      FeatureName:     get_current_device
+      SubFeatureMap:   {}
+    get_default_queue:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/common_host.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/cuda_graph.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_matrix.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_memory.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_memory_json.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/optimizers/ema.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/optimizers/lookahead.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/random.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/trainer.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+      FeatureName:     get_default_queue
+      SubFeatureMap:   {}
+    select_device:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/src/common_host.cu'
+      FeatureName:     select_device
+      SubFeatureMap:   {}
+    typedef_device_ptr:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_memory.h'
+      FeatureName:     typedef_device_ptr
+      SubFeatureMap:   {}
+    typedef_event_ptr:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/multi_stream.h'
+      FeatureName:     typedef_event_ptr
+      SubFeatureMap:   {}
+    typedef_queue_ptr:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/device/gemm.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/device/gemm_splitk_parallel.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/common_host.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/cpp_api.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/cuda_graph.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/cutlass_matmul.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encoding.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/composite.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/empty.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/frequency.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/identity.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/oneblob.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/spherical_harmonics.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/triangle_wave.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_matrix.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_memory.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/loss.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/losses/cross_entropy.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/losses/l1.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/losses/l2.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/losses/mape.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/losses/relative_l1.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/losses/relative_l2.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/losses/relative_l2_luminance.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/losses/smape.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/losses/variance_is.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/multi_stream.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/network.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/network_with_input_encoding.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/networks/cutlass_mlp.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/object.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/optimizer.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/optimizers/adam.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/optimizers/average.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/optimizers/batched.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/optimizers/composite.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/optimizers/ema.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/optimizers/exponential_decay.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/optimizers/lookahead.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/optimizers/novograd.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/optimizers/sgd.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/random.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/reduce_sum.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/trainer.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+        - '/home/pascalb/codes/tiny-cuda-nn/src/cpp_api.cu'
+        - '/home/pascalb/codes/tiny-cuda-nn/src/cutlass_mlp.cu'
+        - '/home/pascalb/codes/tiny-cuda-nn/src/network.cu'
+        - '/home/pascalb/codes/tiny-cuda-nn/src/object.cu'
+      FeatureName:     queue_ptr
+      SubFeatureMap:   {}
+  dpct.hpp:
+    dpct_align_and_inline:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/aligned_buffer.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/arch.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/memory.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/memory_sm75.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/memory_sm80.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/mma.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/mma_sm50.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/mma_sm60.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/mma_sm61.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/mma_sm70.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/mma_sm75.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/mma_sm80.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/mma_sparse_sm80.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/array.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/array_planar_complex.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/array_subbyte.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/bfloat16.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/complex.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/constants.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/conv/conv2d_problem_size.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/conv/conv3d_problem_size.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/coord.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/cutlass.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/thread/activation.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/thread/conversion_op.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/thread/linear_combination.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/thread/linear_combination_clamp.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/thread/linear_combination_generic.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/thread/linear_combination_planar_complex.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/thread/linear_combination_relu.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/thread/linear_combination_relu0.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/thread/reduction_op.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/threadblock/epilogue.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/threadblock/epilogue_base.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/threadblock/interleaved_epilogue.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/threadblock/output_tile_thread_map.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/threadblock/predicated_tile_iterator.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/threadblock/predicated_tile_iterator_affine.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/threadblock/predicated_tile_iterator_params.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/threadblock/predicated_tile_iterator_strided_dgrad.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/threadblock/shared_load_iterator.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/threadblock/shared_load_iterator_mixed.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/warp/fragment_iterator_complex_tensor_op.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/warp/fragment_iterator_simt.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/warp/fragment_iterator_tensor_op.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/warp/fragment_iterator_volta_tensor_op.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/warp/tile_iterator_simt.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/warp/tile_iterator_tensor_op.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/warp/tile_iterator_tensor_op_mixed.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/warp/tile_iterator_volta_tensor_op.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/fast_math.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/functional.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/device/gemm.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/device/gemm_splitk_parallel.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/gemm.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/kernel/gemm.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/kernel/gemm_splitk_parallel.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/thread/mma_sm50.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/thread/mma_sm60.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/thread/mma_sm61.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/threadblock/mma_base.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/threadblock/mma_multistage.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/threadblock/mma_pipelined.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/threadblock/mma_singlestage.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/threadblock/threadblock_swizzle.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/warp/mma_complex_tensor_op.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/warp/mma_complex_tensor_op_fast_f32.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/warp/mma_complex_tensor_op_tile_iterator_sm80.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/warp/mma_gaussian_complex_tensor_op.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/warp/mma_gaussian_complex_tensor_op_tile_iterator_sm80.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/warp/mma_simt.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/warp/mma_simt_policy.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/warp/mma_simt_tile_iterator.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/warp/mma_tensor_op.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/warp/mma_tensor_op_fast_f32.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/warp/mma_tensor_op_sm70.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/warp/mma_tensor_op_tile_iterator.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/warp/mma_tensor_op_tile_iterator_sm70.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/warp/mma_tensor_op_tile_iterator_sm80.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/half.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/integer_subbyte.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/layout/matrix.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/layout/pitch_linear.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/layout/tensor.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/layout/tensor_op_multiplicand_sm70.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/layout/tensor_op_multiplicand_sm75.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/layout/tensor_op_multiplicand_sm80.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/layout/vector.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/matrix.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/matrix_coord.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/matrix_shape.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/numeric_conversion.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/pitch_linear_coord.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/platform/platform.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/predicate_vector.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/quaternion.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/real.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/reduction/kernel/reduce_split_k.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/reduction/thread/reduce.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/reduction/thread/reduction_operators.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/semaphore.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/subbyte_reference.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/tensor_coord.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/tensor_ref.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/tensor_view.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/tfloat32.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/transform/pitch_linear_thread_map.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/transform/thread/transpose.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/transform/thread/unaryOp.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/transform/threadblock/predicated_tile_access_iterator.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/transform/threadblock/predicated_tile_access_iterator_2dthreadtile.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/transform/threadblock/predicated_tile_access_iterator_params.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/transform/threadblock/predicated_tile_iterator.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/transform/threadblock/predicated_tile_iterator_2dthreadtile.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/transform/threadblock/regular_tile_access_iterator_pitch_linear.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/transform/threadblock/regular_tile_access_iterator_tensor_op.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/transform/threadblock/regular_tile_access_iterator_tensor_op_sm80.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/transform/threadblock/regular_tile_iterator_pitch_linear.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/transform/threadblock/regular_tile_iterator_pitch_linear_2dthreadtile.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/transform/threadblock/regular_tile_iterator_tensor_op.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/transform/threadblock/regular_tile_iterator_tensor_op_sm70.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/uint128.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/cutlass_matmul.h'
+      FeatureName:     '__dpct_align__(n) and __dpct_inline__'
+      SubFeatureMap:   {}
+    dpct_compatibility_temp:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/arch.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/memory.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/memory_sm75.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/memory_sm80.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/mma_sm60.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/mma_sm61.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/mma_sm70.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/mma_sm75.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/mma_sm80.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/arch/mma_sparse_sm80.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/bfloat16.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/cutlass.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/thread/linear_combination_clamp.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/thread/linear_combination_relu.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/epilogue/thread/linear_combination_relu0.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/fast_math.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/functional.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/thread/mma_sm50.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/warp/mma_tensor_op.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/warp/mma_tensor_op_fast_f32.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/warp/mma_tensor_op_tile_iterator.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/warp/mma_tensor_op_tile_iterator_sm70.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/half.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/layout/tensor.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/numeric_conversion.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/reduction/thread/reduce.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/semaphore.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/tfloat32.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/uint128.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/common.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/common_device.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_memory.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/vec.h'
+      FeatureName:     DPCT_COMPATIBILITY_TEMP
+      SubFeatureMap:   {}
+  image.hpp:
+    create_image_wrapper:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+        - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+      FeatureName:     create_image_wrapper
+      SubFeatureMap:   {}
+    image_accessor_ext:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+        - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+      FeatureName:     image_accessor_ext
+      SubFeatureMap:   {}
+    image_channel:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+        - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+      FeatureName:     image_channel
+      SubFeatureMap:   {}
+    image_channel_data_type:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+        - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+        - '/usr/local/cuda-11.8/targets/x86_64-linux/include/driver_types.h'
+      FeatureName:     image_channel_data_type
+      SubFeatureMap:   {}
+    image_data:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+        - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+      FeatureName:     image_data
+      SubFeatureMap:
+        image_data_set_channel:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+            - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+          FeatureName:     'image_data::set_channel'
+          SubFeatureMap:   {}
+        image_data_set_data_ptr:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+            - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+          FeatureName:     'image_data::set_data_ptr'
+          SubFeatureMap:   {}
+        image_data_set_data_type:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+            - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+          FeatureName:     'image_data::set_data_type'
+          SubFeatureMap:   {}
+        image_data_set_pitch:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+            - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+          FeatureName:     'image_data::set_pitch'
+          SubFeatureMap:   {}
+        image_data_set_x:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+            - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+          FeatureName:     'image_data::set_x'
+          SubFeatureMap:   {}
+        image_data_set_y:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+            - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+          FeatureName:     'image_data::set_y'
+          SubFeatureMap:   {}
+    image_data_type:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+        - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+        - '/usr/local/cuda-11.8/targets/x86_64-linux/include/driver_types.h'
+      FeatureName:     image_data_type
+      SubFeatureMap:   {}
+    image_wrapper:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+      FeatureName:     image_wrapper
+      SubFeatureMap:
+        image_wrapper_get_access:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+          FeatureName:     'image_wrapper::get_access'
+          SubFeatureMap:   {}
+    image_wrapper_base:
+      IsCalled:        false
+      FeatureName:     ''
+      SubFeatureMap:
+        image_wrapper_base_get_sampler:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+          FeatureName:     'image_wrapper_base::get_sampler'
+          SubFeatureMap:   {}
+        image_wrapper_base_set_addressing_mode:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+            - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+          FeatureName:     'image_wrapper_base::set'
+          SubFeatureMap:   {}
+        image_wrapper_base_set_addressing_mode_filtering_mode_coordinate_normalization_mode:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+            - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+          FeatureName:     'image_wrapper_base::set'
+          SubFeatureMap:   {}
+        image_wrapper_base_set_addressing_mode_filtering_mode_is_normalized:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+            - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+          FeatureName:     'image_wrapper_base::set'
+          SubFeatureMap:   {}
+        image_wrapper_base_set_coordinate_normalization_mode_enum:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+            - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+          FeatureName:     'image_wrapper_base::set'
+          SubFeatureMap:   {}
+        image_wrapper_base_set_filtering_mode:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+            - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+          FeatureName:     'image_wrapper_base::set'
+          SubFeatureMap:   {}
+    image_wrapper_base_p_alias:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+        - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+      FeatureName:     image_wrapper_base_p
+      SubFeatureMap:   {}
+    sampling_info:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+        - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+      FeatureName:     sampling_info
+      SubFeatureMap:
+        sampling_info_set_addressing_mode:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+            - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+          FeatureName:     'sampling_info::set'
+          SubFeatureMap:   {}
+        sampling_info_set_addressing_mode_filtering_mode_coordinate_normalization_mode:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+            - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+          FeatureName:     'sampling_info::set'
+          SubFeatureMap:   {}
+        sampling_info_set_addressing_mode_filtering_mode_is_normalized:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+            - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+          FeatureName:     'sampling_info::set'
+          SubFeatureMap:   {}
+        sampling_info_set_coordinate_normalization_mode_enum:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+            - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+          FeatureName:     'sampling_info::set'
+          SubFeatureMap:   {}
+        sampling_info_set_filtering_mode:
+          IsCalled:        true
+          CallerSrcFiles:
+            - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+            - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+          FeatureName:     'sampling_info::set'
+          SubFeatureMap:   {}
+  memory.hpp:
+    async_dpct_memcpy:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/optimizers/composite.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/reduce_sum.h'
+      FeatureName:     async_dpct_memcpy
+      SubFeatureMap:   {}
+    async_dpct_memcpy_2d:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/optimizers/composite.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/reduce_sum.h'
+      FeatureName:     async_dpct_memcpy
+      SubFeatureMap:   {}
+    async_dpct_memcpy_3d:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/optimizers/composite.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/reduce_sum.h'
+      FeatureName:     async_dpct_memcpy
+      SubFeatureMap:   {}
+    async_dpct_memset:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/device/gemm.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_matrix.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/reduce_sum.h'
+      FeatureName:     async_dpct_memset
+      SubFeatureMap:   {}
+    async_dpct_memset_2d:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/device/gemm.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_matrix.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/reduce_sum.h'
+      FeatureName:     async_dpct_memset
+      SubFeatureMap:   {}
+    async_dpct_memset_3d:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/device/gemm.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_matrix.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/reduce_sum.h'
+      FeatureName:     async_dpct_memset
+      SubFeatureMap:   {}
+    dpct_memcpy:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_matrix.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_memory.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_memory_json.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/optimizers/lookahead.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/trainer.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+      FeatureName:     dpct_memcpy
+      SubFeatureMap:   {}
+    dpct_memcpy_2d:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_matrix.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_memory.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_memory_json.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/optimizers/lookahead.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/trainer.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+      FeatureName:     dpct_memcpy
+      SubFeatureMap:   {}
+    dpct_memcpy_3d:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_matrix.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_memory.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_memory_json.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/optimizers/lookahead.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/trainer.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+      FeatureName:     dpct_memcpy
+      SubFeatureMap:   {}
+    dpct_memset:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_matrix.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_memory.h'
+      FeatureName:     dpct_memset
+      SubFeatureMap:   {}
+    dpct_memset_2d:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_matrix.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_memory.h'
+      FeatureName:     dpct_memset
+      SubFeatureMap:   {}
+    dpct_memset_3d:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_matrix.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_memory.h'
+      FeatureName:     dpct_memset
+      SubFeatureMap:   {}
+    memcpy_direction:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/benchmarks/image/bench_ours.cu'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_matrix.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_memory.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/gpu_memory_json.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/optimizers/composite.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/optimizers/lookahead.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/reduce_sum.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/trainer.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/samples/mlp_learning_an_image.cu'
+      FeatureName:     memcpy_direction
+      SubFeatureMap:   {}
+  util.hpp:
+    byte_level_permute:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/numeric_conversion.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/transform/thread/transpose.h'
+      FeatureName:     byte_level_permute
+      SubFeatureMap:   {}
+    err_types:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/device/gemm.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/device/gemm_splitk_parallel.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/common_host.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/cuda_graph.h'
+      FeatureName:     err_types
+      SubFeatureMap:   {}
+    permute_sub_group_by_xor:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/reduce_sum.h'
+      FeatureName:     permute_sub_group_by_xor
+      SubFeatureMap:   {}
+    select_from_sub_group:
+      IsCalled:        true
+      CallerSrcFiles:
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/kernel/gemm.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/dependencies/cutlass/include/cutlass/gemm/kernel/gemm_pipelined.h'
+        - '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/oneblob.h'
+      FeatureName:     select_from_sub_group
+      SubFeatureMap:   {}
+CompileTargets:  {}
+OptionMap:
+  AnalysisScopePath:
+    Value:           '/home/pascalb/codes/tiny-cuda-nn'
+    Specified:       false
+  AsyncHandler:
+    Value:           'false'
+    Specified:       false
+  CommentsEnabled:
+    Value:           'false'
+    Specified:       false
+  CompilationsDir:
+    Value:           '/home/pascalb/codes/tiny-cuda-nn'
+    Specified:       true
+  CtadEnabled:
+    Value:           'false'
+    Specified:       false
+  CustomHelperFileName:
+    Value:           dpct
+    Specified:       false
+  EnablepProfiling:
+    Value:           'false'
+    Specified:       false
+  ExperimentalFlag:
+    Value:           '0'
+    Specified:       false
+  ExplicitClNamespace:
+    Value:           'false'
+    Specified:       false
+  ExplicitNamespace:
+    Value:           '20'
+    Specified:       false
+  ExtensionDDFlag:
+    Value:           '0'
+    Specified:       false
+  ExtensionDEFlag:
+    Value:           '4294967295'
+    Specified:       false
+  NDRangeDim:
+    Value:           '3'
+    Specified:       false
+  NoDRYPattern:
+    Value:           'false'
+    Specified:       false
+  OptimizeMigration:
+    Value:           'false'
+    Specified:       false
+  ProcessAll:
+    Value:           'false'
+    Specified:       false
+  RuleFile:
+    Value:           ''
+    Specified:       false
+  SyclNamedLambda:
+    Value:           'false'
+    Specified:       false
+  UsmLevel:
+    Value:           '1'
+    Specified:       false
+...
