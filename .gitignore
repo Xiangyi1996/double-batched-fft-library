@@ -10,3 +10,4 @@ program
 *.jpg
 !albert.jpg
 program
+bench_result_ours.json
