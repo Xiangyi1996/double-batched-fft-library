@@ -4,7 +4,7 @@
 #define SKEW 0
 
 #define SG_SIZE 8
-#define WG_SIZE 8*SG_SIZE
+#define WG_SIZE 8 * SG_SIZE
 
 #define BATCH_CHUNK 16
 #define SHMEM_SIZE 1024
@@ -1338,18 +1338,21 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input,
   static_assert(WIDTH % 16 == 0, "Width must be a multiple of 16.");
   assert(m_batch_size % 64 == 0);
   //   std::cout << "Input size: " << input.size() << std::endl;
-  m_q.parallel_for<>(range<1>(input.size()), [=](id<1> idx) {
-    forward[idx] = input.data()[idx];
-  });  // this is necessary for backward pass
+  m_q.parallel_for<>(range<1>(input.size()),
+                     [=](id<1> idx) { forward[idx] = input.data()[idx]; })
+      .wait();  // this is necessary for backward pass
   // Get a pointer to the weights matrices data
   auto p = m_weights_matrices.data();
   //   if (inputs_width < 16) {
   if (inputs_width != WIDTH) {
     // usually would use XMX for inputs_width > 16 and gemm for smaller, but
     // somehow workgroup_dynamic has a bug
-    m_q.parallel_for<>(range<1>(inputs_width * WIDTH), [=](id<1> idx) {
-      A[idx] = (float)p[toPackedLayoutCoord(idx, inputs_width, WIDTH)];
-    });
+    m_q.parallel_for<>(
+           range<1>(inputs_width * WIDTH),
+           [=](id<1> idx) {
+             A[idx] = (float)p[toPackedLayoutCoord(idx, inputs_width, WIDTH)];
+           })
+        .wait();
 
     oneapi::mkl::blas::row_major::gemm(
         m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
@@ -1434,11 +1437,14 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input,
   // TODO: Not doing check again. According to Darius, it's faster to use
   // workgroup_last_layer, but somehow results are flawed
   //   if (m_output_width > 16) {
-  m_q.parallel_for<>(range<1>(m_output_width * m_net_width), [=](id<1> idx) {
-    B[idx] =
-        (float)p[toPackedLayoutCoord(idx, net_width, output_width) +
+  m_q.parallel_for<>(
+         range<1>(m_output_width * m_net_width),
+         [=](id<1> idx) {
+           B[idx] = (float)
+               p[toPackedLayoutCoord(idx, net_width, output_width) +
                  net_width * (inputs_width + n_hidden_matrices * net_width)];
-  });
+         })
+      .wait();
 
   oneapi::mkl::blas::row_major::gemm(
       m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
@@ -1501,11 +1507,15 @@ void SwiftNetMLP<WIDTH>::inference(const DeviceMem<bf16>& input, float* forward,
 
   if (inputs_width < 16) {
     m_q.parallel_for<>(range<1>(input.size()),
-                       [=](id<1> idx) { forward[idx] = input.data()[idx]; });
+                       [=](id<1> idx) { forward[idx] = input.data()[idx]; })
+        .wait();
 
-    m_q.parallel_for<>(range<1>(inputs_width * WIDTH), [=](id<1> idx) {
-      A[idx] = (float)p[toPackedLayoutCoord(idx, inputs_width, WIDTH)];
-    });
+    m_q.parallel_for<>(
+           range<1>(inputs_width * WIDTH),
+           [=](id<1> idx) {
+             A[idx] = (float)p[toPackedLayoutCoord(idx, inputs_width, WIDTH)];
+           })
+        .wait();
 
     oneapi::mkl::blas::row_major::gemm(
         m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
@@ -1566,10 +1576,14 @@ void SwiftNetMLP<WIDTH>::inference(const DeviceMem<bf16>& input, float* forward,
   }
 
   //   if (m_output_width > 16) {
-  m_q.parallel_for<>(range<1>(m_output_width * m_net_width), [=](id<1> idx) {
-    B[idx] = p[toPackedLayoutCoord(idx, net_width, output_width) +
-               net_width * (inputs_width + n_hidden_matrices * net_width)];
-  });
+  m_q.parallel_for<>(
+         range<1>(m_output_width * m_net_width),
+         [=](id<1> idx) {
+           B[idx] =
+               p[toPackedLayoutCoord(idx, net_width, output_width) +
+                 net_width * (inputs_width + n_hidden_matrices * net_width)];
+         })
+      .wait();
   oneapi::mkl::blas::row_major::gemm(
       m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
       m_batch_size, m_output_width, WIDTH, 1,
