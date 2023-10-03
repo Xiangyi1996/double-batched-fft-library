@@ -50,16 +50,19 @@ class Trainer {
         m_network->m_D_backward_last_layer, m_network->m_E_backward_last_layer,
         m_network->m_F_backward_last_layer, m_network->m_A_dgemm,
         m_network->m_B_dgemm, m_network->m_C_dgemm, m_network->m_forward);
-
-    m_optim->step(m_network->get_queue(), scale, m_network->m_weights_matrices,
-                  m_network->m_weightsT_matrices, m_network->m_grads_matrices,
-                  WIDTH);
+    // no optimisation as we run benchmarking
+    // m_optim->step(m_network->get_queue(), scale,
+    // m_network->m_weights_matrices,
+    //               m_network->m_weightsT_matrices,
+    //               m_network->m_grads_matrices, WIDTH);
   }
   Network* m_network;
   Loss* m_loss;
   Optimizer* m_optim;
 
-  void initialize_params() { m_network->initialize_params(); }
+  void initialize_params(int use_constant = 0) {
+    m_network->initialize_params(use_constant);
+  }
 
  private:
 };

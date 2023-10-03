@@ -26,7 +26,7 @@ class Network {
       float* A_dgemm, float* B_dgemm, float* C_dgemm, float* forward) = 0;
 
   // Initialize network parameters
-  virtual void initialize_params() = 0;
+  virtual void initialize_params(int use_constant) = 0;
   // Free memory allocated by the network
   virtual void free_mem(queue q) = 0;
 

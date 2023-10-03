@@ -1172,7 +1172,7 @@ DeviceMem<bf16>* SwiftNetMLP<WIDTH>::get_weightsT_matrices() {
  * This function initializes the weights matrices with uniform random values.
  */
 template <int WIDTH>
-void SwiftNetMLP<WIDTH>::initialize_params() {
+void SwiftNetMLP<WIDTH>::initialize_params(int use_constant) {
   // Initialize weights matrices with uniform random values, you can choose a
   // different initialization ( look in DeviceMem.cpp )
   //   m_weights_matrices.initialize_uniform(
@@ -1182,10 +1182,12 @@ void SwiftNetMLP<WIDTH>::initialize_params() {
   //       0.01, m_weightsT_matrices, m_inputs_width, m_net_width,
   //       m_output_width, m_n_hidden_matrices, m_q);
 
-  //   m_weights_matrices.intitialize_he_normal(m_inputs_width, m_q);
-
-  //   m_weights_matrices.initialize_constant(-0.01, m_q);
-  m_weights_matrices.initialize_constant(0.01, m_q);
+  if (use_constant) {
+    //   m_weights_matrices.initialize_constant(-0.01, m_q);
+    m_weights_matrices.initialize_constant(0.01, m_q);
+  } else {
+    m_weights_matrices.intitialize_he_normal(m_inputs_width, m_q);
+  }
 
   //   m_weights_matrices.initialize_arange(m_q, m_inputs_width, m_net_width,
   //                                        m_output_width,

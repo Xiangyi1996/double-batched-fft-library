@@ -162,8 +162,9 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
     # Generate random input data for testing
     torch.manual_seed(123)
     input_data = (
-        # torch.randn(BATCH_SIZE, input_size, dtype=torch.float32).to(DEVICE_NAME) * 0 + 1
-        torch.randn(BATCH_SIZE, input_size, dtype=torch.float32).to(DEVICE_NAME)
+        torch.randn(BATCH_SIZE, input_size, dtype=torch.float32).to(DEVICE_NAME) * 0
+        + 1
+        # torch.randn(BATCH_SIZE, input_size, dtype=torch.float32).to(DEVICE_NAME)
     )
     model_dpcpp, model_torch = create_models(
         input_size,
@@ -196,9 +197,9 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
 if __name__ == "__main__":
     input_width = 64
     output_width = 64
-    n_hidden_layers = 3
-    activation_func = "linear"
-    # activation_func = "relu"
+    n_hidden_layers = 4
+    # activation_func = "linear"
+    activation_func = "relu"
     output_func = "linear"
     # output_func = "relu"
 
