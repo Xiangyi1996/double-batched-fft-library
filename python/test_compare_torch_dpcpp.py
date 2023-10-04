@@ -163,7 +163,7 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
     torch.manual_seed(123)
     input_data = (
         torch.randn(BATCH_SIZE, input_size, dtype=torch.float32).to(DEVICE_NAME) * 0
-        + 1
+        + 0.001
         # torch.randn(BATCH_SIZE, input_size, dtype=torch.float32).to(DEVICE_NAME)
     )
     model_dpcpp, model_torch = create_models(
@@ -184,6 +184,25 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
     print(
         f"diff: {y_torch[0, :] - y_dpcpp[0, :]}, average: {abs(y_torch[0, :] - y_dpcpp[0, :]).mean()}"
     )
+    save_csv = False
+    if save_csv:
+        # Specify the file path where you want to save the CSV file
+        file_path = "python/torch.csv"
+        # Save the NumPy array to a CSV file with full precision
+        np.savetxt(
+            file_path,
+            y_torch[0, :].cpu().detach().numpy()[None,],
+            delimiter=",",
+            fmt="%f",
+        )
+        file_path = "python/dpcpp.csv"
+        np.savetxt(
+            file_path,
+            y_dpcpp[0, :].cpu().detach().numpy()[None,],
+            delimiter=",",
+            fmt="%f",
+        )
+
     # Ensure both models have the same weights
     # assert torch.allclose(
     #     y_torch, y_dpcpp, atol=1e-1

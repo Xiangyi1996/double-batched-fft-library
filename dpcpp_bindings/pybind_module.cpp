@@ -42,10 +42,10 @@ class Module {
     return m_module->backward_pass(input_tensor, grad_output, params);
   }
 
-  torch::Tensor initial_params() {
+  torch::Tensor initial_params(int use_easy = 0) {
     torch::Tensor output = torch::zeros(
         {n_params()}, torch::TensorOptions().dtype(torch::kFloat32));
-    m_module->initialize_params(output.data_ptr<float>());
+    m_module->initialize_params(output.data_ptr<float>(), use_easy);
     return output;
   }
 

@@ -142,7 +142,7 @@ void benchmark_dgemm_time() {
   out << json_string;
 }
 
-int main() {
-  benchmark_dgemm_time();
-  return 0;
-}
+// int main() {
+//   benchmark_dgemm_time();
+//   return 0;
+// }

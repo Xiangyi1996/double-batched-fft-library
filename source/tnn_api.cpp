@@ -99,8 +99,9 @@ torch::Tensor SwiftNetModule::backward_pass(torch::Tensor input_tensor,
   return grad_loss;
 }
 
-void SwiftNetModule::initialize_params(float *params_full_precision) {
-  network->initialize_params();
+void SwiftNetModule::initialize_params(float *params_full_precision,
+                                       int use_easy) {
+  network->initialize_params(use_easy);
   std::vector<bf16> params_full_precision_list(
       network->m_weights_matrices.size());
   network->m_weights_matrices.copy_to_host(params_full_precision_list,
@@ -158,7 +159,8 @@ EncodingModule::EncodingModule(int input_width, int batch_size,
   encoding = new IdentityEncoding<float>(input_width, scale, offset);
 }
 
-void EncodingModule::initialize_params(float *params_full_precision) {
+void EncodingModule::initialize_params(float *params_full_precision,
+                                       int use_easy) {
   encoding->initialize_params();
 }
 
@@ -200,6 +202,7 @@ torch::Tensor EncodingModule::backward_pass(torch::Tensor input_tensor,
                                             torch::Tensor grad_output,
                                             torch::Tensor params) {}
 
+void EncodingModule::free_memory() {}
 EncodingModule *create_encoding(int input_width, int batch_size,
                                 int output_width, int scale, int offset,
                                 std::string device_name) {

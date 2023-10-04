@@ -22,6 +22,31 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 #define INPUT_WIDTH 64
 #define OUTPUT_WIDTH 64
 #define HIDDEN_LAYERS 4
+bool areVectorsWithinTolerance(const std::vector<float>& a,
+                               const std::vector<float>& b, float tolerance) {
+  //   assert(a.size() == b.size());  // Ensure vectors have the same length
+
+  bool allWithinTolerance = true;
+
+  for (size_t i = 0; i < b.size(); ++i) {
+    float diff = std::abs(a[i] - b[i]);
+
+    if (diff > tolerance) {
+      allWithinTolerance = false;
+      std::cout << "Element at index " << i
+                << " is not within tolerance. Value A: " << a[i]
+                << ", Value B: " << b[i] << ". Diff: " << diff << std::endl;
+    }
+  }
+
+  if (allWithinTolerance) {
+    std::cout << "All elements are within tolerance." << std::endl;
+  } else {
+    std::cout << "Not all elements are within tolerance." << std::endl;
+  }
+
+  return allWithinTolerance;
+}
 
 void benchmark_time() {
   // SWIFTNET
@@ -68,14 +93,15 @@ void benchmark_time() {
 
     train.initialize_params(1);
 
-    inputs.initialize_constant(1.0f, q);
+    inputs.initialize_constant(0.001f, q);
     output.initialize_constant(0.0f, q);
     target.initialize_constant(0.1f, q);
     grads.initialize_constant(bf16(0.0f), q);
     losses.initialize_constant(0.0f, q);
 
     // Various constants for the network and optimization
-    uint32_t n_iterations = std::max(1000 * (1 << 18) / batch_size, 250u);
+    // uint32_t n_iterations = std::max(1000 * (1 << 18) / batch_size, 250u);
+    uint32_t n_iterations = 20;
     uint32_t n_iterations_warmup = n_iterations / 2;
 
     std::chrono::steady_clock::time_point begin =
@@ -143,16 +169,30 @@ void benchmark_time() {
     // std::cout << "Batch: " << std::endl;
     // printGPUMatrix(batch);
 
-    // Sanity check: we run with 0.01 as weights and 4 layers and 1.0 as input,
-    // the result should be ~0.10748291015625
-    float target_value = 0.10748291015625;
+    // Sanity check: we run with aranged weights and 4 layers and 0.001 as
+    // input. Values generated from test_compare_torch_dpcpp.py and saved in
+    // python/dpcpp.csv (bf16 vals). python/torch.csv is float vals
+    std::vector<float> target_vector = {
+        -0.229248, -0.213135, -0.198486, -0.183838, -0.168823, -0.153809,
+        -0.138794, -0.123779, -0.108765, -0.093750, -0.078735, -0.063721,
+        -0.048706, -0.033783, -0.018768, -0.003754, 0.011261,  0.026276,
+        0.041290,  0.056213,  0.071228,  0.086243,  0.101074,  0.116455,
+        0.131104,  0.146484,  0.161133,  0.176514,  0.191162,  0.205811,
+        0.221191,  0.236572,  -0.229248, -0.213135, -0.198486, -0.183838,
+        -0.168823, -0.153809, -0.138794, -0.123779, -0.108765, -0.093750,
+        -0.078735, -0.063721, -0.048706, -0.033783, -0.018768, -0.003754,
+        0.011261,  0.026276,  0.041290,  0.056213,  0.071228,  0.086243,
+        0.101074,  0.116455,  0.131104,  0.146484,  0.161133,  0.176514,
+        0.191162,  0.205811,  0.221191,  0.236572};
     float tolerance = 0.001;
 
     std::vector<float> out(batch_size * (OUTPUT_WIDTH));
     output.copy_to_host(out, q);
-    std::cout << "Output[0] (all are the same): " << out[0]
-              << ", ref val: " << target_value << ". Within tolerance: "
-              << (abs(out[0] - target_value) < tolerance) << std::endl;
+    areVectorsWithinTolerance(out, target_vector, tolerance);
+
+    // std::cout << "Output[0] (all are the same): " << out[0]
+    //           << ", ref val: " << target_value << ". Within tolerance: "
+    //           << (abs(out[0] - target_value) < tolerance) << std::endl;
 
     std::this_thread::sleep_for(std::chrono::seconds{10});
     begin = std::chrono::steady_clock::now();
@@ -199,10 +239,12 @@ void benchmark_time() {
               << "/s. Waiting 10 seconds for GPU to cool down." << std::endl;
 
     output.copy_to_host(out, q);
-    std::cout << "Output[0] (all are the same): " << out[0]
-              << ", ref val: " << target_value
-              << ". Within tolerance: " << abs(out[0] - target_value)
-              << tolerance << std::endl;
+    areVectorsWithinTolerance(out, target_vector, tolerance);
+
+    // std::cout << "Output[0] (all are the same): " << out[0]
+    //           << ", ref val: " << target_value
+    //           << ". Within tolerance: " << abs(out[0] - target_value)
+    //           << tolerance << std::endl;
 
     inputs.free_mem(q);
     output.free_mem(q);
@@ -223,7 +265,7 @@ void benchmark_time() {
   std::ofstream out{"bench_result_ours.json"};
   out << json_string;
 }
-// int main() {
-//   benchmark_time();
-//   return 0;
-// }
+int main() {
+  benchmark_time();
+  return 0;
+}

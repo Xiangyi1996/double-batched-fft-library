@@ -73,7 +73,8 @@ class Module {
   virtual torch::Tensor backward_pass(torch::Tensor input_tensor,
                                       torch::Tensor grad_output,
                                       torch::Tensor params) = 0;
-  virtual void initialize_params(float* params_full_precision) = 0;
+  virtual void initialize_params(float* params_full_precision,
+                                 int use_easy = 0) = 0;
   virtual void free_memory() = 0;
   virtual int n_params() = 0;
 
@@ -162,7 +163,8 @@ class SwiftNetModule : public Module {
   torch::Tensor backward_pass(torch::Tensor input_tensor,
                               torch::Tensor grad_output,
                               torch::Tensor params) override;
-  void initialize_params(float* params_full_precision) override;
+  void initialize_params(float* params_full_precision,
+                         int use_easy = 0) override;
   void free_memory() override;
   int n_params() override;
 
@@ -217,7 +219,8 @@ class EncodingModule : public Module {
   torch::Tensor backward_pass(torch::Tensor input_tensor,
                               torch::Tensor grad_output,
                               torch::Tensor params) override;
-  void initialize_params(float* params_full_precision) override;
+  void initialize_params(float* params_full_precision,
+                         int use_easy = 0) override;
   void free_memory() override;
   int n_params() override{};
 

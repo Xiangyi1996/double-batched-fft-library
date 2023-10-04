@@ -166,7 +166,7 @@ class SwiftNetMLP : public Network {
   void set_params(float* params) override;
   void save_to_file(std::string filename);
   void load_from_file(std::string filename);
-  void initialize_params(int use_constant = 0) override;
+  void initialize_params(int use_easy = 0) override;
   void free_mem(queue q) override;
 
   DeviceMem<bf16>* get_grads_matrices() override;

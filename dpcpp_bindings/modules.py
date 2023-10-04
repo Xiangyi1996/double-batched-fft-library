@@ -76,11 +76,9 @@ class Module(torch.nn.Module):
         self.device = device
 
         self.tnn_module = self.create_module()
-        initial_params = self.tnn_module.initial_params()
+        initial_params = self.tnn_module.initial_params(1)
 
-        self.params = torch.nn.Parameter(
-            initial_params.to(device) * 0 + 0.01, requires_grad=True
-        )
+        self.params = torch.nn.Parameter(initial_params.to(device), requires_grad=True)
 
     def get_reshaped_params(self, weights=None):
         all_weights = []

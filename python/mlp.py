@@ -102,3 +102,10 @@ class MLP(torch.nn.Module):
         for i, weight in enumerate(parameters):
             assert self.layers[i + offset].weight.shape == weight.shape
             self.layers[i + offset].weight = copy.deepcopy(torch.nn.Parameter(weight))
+
+    # def set_weights(self, parameters):
+    #     # Convert incoming parameters to bfloat16 before setting weights
+    #     for i, weight in enumerate(parameters):
+    #         bfloat16_weight = torch.tensor(weight, dtype=torch.bfloat16)
+    #         assert self.layers[i].weight.shape == bfloat16_weight.shape
+    #         self.layers[i].weight = torch.nn.Parameter(bfloat16_weight)
