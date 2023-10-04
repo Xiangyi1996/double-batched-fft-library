@@ -909,37 +909,37 @@ void dgemm_multiply(queue q, bf16* grads_device, float* loss_gradients,
   }
   // Calculate matrix A using the given activation function
   q.parallel_for<>(range<1>(layer_in_width * batch_size), [=](id<1> idx) {
-    int i = idx / batch_size;
-    int j = idx % batch_size;
-    A[i * batch_size + j] = (float)elt_activation_ret<float>(
-        ACTIVATION, fwd[i + j * layer_in_width + offset_g]);
-    // int b_first;
-    // int b_second;
-    // int b_zeroes;
-    // static const CONSTANT char FMT[] =
-    //     "K: %d, offset_g: %d, A[%d] from %d: %d.%d\n";
-    // get_float_as_integers_own(A[idx], b_first, b_second, b_zeroes);
-    // if (A[i * batch_size + j] == 0) {
-    //   sycl::ext::oneapi::experimental::printf(
-    //       FMT, k, int(offset_g), int(idx),
-    //       int(i + j * layer_in_width + offset_g), b_first, b_second);
-    // }
-  });
+     int i = idx / batch_size;
+     int j = idx % batch_size;
+     A[i * batch_size + j] = (float)elt_activation_ret<float>(
+         ACTIVATION, fwd[i + j * layer_in_width + offset_g]);
+     // int b_first;
+     // int b_second;
+     // int b_zeroes;
+     // static const CONSTANT char FMT[] =
+     //     "K: %d, offset_g: %d, A[%d] from %d: %d.%d\n";
+     // get_float_as_integers_own(A[idx], b_first, b_second, b_zeroes);
+     // if (A[i * batch_size + j] == 0) {
+     //   sycl::ext::oneapi::experimental::printf(
+     //       FMT, k, int(offset_g), int(idx),
+     //       int(i + j * layer_in_width + offset_g), b_first, b_second);
+     // }
+   }).wait();
 
   // Assign matrix B using loss gradients
   q.parallel_for<>(range<1>(WIDTH * batch_size), [=](id<1> idx) {
-    B[idx] = (float)loss_gradients[idx + offset_f1];
-    // int b_first;
-    // int b_second;
-    // int b_zeroes;
-    // static const CONSTANT char FMT[] = "K: %d, B[%d]: %d.%d \n";
-    // get_float_as_integers_own(loss_gradients[idx + offset_f1], b_first,
-    //                           b_second, b_zeroes);
-    // if (B[idx] == 0) {
-    //   sycl::ext::oneapi::experimental::printf(FMT, k, int(idx + offset_f1),
-    //                                           b_first, b_second);
-    // }
-  });
+     B[idx] = (float)loss_gradients[idx + offset_f1];
+     // int b_first;
+     // int b_second;
+     // int b_zeroes;
+     // static const CONSTANT char FMT[] = "K: %d, B[%d]: %d.%d \n";
+     // get_float_as_integers_own(loss_gradients[idx + offset_f1], b_first,
+     //                           b_second, b_zeroes);
+     // if (B[idx] == 0) {
+     //   sycl::ext::oneapi::experimental::printf(FMT, k, int(idx + offset_f1),
+     //                                           b_first, b_second);
+     // }
+   }).wait();
 
   // Perform GEMM operation
   oneapi::mkl::blas::row_major::gemm(q, oneapi::mkl::transpose::nontrans,
@@ -949,20 +949,20 @@ void dgemm_multiply(queue q, bf16* grads_device, float* loss_gradients,
 
   // Update gradients_device with the computed values
   q.parallel_for<>(range<1>(layer_in_width * WIDTH), [=](id<1> idx) {
-    grads_device[offset_c + idx] += C[idx];
-    // int b_first;
-    // int b_second;
-    // int b_zeroes;
-    // static const CONSTANT char FMT[] =
-    //     "K: %d, offset_c: %d, C last[%d]: %d.%d\n";
-    // get_float_as_integers_own(grads_device[offset_c + idx], b_first,
-    // b_second,
-    //                           b_zeroes);
-    // if (C[idx] == 0) {
-    //   sycl::ext::oneapi::experimental::printf(
-    //       FMT, k, int(offset_c), int(offset_c + idx), b_first, b_second);
-    // }
-  });
+     grads_device[offset_c + idx] += C[idx];
+     // int b_first;
+     // int b_second;
+     // int b_zeroes;
+     // static const CONSTANT char FMT[] =
+     //     "K: %d, offset_c: %d, C last[%d]: %d.%d\n";
+     // get_float_as_integers_own(grads_device[offset_c + idx], b_first,
+     // b_second,
+     //                           b_zeroes);
+     // if (C[idx] == 0) {
+     //   sycl::ext::oneapi::experimental::printf(
+     //       FMT, k, int(offset_c), int(offset_c + idx), b_first, b_second);
+     // }
+   }).wait();
 }
 
 /**
