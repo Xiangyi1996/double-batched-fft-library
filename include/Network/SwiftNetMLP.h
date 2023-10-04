@@ -164,6 +164,7 @@ class SwiftNetMLP : public Network {
                                  float* E, float* F);
   void set_params(std::vector<bf16> params) override;
   void set_params(float* params) override;
+
   void save_to_file(std::string filename);
   void load_from_file(std::string filename);
   void initialize_params(int use_easy = 0) override;

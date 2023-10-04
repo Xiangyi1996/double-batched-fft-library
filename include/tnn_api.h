@@ -14,6 +14,7 @@
 #include "SwiftNetMLP.h"
 #include "common.h"
 #include "encoding.h"
+#include "network_with_encodings.h"
 #include "oneapi/mkl.hpp"
 
 using bf16 = sycl::ext::oneapi::bfloat16;
@@ -70,6 +71,7 @@ class Module {
                                      torch::Tensor params,
                                      int use_inference = 0) = 0;
 
+  virtual void forward_pass(int use_inference) = 0;
   virtual torch::Tensor backward_pass(torch::Tensor input_tensor,
                                       torch::Tensor grad_output,
                                       torch::Tensor params) = 0;
@@ -83,6 +85,8 @@ class Module {
   std::string m_device_name;
 
   sycl::queue sycl_queue;
+
+  virtual void set_input(torch::Tensor input_tensor) = 0;
 
   template <typename T>
   std::vector<T> get_vector_from_tensor(torch::Tensor tensor) {
@@ -159,6 +163,7 @@ class SwiftNetModule : public Module {
 
   torch::Tensor forward_pass(torch::Tensor input_list, torch::Tensor params,
                              int use_inference = 0) override;
+  void forward_pass(int use_inference) override;
 
   torch::Tensor backward_pass(torch::Tensor input_tensor,
                               torch::Tensor grad_output,
@@ -168,13 +173,18 @@ class SwiftNetModule : public Module {
   void free_memory() override;
   int n_params() override;
 
+  void set_params(torch::Tensor params);
+
+  void set_input(torch::Tensor input_tensor) override;
+
+  DeviceMem<float> output;
+
  private:
   std::unique_ptr<Network> network;
 
   DeviceMem<bf16> input;
   DeviceMem<bf16> input_backward;
   DeviceMem<bf16> grads;
-  DeviceMem<float> output;
   DeviceMem<bf16> deltas;
 
   int forward_size;
@@ -216,6 +226,8 @@ class EncodingModule : public Module {
   torch::Tensor forward_pass(torch::Tensor input_list, torch::Tensor params,
                              int use_inference = 0) override;
 
+  void forward_pass(int use_inference);
+
   torch::Tensor backward_pass(torch::Tensor input_tensor,
                               torch::Tensor grad_output,
                               torch::Tensor params) override;
@@ -224,19 +236,71 @@ class EncodingModule : public Module {
   void free_memory() override;
   int n_params() override{};
 
+  GPUMatrix<bf16> output_matrix;
+
+  void set_input(torch::Tensor input_tensor) override {
+    if (m_device_name == "cpu") {
+      convert_tensor_to_dev_mem(input_tensor, input);
+    } else if (m_device_name == "xpu") {
+      float* input_data = input_tensor.data_ptr<float>();
+      auto p = input.data();
+      int s = input.size();
+      sycl_queue
+          .parallel_for<>(range<1>(s),
+                          [=](id<1> idx) { p[idx] = bf16(input_data[idx]); })
+          .wait();
+    } else {
+      std::cout << "No behaviour for device " << m_device_name
+                << ". Exiting code." << std::endl;
+      exit(1);
+    }
+  }
+
  private:
-  Encoding<float>* encoding;
+  torch::Tensor forward_impl(int use_inference);
+
+  Encoding<bf16>* encoding;
 
   DeviceMem<float> input;
-  DeviceMem<float> output;
-  DeviceMem<float> target;
+  DeviceMem<bf16> output;
+  DeviceMem<bf16> target;
   GPUMatrix<float> input_matrix;
-  GPUMatrix<float> output_matrix;
-  GPUMatrix<float> target_matrix;
+  GPUMatrix<bf16> target_matrix;
 };
 
 EncodingModule* create_encoding(int input_width, int batch_size,
                                 int output_width, int scale, int offset,
                                 std::string device_name);
+
+class NetworkWithEncodingModule : public Module {
+ public:
+  NetworkWithEncodingModule(const int width, int input_width, int output_width,
+                            int n_hidden_layers, Activation activation,
+                            Activation output_activation, const int batch_size,
+                            int encoding_scale, int encoding_offset,
+                            std::string device_name);
+  ~NetworkWithEncodingModule() {}
+
+  torch::Tensor forward_pass(torch::Tensor input_list, torch::Tensor params,
+                             int use_inference = 0) override;
+  void forward_pass(int use_inference) override{};
+
+  torch::Tensor backward_pass(torch::Tensor input_tensor,
+                              torch::Tensor grad_output,
+                              torch::Tensor params) override;
+  void initialize_params(float* params_full_precision,
+                         int use_easy = 0) override;
+  void free_memory() override;
+  int n_params() override{};
+  void set_input(torch::Tensor input_tensor) override {}
+
+ private:
+  NetworkWithEncoding* network;
+};
+
+NetworkWithEncodingModule* create_network_with_encoding(
+    const int width, int input_width, int output_width, int n_hidden_layers,
+    Activation activation, Activation output_activation, const int batch_size,
+    int encoding_scale, int encoding_offset, std::string device_name);
 
 }  // namespace tnn

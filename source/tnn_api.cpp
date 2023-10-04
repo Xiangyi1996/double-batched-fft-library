@@ -28,20 +28,24 @@ SwiftNetModule::SwiftNetModule(const int width, int input_width,
   grads.initialize_constant(bf16(0.0f), sycl_queue);
 }
 
-torch::Tensor SwiftNetModule::forward_pass(torch::Tensor input_tensor,
-                                           torch::Tensor params,
-                                           int use_inference) {
-  //   std::cout << "Input tensor: " << input_tensor << std::endl;
+void SwiftNetModule::set_params(torch::Tensor params) {
   if (m_device_name == "cpu") {
     std::vector<bf16> params_bf16 = get_vector_from_tensor<bf16>(params);
     network->set_params(params_bf16);
-    convert_tensor_to_dev_mem(input_tensor, input);
   } else if (m_device_name == "xpu") {
     float *tensor_data = params.data_ptr<float>();
     network->set_params(tensor_data);
-    // TODO: refactor and make own function
-    // set the DeviceMem input vals to the ones from input_tensor. Because
-    // it's on device, we need to sycl_queue it
+  } else {
+    std::cout << "No behaviour for device " << m_device_name
+              << ". Exiting code." << std::endl;
+    exit(1);
+  }
+}
+
+void SwiftNetModule::set_input(torch::Tensor input_tensor) {
+  if (m_device_name == "cpu") {
+    convert_tensor_to_dev_mem(input_tensor, input);
+  } else if (m_device_name == "xpu") {
     float *input_data = input_tensor.data_ptr<float>();
     auto p = input.data();
     int s = input.size();
@@ -54,6 +58,19 @@ torch::Tensor SwiftNetModule::forward_pass(torch::Tensor input_tensor,
               << ". Exiting code." << std::endl;
     exit(1);
   }
+}
+
+torch::Tensor SwiftNetModule::forward_pass(torch::Tensor input_tensor,
+                                           torch::Tensor params,
+                                           int use_inference) {
+  //   std::cout << "Input tensor: " << input_tensor << std::endl;
+  set_params(params);
+  set_input(input_tensor);
+  forward_pass(use_inference);
+  return get_converted_tensor_from_dev_mem(output);
+}
+
+void SwiftNetModule::forward_pass(int use_inference) {
   if (use_inference) {
     // Calling forward pass of Swiftnet
     network->inference(input, network->m_forward, network->m_A_forward,
@@ -64,10 +81,6 @@ torch::Tensor SwiftNetModule::forward_pass(torch::Tensor input_tensor,
     network->forward_pass(input, network->m_forward, network->m_A_forward,
                           network->m_B_forward, network->m_C_forward, output);
   }
-
-  torch::Tensor output_tensor = get_converted_tensor_from_dev_mem(output);
-
-  return output_tensor;
 }
 
 torch::Tensor SwiftNetModule::backward_pass(torch::Tensor input_tensor,
@@ -79,7 +92,7 @@ torch::Tensor SwiftNetModule::backward_pass(torch::Tensor input_tensor,
   convert_tensor_to_dev_mem(input_tensor, input_backward);
 
   std::vector<bf16> params_bf16 = get_vector_from_tensor<bf16>(params);
-  //   network->set_params(params_bf16);
+  network->set_params(params_bf16);
 
   network->backward_pass(
       input_backward, grads, network->m_out_inter, network->m_deltas,
@@ -141,9 +154,12 @@ EncodingModule::EncodingModule(int input_width, int batch_size,
     : Module(device_name) {
   sycl_queue = sycl::queue();
 
-  input = DeviceMem<float>(batch_size * input_width, sycl_queue);
-  output = DeviceMem<float>(batch_size * output_width, sycl_queue);
-  target = DeviceMem<float>(batch_size * output_width, sycl_queue);
+  input = DeviceMem<float>(
+      batch_size * input_width,
+      sycl_queue);  // using this instead of directly in GPUMatrix because we
+                    // pass DeviceMems around for NetworkWithEncoding
+  output = DeviceMem<bf16>(batch_size * output_width, sycl_queue);
+  target = DeviceMem<bf16>(batch_size * output_width, sycl_queue);
 
   input.initialize_constant(0.01f, sycl_queue);
   output.initialize_constant(0.0f, sycl_queue);
@@ -151,12 +167,12 @@ EncodingModule::EncodingModule(int input_width, int batch_size,
 
   input_matrix = GPUMatrix<float>(input.data(), batch_size * input_width,
                                   batch_size * output_width);
-  output_matrix = GPUMatrix<float>(output.data(), batch_size * input_width,
-                                   batch_size * output_width);
-  target_matrix = GPUMatrix<float>(target.data(), batch_size * input_width,
-                                   batch_size * output_width);
+  output_matrix = GPUMatrix<bf16>(output.data(), batch_size * input_width,
+                                  batch_size * output_width);
+  target_matrix = GPUMatrix<bf16>(target.data(), batch_size * input_width,
+                                  batch_size * output_width);
 
-  encoding = new IdentityEncoding<float>(input_width, scale, offset);
+  encoding = new IdentityEncoding<bf16>(input_width, scale, offset);
 }
 
 void EncodingModule::initialize_params(float *params_full_precision,
@@ -167,35 +183,18 @@ void EncodingModule::initialize_params(float *params_full_precision,
 torch::Tensor EncodingModule::forward_pass(torch::Tensor input_tensor,
                                            torch::Tensor params,
                                            int use_inference) {
-  if (m_device_name == "cpu") {
-    // std::vector<bf16> params_bf16 = get_vector_from_tensor(params);
-    // encoding->set_params(params_bf16);
-    convert_tensor_to_dev_mem(input_tensor, input);
-  } else if (m_device_name == "xpu") {
-    float *tensor_data = params.data_ptr<float>();
-    // network->set_params(tensor_data);
-    // TODO: refactor and make own function
-    // set the DeviceMem input vals to the ones from input_tensor. Because
-    // it's on device, we need to sycl_queue it
-    float *input_data = input_tensor.data_ptr<float>();
-    auto p = input.data();
-    int s = input.size();
-    sycl_queue
-        .parallel_for<>(range<1>(s),
-                        [=](id<1> idx) { p[idx] = bf16(input_data[idx]); })
-        .wait();
-  } else {
-    std::cout << "No behaviour for device " << m_device_name
-              << ". Exiting code." << std::endl;
-    exit(1);
-  }
-
+  set_input(input_tensor);
   std::unique_ptr<Context> model_ctx =
       encoding->forward_impl(&sycl_queue, input_matrix, &output_matrix);
 
   torch::Tensor output_tensor = get_converted_tensor_from_dev_mem(output);
 
   return output_tensor;
+}
+
+void EncodingModule::forward_pass(int use_inference) {
+  std::unique_ptr<Context> model_ctx =
+      encoding->forward_impl(&sycl_queue, input_matrix, &output_matrix);
 }
 
 torch::Tensor EncodingModule::backward_pass(torch::Tensor input_tensor,
@@ -208,6 +207,56 @@ EncodingModule *create_encoding(int input_width, int batch_size,
                                 std::string device_name) {
   return new EncodingModule(input_width, batch_size, output_width, scale,
                             offset, device_name);
+}
+
+NetworkWithEncodingModule::NetworkWithEncodingModule(
+    const int width, int input_width, int output_width, int n_hidden_layers,
+    Activation activation, Activation output_activation, const int batch_size,
+    int encoding_scale, int encoding_offset, std::string device_name)
+    : Module(device_name) {
+  network = NetworkWithEncoding(input_width, output_width, n_hidden_layers,
+                                activation, output_activation, batch_size,
+                                encoding_scale, encoding_offset);
+}
+
+torch::Tensor NetworkWithEncodingModule::forward_pass(
+    torch::Tensor input_tensor, torch::Tensor params, int use_inference) {
+  // directly call from network_with_encoding
+  // first run through encoding and then pass the result to the network
+  //   encoding->set_input(input_tensor);
+  //   encoding->forward_pass(use_inference);
+
+  //   network->set_params(params);
+  //   network->set_input(encoding->output_matrix.data());
+  //   network->forward_pass(use_inference);
+  //   return get_converted_tensor_from_dev_mem(network->output);
+}
+
+torch::Tensor NetworkWithEncodingModule::backward_pass(
+    torch::Tensor input_tensor, torch::Tensor grad_output,
+    torch::Tensor params) {
+  encoding->backward_pass(input_tensor, grad_output,
+                          params);  // encoding has no gradient_param, only for
+                                    // input, but that's not needed here
+
+  return network->backward_pass(input_tensor, grad_output, params);
+}
+
+void NetworkWithEncodingModule::initialize_params(float *params_full_precision,
+                                                  int use_easy) {
+  network->initialize_params(params_full_precision, use_easy);
+  encoding->initialize_params(params_full_precision,
+                              use_easy);  // this is an empty call
+}
+
+NetworkWithEncodingModule *create_network(
+    const int width, int input_width, int output_width, int n_hidden_layers,
+    Activation activation, Activation output_activation, const int batch_size,
+    int encoding_scale, int encoding_offset, std::string device_name) {
+  return new NetworkWithEncodingModule(
+      width, input_width, output_width, n_hidden_layers, activation,
+      output_activation, batch_size, encoding_scale, encoding_offset,
+      device_name);
 }
 
 }  // namespace tnn
