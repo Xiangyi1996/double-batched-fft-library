@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 import copy
+import numpy as np
 
 BIAS = False
 
@@ -14,9 +15,10 @@ class MLP(torch.nn.Module):
         activation_func="relu",
         output_activation=None,
         use_batchnorm=False,
+        save_outputs=False,
     ):
         super().__init__()
-
+        self.save_outputs = save_outputs
         # Used for gradecheck and naming consistency with modules.py (Swiftnet)
         self.input_width = input_size
         self.output_width = output_size
@@ -53,13 +55,25 @@ class MLP(torch.nn.Module):
         self.layers.append(torch.nn.Linear(hidden_sizes[-1], output_size, bias=False))
 
     def forward(self, x):
+        if self.save_outputs:
+            layer_outputs = [x[0, :].cpu().detach().numpy()[None,]]
         for i, layer in enumerate(self.layers):
             if i == len(self.layers) - 1:
                 x = self._apply_activation(layer(x), self.output_activation)
             else:
                 x = self._apply_activation(layer(x), self.activation_func)
-            # print(f"Layer {i}")
-            # print(x[0, :])
+            if self.save_outputs:
+                layer_outputs.append(x[0, :].cpu().detach().numpy()[None,])
+
+        if self.save_outputs:
+            # Specify the file path where you want to save the CSV file
+            file_path = "python/torch.csv"
+            np.savetxt(
+                file_path,
+                np.array(layer_outputs).squeeze(),
+                delimiter=",",
+                fmt="%f",
+            )
         return x
 
     def _apply_activation(self, x, activation_func):

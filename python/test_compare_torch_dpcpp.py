@@ -4,6 +4,7 @@ import intel_extension_for_pytorch  # required for SwiftNet
 import pytest
 import time
 from utils import create_models
+import csv
 
 # Define the parameters for the grid search
 input_sizes = [1, 2, 8, 16, 64]
@@ -13,7 +14,7 @@ output_sizes = [1, 2, 8, 16, 64]
 activation_funcs = ["relu", "linear"]
 hidden_layer_counts = [1, 2, 3, 4, 5]
 
-BATCH_SIZE = 128
+BATCH_SIZE = 64
 DEVICE_NAME = "cpu"
 
 
@@ -27,7 +28,7 @@ class CustomMSELoss(torch.nn.Module):
         return mse
 
 
-def train_model(model, x_train, y_train, n_steps):
+def train_model(model, x_train, y_train, n_steps, save_grads=False):
     batch_size = BATCH_SIZE
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     loss_fn = CustomMSELoss()
@@ -63,6 +64,22 @@ def train_model(model, x_train, y_train, n_steps):
                     else:
                         grad = gradient
                     grads_all.append(grad)
+            if save_grads:
+                flattened_gradients = [
+                    tensor.flatten().tolist() for tensor in grads_all
+                ]
+                file_path = "python/torch_grads.csv"
+
+                # Write the flattened gradients to the CSV file
+                with open(file_path, mode="w", newline="") as file:
+                    writer = csv.writer(file)
+                    writer.writerows(flattened_gradients)
+
+                file_path = "python/torch_loss.csv"
+                with open(file_path, mode="w", newline="") as file:
+                    writer = csv.writer(file)
+                    writer.writerows([[loss.tolist()]])
+
             grads.append(grads_all)
             optimizer.step()
             all_loss.append(loss.detach().numpy())
@@ -96,11 +113,11 @@ def test_grad(
         if iter_ == 0:
             # easiest, debug test
             x_train = (
-                torch.tensor(BATCH_SIZE * [1.0 for _ in range(input_size)])
+                torch.tensor(BATCH_SIZE * [0.001 for _ in range(input_size)])
                 .to(DEVICE_NAME)
                 .reshape(BATCH_SIZE, -1)
             )
-            y_train = torch.ones([BATCH_SIZE, output_size]).to(DEVICE_NAME)
+            y_train = torch.ones([BATCH_SIZE, output_size]).to(DEVICE_NAME) * 0.1
         else:
             x_train = torch.rand([BATCH_SIZE, input_size]).to(DEVICE_NAME)
             y_train = torch.rand([BATCH_SIZE, output_size]).to(DEVICE_NAME)
@@ -121,7 +138,7 @@ def test_grad(
             model_dpcpp, x_train, y_train, n_steps
         )
         loss_torch, y_torch, grads_torch = train_model(
-            model_torch, x_train, y_train, n_steps
+            model_torch, x_train, y_train, n_steps, save_grads=False
         )
         grads_dpcpp = grads_dpcpp[0][0]
         grads_torch = grads_torch[0]
@@ -184,24 +201,6 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
     print(
         f"diff: {y_torch[0, :] - y_dpcpp[0, :]}, average: {abs(y_torch[0, :] - y_dpcpp[0, :]).mean()}"
     )
-    save_csv = False
-    if save_csv:
-        # Specify the file path where you want to save the CSV file
-        file_path = "python/torch.csv"
-        # Save the NumPy array to a CSV file with full precision
-        np.savetxt(
-            file_path,
-            y_torch[0, :].cpu().detach().numpy()[None,],
-            delimiter=",",
-            fmt="%f",
-        )
-        file_path = "python/dpcpp.csv"
-        np.savetxt(
-            file_path,
-            y_dpcpp[0, :].cpu().detach().numpy()[None,],
-            delimiter=",",
-            fmt="%f",
-        )
 
     # Ensure both models have the same weights
     # assert torch.allclose(
@@ -222,13 +221,13 @@ if __name__ == "__main__":
     output_func = "linear"
     # output_func = "relu"
 
-    test_fwd(input_width, n_hidden_layers, output_width, activation_func, output_func)
-    print("Passed fwd test")
+    # test_fwd(input_width, n_hidden_layers, output_width, activation_func, output_func)
+    # print("Passed fwd test")
 
-    # test_grad(
-    #     input_width,
-    #     n_hidden_layers,
-    #     output_width,
-    #     activation_func,
-    #     output_func,
-    # )
+    test_grad(
+        input_width,
+        n_hidden_layers,
+        output_width,
+        activation_func,
+        output_func,
+    )

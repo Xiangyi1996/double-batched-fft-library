@@ -45,7 +45,7 @@ class _module_function(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, doutput):
-        input, params, output = ctx.saved_tensors
+        input, output, params = ctx.saved_tensors
 
         with torch.no_grad():
             grad = ctx.native_tcnn_module.bwd(input, doutput, params)

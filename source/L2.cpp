@@ -33,10 +33,11 @@ void L2_loss(id<1> idx, const int n_elements, const int dims, const int stride,
 
   // Compute the squared difference between preds and targets
   const float difference = (preds[idx] - targets[target_idx]);
-  values[idx] = difference * difference;
+  values[idx] = difference * difference / N_total_elements;
 
   // Compute gradient using bf16 type
-  grads[idx] = bf16(2 * ((bf16)preds[idx] - (bf16)targets[target_idx]));
+  grads[idx] = bf16(2 * ((bf16)preds[idx] - (bf16)targets[target_idx]) /
+                    N_total_elements * scale);
 }
 
 /**

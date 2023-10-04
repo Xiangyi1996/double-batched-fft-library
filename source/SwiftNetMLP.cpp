@@ -300,6 +300,8 @@ void workgroup_prefetch(
       // Copy input data to activation memory
       a[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id] =
           input[TN * sgId + WIDTH * TM * i + k * WIDTH + id];
+      item.barrier(sycl::access::fence_space::local_space);
+
       //   if (print) {
       //     int b_first;
       //     int b_second;
@@ -351,6 +353,7 @@ void workgroup_prefetch(
       // Copy input data to activation memory
       a[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id] =
           forward[TN * sgId + WIDTH * TM * i + k * WIDTH + id];
+      item.barrier(sycl::access::fence_space::local_space);
     }
   }
 }

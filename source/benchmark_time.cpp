@@ -22,20 +22,21 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 #define INPUT_WIDTH 64
 #define OUTPUT_WIDTH 64
 #define HIDDEN_LAYERS 4
-bool areVectorsWithinTolerance(const std::vector<float>& a,
-                               const std::vector<float>& b, float tolerance) {
+bool areVectorsWithinTolerance(const std::vector<float>& value,
+                               const std::vector<float>& target,
+                               float tolerance) {
   //   assert(a.size() == b.size());  // Ensure vectors have the same length
 
   bool allWithinTolerance = true;
 
-  for (size_t i = 0; i < b.size(); ++i) {
-    float diff = std::abs(a[i] - b[i]);
+  for (size_t i = 0; i < target.size(); ++i) {
+    float diff = std::abs(value[i] - target[i]);
 
     if (diff > tolerance) {
       allWithinTolerance = false;
       std::cout << "Element at index " << i
-                << " is not within tolerance. Value A: " << a[i]
-                << ", Value B: " << b[i] << ". Diff: " << diff << std::endl;
+                << " is not within tolerance. Value: " << value[i]
+                << ", Target: " << target[i] << ". Diff: " << diff << std::endl;
     }
   }
 
@@ -48,6 +49,36 @@ bool areVectorsWithinTolerance(const std::vector<float>& a,
   return allWithinTolerance;
 }
 
+// Function to read target vectors from a file with a specified delimiter
+std::vector<std::vector<float>> readTargetVectorsFromFile(
+    const std::string& filename, char delimiter) {
+  std::vector<std::vector<float>> targetVectors;
+
+  std::ifstream inputFile(filename);
+  if (!inputFile.is_open()) {
+    std::cerr << "Error opening " << filename << std::endl;
+    return targetVectors;  // Return an empty vector in case of an error
+  }
+
+  std::string line;
+
+  while (std::getline(inputFile, line)) {
+    std::vector<float> vectorFromCSV;
+    std::istringstream lineStream(line);
+    std::string valueStr;
+
+    while (std::getline(lineStream, valueStr, delimiter)) {
+      float value = std::stod(valueStr);  // Convert the string to a double
+      vectorFromCSV.push_back(value);
+    }
+
+    targetVectors.push_back(vectorFromCSV);
+  }
+
+  inputFile.close();
+
+  return targetVectors;
+}
 void benchmark_time() {
   // SWIFTNET
 
@@ -68,7 +99,7 @@ void benchmark_time() {
   const int WIDTH = 64;
   const int m_n_hidden_layers = HIDDEN_LAYERS;
 
-  const float scale = 1e-3f;
+  const float scale = 1.0f;
 
   L2Loss loss;
   SGDOptimizer optim =
@@ -86,8 +117,8 @@ void benchmark_time() {
 
     SwiftNetMLP<64> network =
         SwiftNetMLP<64>(q, INPUT_WIDTH, output_width, m_n_hidden_layers,
-                        //   Activation::ReLU, Activation::ReLU, batch_size);
-                        Activation::None, Activation::None, batch_size);
+                        Activation::ReLU, Activation::None, batch_size);
+    // Activation::None, Activation::None, batch_size);
 
     Trainer train(network, loss, optim);
 
@@ -162,36 +193,94 @@ void benchmark_time() {
               << mean_training_throughput
               << "/s. Waiting 10 seconds for GPU to cool down." << std::endl;
 
-    // std::cout << "Post Sanity check: " << std::endl;
-    // std::cout << "Target: " << std::endl;
-    // printGPUMatrix(bench_target);
-    // std::cout << "Batch: " << std::endl;
-    // printGPUMatrix(batch);
-
     // Sanity check: we run with aranged weights and 4 layers and 0.001 as
     // input. Values generated from test_compare_torch_dpcpp.py and saved in
     // python/dpcpp.csv (bf16 vals). python/torch.csv is float vals
-    std::vector<float> target_vector = {
-        -0.229248, -0.213135, -0.198486, -0.183838, -0.168823, -0.153809,
-        -0.138794, -0.123779, -0.108765, -0.093750, -0.078735, -0.063721,
-        -0.048706, -0.033783, -0.018768, -0.003754, 0.011261,  0.026276,
-        0.041290,  0.056213,  0.071228,  0.086243,  0.101074,  0.116455,
-        0.131104,  0.146484,  0.161133,  0.176514,  0.191162,  0.205811,
-        0.221191,  0.236572,  -0.229248, -0.213135, -0.198486, -0.183838,
-        -0.168823, -0.153809, -0.138794, -0.123779, -0.108765, -0.093750,
-        -0.078735, -0.063721, -0.048706, -0.033783, -0.018768, -0.003754,
-        0.011261,  0.026276,  0.041290,  0.056213,  0.071228,  0.086243,
-        0.101074,  0.116455,  0.131104,  0.146484,  0.161133,  0.176514,
-        0.191162,  0.205811,  0.221191,  0.236572};
+
     float tolerance = 0.001;
 
     std::vector<float> out(batch_size * (OUTPUT_WIDTH));
     output.copy_to_host(out, q);
-    areVectorsWithinTolerance(out, target_vector, tolerance);
 
-    // std::cout << "Output[0] (all are the same): " << out[0]
-    //           << ", ref val: " << target_value << ". Within tolerance: "
-    //           << (abs(out[0] - target_value) < tolerance) << std::endl;
+    std::vector<float> fwd(
+        batch_size * (INPUT_WIDTH + OUTPUT_WIDTH + WIDTH * m_n_hidden_layers));
+    q.memcpy(fwd.data(), network.m_forward, fwd.size() * sizeof(float));
+    q.wait();
+
+    std::vector<bf16> grads_vec(network.m_grads_matrices.size());
+    network.m_grads_matrices.copy_to_host(grads_vec, q);
+
+    // for (int i_g = 0; i_g < grads_vec.size(); i_g++) {
+    //   std::cout << i_g << ": " << grads_vec[i_g] << std::endl;
+    // }
+
+    std::vector<std::vector<float>> targetVectors =
+        readTargetVectorsFromFile("python/torch.csv", ',');
+
+    std::vector<std::vector<float>> targetGrads =
+        readTargetVectorsFromFile("python/torch_grads.csv", ',');
+
+    // get every layer from fwd:
+    for (int i = 0; i < m_n_hidden_layers + 2; i++) {
+      int layer_size;
+      int grads_layer_size;
+
+      int start_idx;
+      int end_idx;
+
+      int start_idx_grads;
+      int end_idx_grads;
+
+      if (i == 0) {
+        layer_size = INPUT_WIDTH;
+        start_idx = 0;
+        end_idx = INPUT_WIDTH * batch_size;
+
+        grads_layer_size = WIDTH * INPUT_WIDTH;
+        start_idx_grads = 0;
+        end_idx_grads = WIDTH * INPUT_WIDTH;
+      } else if (i == m_n_hidden_layers + 1) {
+        layer_size = OUTPUT_WIDTH;
+        start_idx = (INPUT_WIDTH + WIDTH * m_n_hidden_layers) * batch_size;
+        end_idx = (INPUT_WIDTH + OUTPUT_WIDTH + WIDTH * m_n_hidden_layers) *
+                  batch_size;
+
+        grads_layer_size = WIDTH * OUTPUT_WIDTH;
+        start_idx_grads = WIDTH * INPUT_WIDTH + (WIDTH * WIDTH) * (i);
+        end_idx_grads =
+            WIDTH * INPUT_WIDTH + (WIDTH * WIDTH) * (i) + WIDTH * OUTPUT_WIDTH;
+        std::cout << "For output layer (out): ";
+        tolerance *= 2;  // increase tolerance for last layer (accumulated error
+                         // through layers between bf16 and float)
+        areVectorsWithinTolerance(out, targetVectors[i], tolerance);
+      } else {
+        layer_size = WIDTH;
+        start_idx = (INPUT_WIDTH + WIDTH * (i - 1)) * batch_size;
+        end_idx = (INPUT_WIDTH + WIDTH * (i)) * batch_size;
+
+        grads_layer_size = WIDTH * WIDTH;
+        start_idx_grads = WIDTH * INPUT_WIDTH + (WIDTH * WIDTH) * (i - 1);
+        end_idx_grads = WIDTH * INPUT_WIDTH + (WIDTH * WIDTH) * (i);
+      }
+
+      std::vector<float> layer(batch_size * layer_size);
+      std::copy(fwd.begin() + start_idx, fwd.begin() + end_idx, layer.begin());
+
+      std::vector<bf16> layer_grads(grads_layer_size);
+      std::copy(grads_vec.begin() + start_idx_grads,
+                grads_vec.begin() + end_idx_grads, layer_grads.begin());
+
+      std::cout << "Layer " << i << ", start_idx: " << start_idx
+                << ", end_idx: " << end_idx << ". ";
+
+      areVectorsWithinTolerance(layer, targetVectors[i], tolerance);
+
+      //   std::cout << "Grads Layer " << i << ", start_idx: " <<
+      //   start_idx_grads
+      //             << ", end_idx: " << end_idx_grads;
+
+      // areVectorsWithinTolerance(layer_grads, targetGrads[i], tolerance);
+    }
 
     std::this_thread::sleep_for(std::chrono::seconds{10});
     begin = std::chrono::steady_clock::now();
@@ -238,7 +327,9 @@ void benchmark_time() {
               << "/s. Waiting 10 seconds for GPU to cool down." << std::endl;
 
     output.copy_to_host(out, q);
-    areVectorsWithinTolerance(out, target_vector, tolerance);
+    areVectorsWithinTolerance(out, targetVectors.back(), tolerance * 2);
+    // accumulated tolerance for last layer due to
+    // accumulated error between bf16 and float
 
     // std::cout << "Output[0] (all are the same): " << out[0]
     //           << ", ref val: " << target_value
