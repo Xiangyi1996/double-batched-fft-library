@@ -103,7 +103,7 @@ class EncodingTrainer {
   //     //auto p = m_encoding->m_forward;
   //     m_encoding->get_queue().parallel_for<WIDTH>(
   //         range<1>(input.size()), [=](id<1> idx) { input_mat.data()[idx] =
-  //         input.data()[idx]; });
+  //         input.data()[idx]; }).wait();
 
   //     /*m_encoding->forward_pass(input, m_encoding->m_forward,
   //     m_encoding->m_A_forward,
@@ -155,7 +155,7 @@ class EncodingTrainer {
     auto p = m_encoding->m_forward;
     // m_encoding->get_queue().parallel_for<WIDTH>(
     //     range<1>(input.size()), [=](id<1> idx) { p[idx] = input.data()[idx];
-    //     });
+    //     }).wait();
 
     /*m_encoding->forward_pass(input, m_encoding->m_forward,
        m_encoding->m_A_forward, m_encoding->m_B_forward,
@@ -309,12 +309,25 @@ class Trainer {
     // const int batch_size = std::pow(2, 19);
 
     auto p = m_network->m_forward;
-    m_network->get_queue().parallel_for<>(
-        range<1>(input.size()), [=](id<1> idx) { p[idx] = input.data()[idx]; });
+    m_network->get_queue()
+        .parallel_for<>(range<1>(input.size()),
+                        [=](id<1> idx) { p[idx] = input.data()[idx]; })
+        .wait();
 
-    m_network->forward_pass(input, m_network->m_forward, m_network->m_A_forward,
-                            m_network->m_B_forward, m_network->m_C_forward,
-                            output);
+    if (run_inference) {
+      forward_only = 1;
+      m_network->inference(input, m_network->m_forward, m_network->m_A_forward,
+                           m_network->m_B_forward, m_network->m_C_forward,
+                           output);
+
+    } else {
+      m_network->forward_pass(input, m_network->m_forward,
+                              m_network->m_A_forward, m_network->m_B_forward,
+                              m_network->m_C_forward, output);
+    }
+    if (forward_only) {
+      return;
+    }
 
     m_loss->evaluate(m_network->get_queue(), WIDTH, WIDTH, scale, output,
                      target, grads, losses);

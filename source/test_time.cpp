@@ -406,7 +406,7 @@
 //             << std::endl;
 //   auto p = network.m_forward;
 //   q.parallel_for<>(range<1>(inputs.size()),
-//                    [=](id<1> idx) { p[idx] = inputs.data()[idx]; });
+//                    [=](id<1> idx) { p[idx] = inputs.data()[idx]; }).wait();
 
 //   start_time = std::chrono::high_resolution_clock::now();
 //   for (int i = 0; i < iter_steps; ++i) {

@@ -407,7 +407,7 @@
 //   losses.initialize_constant(0.0f, q);
 //   q.parallel_for<>(range<1>(inputs.size()), [=](id<1> idx) {
 //     forward[idx] = (float)inputs.data()[idx];
-//   });
+//   }).wait();
 //   network.initialize_params();
 //   network.forward_pass(inputs, forward, A_forward, B_forward, C_forward,
 //                        output);
@@ -506,7 +506,7 @@
 //   losses.initialize_constant(0.0f, q);
 //   q.parallel_for<>(range<1>(inputs.size()), [=](id<1> idx) {
 //       forward[idx] = (float)inputs.data()[idx];
-//       });
+//       }).wait();
 //   std::cout << "2" << std::endl;
 //   train.training_step(inputs,
 //       forward,

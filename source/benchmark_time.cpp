@@ -100,8 +100,7 @@ void benchmark_time() {
     losses.initialize_constant(0.0f, q);
 
     // Various constants for the network and optimization
-    // uint32_t n_iterations = std::max(1000 * (1 << 18) / batch_size, 250u);
-    uint32_t n_iterations = 20;
+    uint32_t n_iterations = std::max(1000 * (1 << 18) / batch_size, 250u);
     uint32_t n_iterations_warmup = n_iterations / 2;
 
     std::chrono::steady_clock::time_point begin =

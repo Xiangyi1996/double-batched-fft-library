@@ -210,13 +210,13 @@ void DeviceMem<T>::initialize_normal(double dev, DeviceMem<T>& transposed,
   buffer<T, 1> buf(data.data(), data.size());
   buffer<T, 1> bufT(dataT.data(), dataT.size());
   q.submit([&](handler& h) {
-    auto acc = buf.get_access(h);
-    auto accT = bufT.get_access(h);
-    h.parallel_for(m_size, [=](id<1> idx) {
-      p[idx] = acc[idx];
-      transposed.data()[idx] = accT[idx];
-    });
-  });
+     auto acc = buf.get_access(h);
+     auto accT = bufT.get_access(h);
+     h.parallel_for(m_size, [=](id<1> idx) {
+       p[idx] = acc[idx];
+       transposed.data()[idx] = accT[idx];
+     });
+   }).wait();
 }
 
 /**
@@ -330,13 +330,13 @@ void DeviceMem<T>::initialize_uniform(double scale, DeviceMem<T>& transposed,
   buffer<T, 1> bufT(dataT.data(), dataT.size());
   //   std::cout << "Crashes here2" << std::endl;
   q.submit([&](handler& h) {
-    auto acc = buf.get_access(h);
-    auto accT = bufT.get_access(h);
-    h.parallel_for(m_size, [=](id<1> idx) {
-      p[idx] = acc[idx];
-      transposed.data()[idx] = accT[idx];
-    });
-  });
+     auto acc = buf.get_access(h);
+     auto accT = bufT.get_access(h);
+     h.parallel_for(m_size, [=](id<1> idx) {
+       p[idx] = acc[idx];
+       transposed.data()[idx] = accT[idx];
+     });
+   }).wait();
   //   std::cout << "NO ISSUE2" << std::endl;
 }
 
@@ -362,79 +362,81 @@ void DeviceMem<T>::make_transposed(DeviceMem<T>& transposed, int input_width,
   auto p = m_data;
 
   q.parallel_for<>(
-      range<1>(input_width * width + n_hidden * width * width +
-               width * output_width),
-      [=](id<1> idx) {
-        int i = 0;
-        int j = 0;
-        int mat_num = 0;
-        int mat_offset = 0;
+       range<1>(input_width * width + n_hidden * width * width +
+                width * output_width),
+       [=](id<1> idx) {
+         int i = 0;
+         int j = 0;
+         int mat_num = 0;
+         int mat_offset = 0;
 
-        if (idx < input_width * width) {
-          i = idx / input_width;
-          j = idx % input_width;
-          transposed
-              .data()[toPackedLayoutCoord(j * width + i, input_width, width)] =
-              p[toPackedLayoutCoord(i * input_width + j, width, input_width)];
-          //   int b_first;
-          //   int b_second;
-          //   static const CONSTANT char FMT[] =
-          //       "Input Writing from %d to %d: %d.%d,\n";
-          //   get_float(p[toPackedLayoutCoord(i * width + j, input_width,
-          //   width)],
-          //             b_first, b_second);
-          //   sycl::ext::oneapi::experimental::printf(
-          //       FMT, toPackedLayoutCoord(i * width + j, input_width, width),
-          //       toPackedLayoutCoord(j * width + i, width, input_width),
-          //       b_first, b_second);
+         if (idx < input_width * width) {
+           i = idx / input_width;
+           j = idx % input_width;
+           transposed
+               .data()[toPackedLayoutCoord(j * width + i, input_width, width)] =
+               p[toPackedLayoutCoord(i * input_width + j, width, input_width)];
+           //   int b_first;
+           //   int b_second;
+           //   static const CONSTANT char FMT[] =
+           //       "Input Writing from %d to %d: %d.%d,\n";
+           //   get_float(p[toPackedLayoutCoord(i * width + j, input_width,
+           //   width)],
+           //             b_first, b_second);
+           //   sycl::ext::oneapi::experimental::printf(
+           //       FMT, toPackedLayoutCoord(i * width + j, input_width, width),
+           //       toPackedLayoutCoord(j * width + i, width, input_width),
+           //       b_first, b_second);
 
-        } else if (idx < input_width * width + n_hidden * width * width) {
-          mat_num = (idx - input_width * width) / (width * width);
-          mat_offset = (idx - input_width * width) % (width * width);
-          i = mat_offset / width;
-          j = mat_offset % width;
+         } else if (idx < input_width * width + n_hidden * width * width) {
+           mat_num = (idx - input_width * width) / (width * width);
+           mat_offset = (idx - input_width * width) % (width * width);
+           i = mat_offset / width;
+           j = mat_offset % width;
 
-          //   static const CONSTANT char FMT[] =
-          //       "Writing from %d, idx: %d i: %d, j: %d, mat offset: %d,
-          //       packed: "
-          //       "%d\n";
-          //   sycl::ext::oneapi::experimental::printf(
-          //       FMT, input_width * width + mat_num * width * width, int(idx),
-          //       i, j, mat_offset, toPackedLayoutCoord(j * width + i, width,
-          //       width));
-          transposed.data()[input_width * width + mat_num * width * width +
-                            toPackedLayoutCoord(j * width + i, width, width)] =
-              p[input_width * width + mat_num * width * width +
-                toPackedLayoutCoord(i * width + j, width, width)];
-        } else {
-          mat_offset = (idx - input_width * width - n_hidden * width * width) %
-                       (width * output_width);
-          i = mat_offset / output_width;
-          j = mat_offset % output_width;
-          transposed
-              .data()[input_width * width + n_hidden * width * width +
-                      toPackedLayoutCoord(j * width + i, output_width, width)] =
-              p[input_width * width + n_hidden * width * width +
-                toPackedLayoutCoord(i * output_width + j, width, output_width)];
+           //   static const CONSTANT char FMT[] =
+           //       "Writing from %d, idx: %d i: %d, j: %d, mat offset: %d,
+           //       packed: "
+           //       "%d\n";
+           //   sycl::ext::oneapi::experimental::printf(
+           //       FMT, input_width * width + mat_num * width * width,
+           //       int(idx), i, j, mat_offset, toPackedLayoutCoord(j * width +
+           //       i, width, width));
+           transposed.data()[input_width * width + mat_num * width * width +
+                             toPackedLayoutCoord(j * width + i, width, width)] =
+               p[input_width * width + mat_num * width * width +
+                 toPackedLayoutCoord(i * width + j, width, width)];
+         } else {
+           mat_offset = (idx - input_width * width - n_hidden * width * width) %
+                        (width * output_width);
+           i = mat_offset / output_width;
+           j = mat_offset % output_width;
+           transposed.data()[input_width * width + n_hidden * width * width +
+                             toPackedLayoutCoord(j * width + i, output_width,
+                                                 width)] =
+               p[input_width * width + n_hidden * width * width +
+                 toPackedLayoutCoord(i * output_width + j, width,
+                                     output_width)];
 
-          //   int b_first;
-          //   int b_second;
-          //   static const CONSTANT char FMT[] =
-          //       "Out Writing from %d to %d  i: %d, j: %d\n";
-          //   get_float(
-          //       transposed.data()[input_width * width + n_hidden * width *
-          //       width +
-          //                         toPackedLayoutCoord(i * output_width + j,
-          //                         width,
-          //                                             output_width)],
-          //       b_first, b_second);
-          //   sycl::ext::oneapi::experimental::printf(
-          //       FMT,
-          //       toPackedLayoutCoord(i * output_width + j, width,
-          //       output_width), toPackedLayoutCoord(j * width + i,
-          //       output_width, width), i, j);
-        }
-      });
+           //   int b_first;
+           //   int b_second;
+           //   static const CONSTANT char FMT[] =
+           //       "Out Writing from %d to %d  i: %d, j: %d\n";
+           //   get_float(
+           //       transposed.data()[input_width * width + n_hidden * width *
+           //       width +
+           //                         toPackedLayoutCoord(i * output_width + j,
+           //                         width,
+           //                                             output_width)],
+           //       b_first, b_second);
+           //   sycl::ext::oneapi::experimental::printf(
+           //       FMT,
+           //       toPackedLayoutCoord(i * output_width + j, width,
+           //       output_width), toPackedLayoutCoord(j * width + i,
+           //       output_width, width), i, j);
+         }
+       })
+      .wait();
 }
 
 /**

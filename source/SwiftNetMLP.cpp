@@ -1741,7 +1741,7 @@ void SwiftNetMLP<WIDTH>::backward_pass(
   //     std::cout << "Fwd - " << i << ": " << fwd[i] << std::endl;
   //   }
 
-  // Compute activation backpropagation using parallel_for
+  // Compute activation backpropagation
   m_q.parallel_for<>(range<1>(WIDTH * batch_size),
                      [=](id<1> idx) {
                        int i = idx / batch_size;
@@ -1761,7 +1761,7 @@ void SwiftNetMLP<WIDTH>::backward_pass(
                        //        b_second);
                      })
       .wait();
-  // Compute output activation backpropagation using parallel_for and copy to
+  // Compute output activation backpropagation and copy to
   // loss array
   m_q.parallel_for<>(range<1>(batch_size * m_output_width),
                      [=](id<1> idx) {
