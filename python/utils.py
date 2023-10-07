@@ -3,7 +3,7 @@ import torch
 import intel_extension_for_pytorch  # required for SwiftNet
 
 from mlp import MLP
-from modules import SwiftNet
+from modules import SwiftNet, NetworkWithEncoding
 from tiny_nn import Activation
 
 import os
@@ -55,7 +55,17 @@ def create_models(
     activation = get_dpcpp_activation(activation_func)
     output_activation = get_dpcpp_activation(output_func)
 
-    model_dpcpp = SwiftNet(
+    # model_dpcpp = SwiftNet(
+    #     batch_size=batch_size,
+    #     width=WIDTH,
+    #     input_width=input_size,
+    #     output_width=output_size,
+    #     n_hidden_layers=hidden_size,
+    #     activation=activation,
+    #     output_activation=output_activation,
+    #     device=device_name,
+    # )
+    model_dpcpp = NetworkWithEncoding(
         batch_size=batch_size,
         width=WIDTH,
         input_width=input_size,

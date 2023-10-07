@@ -1,34 +1,3 @@
-/*
- * Copyright (c) 2020-2023, NVIDIA CORPORATION.  All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright notice,
- * this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- *     * Neither the name of the NVIDIA CORPORATION nor the names of its
- * contributors may be used to endorse or promote products derived from this
- * software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL NVIDIA CORPORATION BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TOR
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
-/** @file   encoding.h
- *  @author Thomas Müller, NVIDIA
- *  @brief  API interface for input encodings
- */
-
 #pragma once
 
 #include <common.h>
@@ -38,8 +7,12 @@
 #include <sycl/sycl.hpp>
 
 #include "activation.h"
+#include "common_host.h"
 #include "gpu_matrix.h"
+#include "json.hpp"
 
+using json = nlohmann::json;
+using bf16 = sycl::ext::oneapi::bfloat16;
 enum class GradientMode {
   Ignore,
   Overwrite,
@@ -117,9 +90,10 @@ class Encoding {
 
   // TODO: Do we require lcm / gcm as well?
   void set_alignment(uint32_t alignment) {
-    this->set_padded_output_width(
-        next_multiple(this->output_width(),
-                      lcm(alignment, this->required_output_alignment())));
+    // this->set_padded_output_width(
+    //     next_multiple(this->output_width(),
+    //                   lcm(alignment, this->required_output_alignment())));
+    this->set_padded_output_width(this->output_width());
   }
 
   virtual uint32_t input_width() const = 0;
@@ -182,7 +156,6 @@ class Encoding {
 
   int m_total_n_params;
 
- private:
   struct ForwardContext : public Context {
     GPUMatrixDynamic<T> network_input;
     std::unique_ptr<Context> encoding_ctx;

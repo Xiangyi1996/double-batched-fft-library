@@ -32,7 +32,7 @@ class Network {
 
   // Get the SYCL queue associated with the network
   queue get_queue() { return m_q; }
-  virtual void set_params(std::vector<bf16> params) = 0;
+  virtual void set_params(std::vector<bf16>& params) = 0;
   virtual void set_params(float* params) = 0;
 
   virtual DeviceMem<bf16>* get_grads_matrices() = 0;

@@ -162,7 +162,7 @@ class SwiftNetMLP : public Network {
                                  DeviceMem<bf16>& loss, int batch_size,
                                  float* A, float* B, float* C, float* D,
                                  float* E, float* F);
-  void set_params(std::vector<bf16> params) override;
+  void set_params(std::vector<bf16>& params) override;
   void set_params(float* params) override;
 
   void save_to_file(std::string filename);

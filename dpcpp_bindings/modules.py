@@ -127,18 +127,6 @@ class Module(torch.nn.Module):
         all_weights.append(output_matrix)
         return all_weights
 
-    def create_module(self):
-        return tnn.create_network(
-            self.width,
-            self.input_width,
-            self.output_width,
-            self.n_hidden_layers,
-            self.activation,
-            self.output_activation,
-            self.batch_size,
-            self.device,
-        )
-
     def forward(self, x):
         x = x.reshape(-1, 1)  # flatten for tiny nn
         output = _module_function.apply(self.tnn_module, x, self.params)
@@ -177,3 +165,63 @@ class SwiftNet(Module):
         self.output_activation = output_activation
 
         super().__init__(device=device)
+
+    def create_module(self):
+        return tnn.create_network(
+            self.width,
+            self.input_width,
+            self.output_width,
+            self.n_hidden_layers,
+            self.activation,
+            self.output_activation,
+            self.batch_size,
+            self.device,
+        )
+
+
+class NetworkWithEncoding(Module):
+    def __init__(
+        self,
+        batch_size=64,  # needs to be % 64 == 0
+        width=64,  # needs to be 16, 32, 64
+        input_width=1,
+        output_width=1,
+        n_hidden_layers=1,
+        activation=Activation.ReLU,
+        output_activation=Activation.ReLU,
+        encoding_name="Identity",
+        encoding_cfg=None,
+        device="xpu",
+    ):
+        self.batch_size = batch_size
+        self.width = width
+        self.input_width = input_width
+        self.output_width = output_width
+        self.n_hidden_layers = n_hidden_layers
+        self.activation = activation
+        self.output_activation = output_activation
+
+        self.encoding_name = encoding_name
+        self.encoding_cfg = encoding_cfg
+        if self.encoding_cfg is None:
+            self.encoding_cfg = {
+                "n_dims_to_encode": "64",
+                "scale": "1.0",
+                "offset": "0.0",
+            }
+
+        super().__init__(device=device)
+
+    def create_module(self):
+        return tnn.create_networkwithencoding_module(
+            self.width,
+            self.input_width,
+            self.output_width,
+            self.n_hidden_layers,
+            self.activation,
+            self.output_activation,
+            self.batch_size,
+            self.encoding_name,
+            self.encoding_cfg,
+            self.device,
+        )

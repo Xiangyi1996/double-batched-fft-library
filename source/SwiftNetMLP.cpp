@@ -4,7 +4,7 @@
 #define SKEW 0
 
 #define SG_SIZE 8
-#define WG_SIZE 8*SG_SIZE
+#define WG_SIZE 8 * SG_SIZE
 
 #define BATCH_CHUNK 16
 #define SHMEM_SIZE 1024
@@ -1212,15 +1212,13 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input,
                                       float* C, DeviceMem<float>& output) {
   // Constants and dimensions
   //   std::vector<float> fwd(m_batch_size * (m_inputs_width + m_output_width +
-  //  WIDTH * m_n_hidden_layers));
+  //                                          WIDTH * m_n_hidden_layers));
   //   std::cout << "calling fwd" << std::endl;
-  //   std::vector<bf16> weightsT(m_weightsT_matrices.size());
-  //   //   std::cout << " grads T before " << std::endl;
-  //   m_q.memcpy(weightsT.data(), m_weightsT_matrices.data(),
-  //              m_weightsT_matrices.size() * sizeof(bf16))
-  //       .wait();
-  //   for (int i = 0; i < weightsT.size(); i++) {
-  //     std::cout << "fwd Weight at " << i << ": " << weightsT[i] << std::endl;
+  //   // std::vector<bf16> weightsT(m_weightsT_matrices.size());
+  //   // //   std::cout << " grads T before " << std::endl;
+  //   m_q.memcpy(fwd.data(), forward, fwd.size() * sizeof(bf16)).wait();
+  //   for (int i = 0; i < fwd.size(); i++) {
+  //     std::cout << "fwd Weight at " << i << ": " << fwd[i] << std::endl;
   //   }
   //   std::cout << "== == == == == == == == == == == == == == == == == == == ==
   //   == "
@@ -1923,7 +1921,7 @@ void SwiftNetMLP<WIDTH>::set_params(float* params) {
 }
 
 template <int WIDTH>
-void SwiftNetMLP<WIDTH>::set_params(std::vector<bf16> params) {
+void SwiftNetMLP<WIDTH>::set_params(std::vector<bf16>& params) {
   m_weights_matrices.copy_from_host(params, m_q);
   m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width, WIDTH,
                                      m_output_width, m_n_hidden_matrices, m_q);
@@ -1942,5 +1940,6 @@ std::vector<bf16> SwiftNetMLP<WIDTH>::get_weightsT_matrices_as_vector() {
   m_weightsT_matrices.copy_to_host(list_float, m_q);
   return list_float;
 }
+
 template class SwiftNetMLP<64>;
 template class SwiftNetMLP<128>;

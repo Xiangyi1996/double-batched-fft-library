@@ -2,26 +2,6 @@
 
 #define NETWORK_INPUT_WIDTH 64
 
-NetworkWithEncoding::NetworkWithEncoding(
-    int input_width, int output_width, int n_hidden_layers,
-    Activation activation, Activation output_activation, const int batch_size,
-    int encoding_scale, int encoding_offset) {
-  m_q = sycl::queue();
-  encoding =
-      new IdentityEncoding<bf16>(input_width, encoding_scale, encoding_offset);
-  encoding->set_padded_output_width(WIDTH);
-  assert(encoding->padded_output_width() == WIDTH);
-  network = new SwiftNetMLP<WIDTH>(m_q, encoding->padded_output_width(),
-                                   output_width, n_hidden_layers, activation,
-                                   output_activation, batch_size);
-
-  network_input =
-      DeviceMem<bf16>(encoding->padded_output_width() * batch_size, m_q);
-  network_output = DeviceMem<float>(output_width * batch_size, m_q);
-  encoding_output = GPUMatrix<bf16>(
-      network_input.data(), encoding->padded_output_width(), batch_size);
-}
-
 DeviceMem<float>* NetworkWithEncoding::forward_pass(GPUMatrix<float>& input,
                                                     int run_inference) {
   encoding->forward_impl(&m_q, input, &encoding_output);
@@ -38,9 +18,43 @@ DeviceMem<float>* NetworkWithEncoding::forward_pass(GPUMatrix<float>& input,
   return &network_output;
 }
 
+DeviceMem<bf16>* NetworkWithEncoding::backward_pass(
+    DeviceMem<bf16>& input_backward, DeviceMem<bf16>& grad_output) {
+  // no encoding bwd, as their gradients are handled individually
+
+  network->backward_pass(
+      input_backward, grad_output, network->m_out_inter, network->m_deltas,
+      network->m_A_backward, network->m_B_backward, network->m_C_backward,
+      network->m_A_backward_last_layer, network->m_B_backward_last_layer,
+      network->m_C_backward_last_layer, network->m_D_backward_last_layer,
+      network->m_E_backward_last_layer, network->m_F_backward_last_layer,
+      network->m_A_dgemm, network->m_B_dgemm, network->m_C_dgemm,
+      network->m_forward);
+
+  return (network->get_grads_matrices());
+}
+
+void NetworkWithEncoding::set_params(float* params) {
+  network->set_params(params);
+}
+
+void NetworkWithEncoding::set_params(std::vector<bf16> params) {
+  network->set_params(params);
+}
+
 void NetworkWithEncoding::initialize_params(int use_easy) {
   network->initialize_params(use_easy);
   encoding->initialize_params();  // this is an empty call
 }
 
 void NetworkWithEncoding::free_memory() { network->free_mem(m_q); }
+
+NetworkWithEncoding* create_networkwith_encoding(
+    int input_width, int output_width, int n_hidden_layers,
+    Activation activation, Activation output_activation, const int batch_size,
+    std::string encoding_name,
+    const std::unordered_map<std::string, std::string>& encoding_config) {
+  return new NetworkWithEncoding(input_width, output_width, n_hidden_layers,
+                                 activation, output_activation, batch_size,
+                                 encoding_name, encoding_config);
+}

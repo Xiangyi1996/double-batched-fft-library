@@ -43,6 +43,7 @@ setup(
                 "../source/common.cpp",
                 "../source/DeviceMem.cpp",
                 "../source/SwiftNetMLP.cpp",
+                "../source/network_with_encodings.cpp",
             ],
             include_dirs=[
                 "../include",
