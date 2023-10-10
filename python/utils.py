@@ -1,9 +1,9 @@
 import numpy as np
 import torch
-import intel_extension_for_pytorch  # required for SwiftNet
+import intel_extension_for_pytorch  # required for tinyn_nn (SwiftNet inside)
 
 from mlp import MLP
-from modules import SwiftNet, NetworkWithEncoding
+from modules import NetworkWithInputEncoding
 from tiny_nn import Activation
 
 import os
@@ -12,22 +12,6 @@ import gdown
 import zipfile
 
 WIDTH = 64
-
-
-def get_dpcpp_activation(name):
-    # activation = Activation.ReLU
-    if name == "relu":
-        activation = Activation.ReLU
-    elif name == "tanh":
-        activation = Activation.Tanh
-    elif name == "sigmoid":
-        activation = Activation.Sigmoid
-    elif name == "linear":
-        activation = Activation.Linear
-    else:
-        raise NotImplementedError(f"Activation: {name} not defined")
-
-    return activation
 
 
 def create_models(
@@ -51,28 +35,24 @@ def create_models(
     ).to(device_name)
     # model_torch.eval()
 
-    # Create and test model_dpcpp
-    activation = get_dpcpp_activation(activation_func)
-    output_activation = get_dpcpp_activation(output_func)
-
-    # model_dpcpp = SwiftNet(
-    #     batch_size=batch_size,
-    #     width=WIDTH,
-    #     input_width=input_size,
-    #     output_width=output_size,
-    #     n_hidden_layers=hidden_size,
-    #     activation=activation,
-    #     output_activation=output_activation,
-    #     device=device_name,
-    # )
-    model_dpcpp = NetworkWithEncoding(
+    network_config = {
+        "activation": activation_func,
+        "output_activation": output_func,
+        "n_neurons": WIDTH,
+        "n_hidden_layers": hidden_size,
+    }
+    encoding_config = {
+        "otype": "Identity",
+        "n_dims_to_encode": str(input_size),
+        "scale": "1.0",
+        "offset": "0.0",
+    }
+    model_dpcpp = NetworkWithInputEncoding(
         batch_size=batch_size,
-        width=WIDTH,
-        input_width=input_size,
-        output_width=output_size,
-        n_hidden_layers=hidden_size,
-        activation=activation,
-        output_activation=output_activation,
+        n_input_dims=input_size,
+        n_output_dims=output_size,
+        network_config=network_config,
+        encoding_config=encoding_config,
         device=device_name,
     )
     # model_dpcpp.eval()

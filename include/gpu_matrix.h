@@ -625,17 +625,22 @@ class GPUMatrix : public GPUMatrixDynamic<T> {
 
   // Function to print the matrix values
   void print() const {
-    std::vector<float> data(this->cols() * this->rows());
+    std::vector<T> data(this->cols() * this->rows());
     dpct::get_default_queue()
-        .memcpy(data.data(), this->data(), data.size() * sizeof(float))
+        .memcpy(data.data(), this->data(), data.size() * sizeof(T))
         .wait();
+    // std::cout << "Raw: " << std::endl;
+    // for (uint32_t i = 0; i < data.size(); i++) {
+    //   std::cout << i << ": " << data[i] << std::endl;
+    // }
+
     std::cout << "Matrix (" << this->rows() << "x" << this->cols()
               << "):" << std::endl;
     for (uint32_t i = 0; i < this->rows(); ++i) {
       std::cout << "[ ";
       for (uint32_t j = 0; j < this->cols(); ++j) {
         std::cout << std::setw(8) << std::setprecision(4)
-                  << data[j * this->stride() + i] ;
+                  << data[j * this->stride() + i];
         if (j < this->cols() - 1) {
           std::cout << ", ";
         }

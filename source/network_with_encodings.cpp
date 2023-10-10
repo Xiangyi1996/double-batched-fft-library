@@ -4,8 +4,11 @@
 
 DeviceMem<float>* NetworkWithEncoding::forward_pass(GPUMatrix<float>& input,
                                                     int run_inference) {
+  //   std::cout << "Input" << std::endl;
+  //   input.print();
   encoding->forward_impl(&m_q, input, &encoding_output);
-
+  //   std::cout << "Encoding output" << std::endl;
+  //   encoding_output.print();
   if (run_inference) {
     network->inference(network_input, network->m_forward, network->m_A_forward,
                        network->m_B_forward, network->m_C_forward,

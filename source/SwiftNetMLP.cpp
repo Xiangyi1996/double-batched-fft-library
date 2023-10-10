@@ -4,7 +4,7 @@
 #define SKEW 0
 
 #define SG_SIZE 8
-#define WG_SIZE 8 * SG_SIZE
+#define WG_SIZE 8*SG_SIZE
 
 #define BATCH_CHUNK 16
 #define SHMEM_SIZE 1024
@@ -1213,7 +1213,7 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input,
   // Constants and dimensions
   //   std::vector<float> fwd(m_batch_size * (m_inputs_width + m_output_width +
   //                                          WIDTH * m_n_hidden_layers));
-  //   std::cout << "calling fwd" << std::endl;
+  // std::cout << "calling fwd" << std::endl;
   //   // std::vector<bf16> weightsT(m_weightsT_matrices.size());
   //   // //   std::cout << " grads T before " << std::endl;
   //   m_q.memcpy(fwd.data(), forward, fwd.size() * sizeof(bf16)).wait();
@@ -1267,10 +1267,8 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input,
   }
   //   m_q.memcpy(fwd.data(), forward, fwd.size() * sizeof(float));
   //   m_q.wait();
-  //   for (int i = 0; i < fwd.size(); i++) {
-  //     if (i >= input.size()) {
-  //       std::cout << "1 Fwd - " << i << ": " << fwd[i] << std::endl;
-  //     }
+  //   for (int i = 0; i < 4096; i++) {
+  //     std::cout << "1 Fwd - " << i << ": " << fwd[i] << std::endl;
   //   }
   // Perform forward pass based on activation function
   switch (m_activation) {

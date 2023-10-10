@@ -109,8 +109,8 @@ class IdentityEncoding : public Encoding<T> {
     }
 
     // std::cout << "padded_output_width: " << padded_output_width()
-    //           << ", input n: " << input.n() << "input m: " << input.m()
-    //           << ", stride: " << input.stride() << ", n_elements" <<
+    //           << ", input n: " << input.n() << ", input m: " << input.m()
+    //           << ", stride: " << input.stride() << ", n_elements " <<
     //           n_elements
     //           << std::endl;
     {
@@ -123,9 +123,10 @@ class IdentityEncoding : public Encoding<T> {
       auto loc_m_scale = m_scale;
       auto loc_m_offset = m_offset;
 
-      auto loc_m_stride =
-          input
-              .stride();  // manually, because we dont have MatrixView on device
+      // manually, because we dont have MatrixView on device
+      auto loc_m_stride = padded_output_width();
+      auto unpadded_stride = input.stride();
+      //   auto loc_m_stride = input.stride();
       // TODO: Check with NVCC, we cant forward MatrixView as is
       // MatrixView<T> view() const {
       // return {data(), layout() == CM ? 1u : stride(), layout() == CM ?
@@ -152,19 +153,35 @@ class IdentityEncoding : public Encoding<T> {
           //     item_ct1.get_local_id(2) +
           //     item_ct1.get_group(2) *
           //     item_ct1.get_local_range(2);
-          if (encoded_index >= n_elements) return;
+          if (encoded_index >= n_elements) {
+            // exit(0);
+            return;
+          }
 
+          // total padded amount
           const uint32_t fan_out = loc_m_n_dims_to_encode + loc_m_n_to_pad;
+
+          // columns which are batch size
           const uint32_t i = encoded_index / fan_out;
+
+          // rows which are the padded output dim
           const uint32_t j = encoded_index - i * fan_out;
 
           // MatrixView(i,j) => i * stride_i + j * stride_j
           const uint32_t idx = i * loc_m_stride + j;
+          const uint32_t unpadded_idx = i * unpadded_stride + j;
+          //   const uint32_t idx = j * loc_m_stride + i;
 
+          //   static const CONSTANT char FMT[] =
+          //       "Enc idx: %d, i: %d, j: %d, idx: %d\n";
+          //   sycl::ext::oneapi::experimental::printf(FMT, encoded_index, i, j,
+          //                                           idx);
           if (j >= loc_m_n_dims_to_encode) {
             output_acc[idx] = 1;
+            // output_acc[idx] = 0;
           } else {
-            output_acc[idx] = input_acc[idx] * loc_m_scale + loc_m_offset;
+            output_acc[idx] =
+                input_acc[unpadded_idx] * loc_m_scale + loc_m_offset;
           }
         });  // End of the kernel function
       });    // End of our commands for this queue

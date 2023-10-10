@@ -45,7 +45,6 @@ class Module {
   torch::Tensor initial_params(int use_easy = 0) {
     torch::Tensor output = torch::zeros(
         {n_params()}, torch::TensorOptions().dtype(torch::kFloat32));
-    std::cout << "making tensor of size: " << n_params() << std::endl;
     m_module->initialize_params(output.data_ptr<float>(), use_easy);
     return output;
   }
@@ -62,21 +61,32 @@ Module create_network_module(const int width, int input_width, int output_width,
                              int n_hidden_layers, Activation activation,
                              Activation output_activation, const int batch_size,
                              std::string device_name) {
-  tnn::SwiftNetModule* network_module = new tnn::SwiftNetModule(
-      width, input_width, output_width, n_hidden_layers, activation,
-      output_activation, batch_size, device_name);
+  //   tnn::SwiftNetModule* network_module = new tnn::SwiftNetModule(
+  //       width, input_width, output_width, n_hidden_layers, activation,
+  //       output_activation, batch_size, device_name);
 
-  return Module{network_module};
+  std::unordered_map<std::string, std::string> encoding_config = {
+      {"n_dims_to_encode", std::to_string(input_width)},
+      {"scale", "1.0"},
+      {"offset", "0.0"}};
+
+  tnn::NetworkWithEncodingModule* networkwithencoding_module =
+      new tnn::NetworkWithEncodingModule(
+          width, input_width, output_width, n_hidden_layers, activation,
+          output_activation, batch_size, "Identity", encoding_config,
+          device_name);
+  return Module{networkwithencoding_module};
 }
 
-// Module create_encoding_module(
-//     int input_width, std::string encoding_name,
-//     const std::unordered_map<std::string, std::string>& encoding_config,
-//     std::string device_name) {
-//   tnn::EncodingModule* encoding_module = new EncodingModule(
-//       input_width, encoding_name, encoding_config, device_name);
-//   return Module{encoding_module};
-// }
+Module create_encoding_module(
+    int input_width, int batch_size, std::string encoding_name,
+    const std::unordered_map<std::string, std::string>& encoding_config,
+    std::string device_name) {
+  tnn::EncodingModule* encoding_module = new tnn::EncodingModule(
+      input_width, batch_size, encoding_name, encoding_config, device_name);
+  return Module{encoding_module};
+}
+
 Module create_networkwithencoding_module(
     int width, int input_width, int output_width, int n_hidden_layers,
     Activation activation, Activation output_activation, const int batch_size,
@@ -105,7 +115,6 @@ PYBIND11_MODULE(tiny_nn, m) {
       .export_values();
 
   pybind11::class_<Module>(m, "Module")
-      .def(pybind11::init<tnn::SwiftNetModule*>())
       .def("fwd", &Module::fwd)
       .def("inference", &Module::inference)
       .def("bwd", &Module::bwd)
@@ -114,7 +123,6 @@ PYBIND11_MODULE(tiny_nn, m) {
       .def("free_memory", &Module::free_memory);
 
   m.def("create_network", &create_network_module);
-  //   m.def("create_encoding", &create_encoding_module);
-  m.def("create_networkwithencoding_module",
-        &create_networkwithencoding_module);
+  m.def("create_encoding", &create_encoding_module);
+  m.def("create_networkwithencoding", &create_networkwithencoding_module);
 }

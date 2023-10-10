@@ -13,6 +13,7 @@
 
 #include "SwiftNetMLP.h"
 #include "common.h"
+#include "common_host.h"
 #include "encoding.h"
 #include "network_with_encodings.h"
 #include "oneapi/mkl.hpp"
@@ -71,7 +72,6 @@ class Module {
                                      torch::Tensor params,
                                      int use_inference = 0) = 0;
 
-  virtual void forward_pass(int use_inference) = 0;
   virtual torch::Tensor backward_pass(torch::Tensor input_tensor,
                                       torch::Tensor grad_output,
                                       torch::Tensor params) = 0;
@@ -172,90 +172,37 @@ class Module {
   DeviceMem<float> input_float;
 };
 
-class SwiftNetModule : public Module {
- public:
-  SwiftNetModule(const int width, int input_width, int output_width,
-                 int n_hidden_layers, Activation activation,
-                 Activation output_activation, const int batch_size,
-                 std::string device_name);
-
-  torch::Tensor forward_pass(torch::Tensor input_list, torch::Tensor params,
-                             int use_inference = 0) override;
-  void forward_pass(int use_inference) override;
-
-  torch::Tensor backward_pass(torch::Tensor input_tensor,
-                              torch::Tensor grad_output,
-                              torch::Tensor params) override;
-  void initialize_params(float* params_full_precision,
-                         int use_easy = 0) override;
-  void free_memory() override;
-  int n_params() override;
-
-  void set_params(torch::Tensor& params);
-
-  DeviceMem<float> output;
-
- private:
-  std::unique_ptr<Network> network;
-
-  DeviceMem<bf16> input_bf16;
-  DeviceMem<bf16> input_backward;
-  DeviceMem<bf16> grads;
-  DeviceMem<bf16> deltas;
-
-  int forward_size;
-  float* forward;
-
-  float* A_forward;
-  float* B_forward;
-  float* C_forward;
-
-  float* out_inter;
-  float* delta_temp;
-  float* A_backward;
-  float* B_backward;
-  float* C_backward;
-  float* A_backward_last_layer;
-  float* B_backward_last_layer;
-  float* C_backward_last_layer;
-  float* D_backward_last_layer;
-  float* E_backward_last_layer;
-  float* F_backward_last_layer;
-  float* A_dgemm;
-  float* B_dgemm;
-  float* C_dgemm;
-};
-
 class EncodingModule : public Module {
  public:
-  EncodingModule(int input_width, int batch_size, int output_width, int scale,
-                 int offset, std::string device_name);
+  EncodingModule(
+      int input_width, int batch_size, std::string encoding_name,
+      const std::unordered_map<std::string, std::string>& encoding_config,
+      std::string device_name);
   ~EncodingModule() {}
 
   torch::Tensor forward_pass(torch::Tensor input_list, torch::Tensor params,
                              int use_inference = 0) override;
 
-  void forward_pass(int use_inference);
-
   torch::Tensor backward_pass(torch::Tensor input_tensor,
                               torch::Tensor grad_output,
                               torch::Tensor params) override;
   void initialize_params(float* params_full_precision,
                          int use_easy = 0) override;
   void free_memory() override;
-  int n_params() override{};
-
-  GPUMatrix<bf16> output_matrix;
+  int n_params() override {
+    std::cout << "Encodings doesn't have params." << std::endl;
+    return 0;
+  };
 
  private:
   torch::Tensor forward_impl(int use_inference);
 
-  Encoding<bf16>* encoding;
+  Encoding<float>* encoding;
 
-  DeviceMem<bf16> output;
-  DeviceMem<bf16> target;
+  DeviceMem<float> output;
+  DeviceMem<float> input;
+  GPUMatrix<float> output_matrix;
   GPUMatrix<float> input_matrix;
-  GPUMatrix<bf16> target_matrix;
 };
 
 class NetworkWithEncodingModule : public Module {
@@ -270,7 +217,6 @@ class NetworkWithEncodingModule : public Module {
 
   torch::Tensor forward_pass(torch::Tensor input_list, torch::Tensor params,
                              int use_inference = 0) override;
-  void forward_pass(int use_inference) override{};
 
   torch::Tensor backward_pass(torch::Tensor input_tensor,
                               torch::Tensor grad_output,

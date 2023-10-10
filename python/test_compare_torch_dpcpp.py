@@ -14,7 +14,7 @@ output_sizes = [1, 2, 8, 16, 64]
 activation_funcs = ["relu", "linear"]
 hidden_layer_counts = [1, 2, 3, 4, 5]
 
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 DEVICE_NAME = "cpu"
 
 
@@ -153,14 +153,14 @@ def test_grad(
                 f"Layer {layer+1}: {rel_diff_in_layer*100:.2f}% (sum: ",
                 f"{abs(grads_torch[layer]).sum():.4f}, and {abs(grads_dpcpp[layer]).sum():.4f})",
             )
-            # if rel_diff_in_layer > 0.05:
-            print("Torch")
-            print(grads_torch[layer])
-            print("DPCPP")
-            print(grads_dpcpp[layer])
-            # assert (
-            #     rel_diff_in_layer < 0.05
-            # ), f"Difference larger than 5%: {rel_diff_in_layer* 100:.2f}%"
+            if rel_diff_in_layer > 0.05:
+                print("Torch")
+                print(grads_torch[layer])
+                print("DPCPP")
+                print(grads_dpcpp[layer])
+            assert (
+                rel_diff_in_layer < 0.05
+            ), f"Difference larger than 5%: {rel_diff_in_layer* 100:.2f}%"
         print(f"Average difference: {100*np.mean(np.array(total_diff)):.2f}%")
 
 
@@ -179,8 +179,8 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
     # Generate random input data for testing
     torch.manual_seed(123)
     input_data = (
-        torch.randn(BATCH_SIZE, input_size, dtype=torch.float32).to(DEVICE_NAME) * 0
-        + 0.001
+        torch.randn(input_size, BATCH_SIZE, dtype=torch.float32).to(DEVICE_NAME) * 0
+        + 0.01
         # torch.randn(BATCH_SIZE, input_size, dtype=torch.float32).to(DEVICE_NAME)
     )
     model_dpcpp, model_torch = create_models(
@@ -194,12 +194,18 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
     )
     model_torch.to(DEVICE_NAME)
     model_dpcpp.to(DEVICE_NAME)
-    y_torch = model_torch(input_data)
+    y_torch = model_torch(input_data.T)
     y_dpcpp = model_dpcpp(input_data)
-    print("Torch: ", y_torch[0, :])
-    print("DPCPP: ", y_dpcpp[0, :])
+    # print("Torch: ", y_torch[0, :])
+    # print("DPCPP: ", y_dpcpp[0, :])
+    # print(
+    #     f"diff: {y_torch[0, :] - y_dpcpp[0, :]}, average: {abs(y_torch[0, :] - y_dpcpp[0, :]).mean()}"
+    # )
+
+    print("Torch: ", y_torch)
+    print("DPCPP: ", y_dpcpp)
     print(
-        f"diff: {y_torch[0, :] - y_dpcpp[0, :]}, average: {abs(y_torch[0, :] - y_dpcpp[0, :]).mean()}"
+        f"diff: {y_torch[0, :] - y_dpcpp[0, :]}, average: {abs(y_torch - y_dpcpp).mean()}"
     )
 
     # Ensure both models have the same weights
@@ -214,20 +220,20 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
 
 if __name__ == "__main__":
     input_width = 64
-    output_width = 3
-    n_hidden_layers = 4
+    output_width = 64
+    n_hidden_layers = 2
     # activation_func = "linear"
     activation_func = "relu"
-    output_func = "linear"
-    # output_func = "relu"
+    # output_func = "linear"
+    output_func = "sigmoid"
 
-    # test_fwd(input_width, n_hidden_layers, output_width, activation_func, output_func)
-    # print("Passed fwd test")
+    test_fwd(input_width, n_hidden_layers, output_width, activation_func, output_func)
+    print("Passed fwd test")
 
-    test_grad(
-        input_width,
-        n_hidden_layers,
-        output_width,
-        activation_func,
-        output_func,
-    )
+    # test_grad(
+    #     input_width,
+    #     n_hidden_layers,
+    #     output_width,
+    #     activation_func,
+    #     output_func,
+    # )

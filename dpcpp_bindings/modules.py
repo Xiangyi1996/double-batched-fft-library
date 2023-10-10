@@ -9,6 +9,21 @@ import tiny_nn as tnn
 from tiny_nn import Activation
 
 
+def get_dpcpp_activation(name):
+    if name.lower() == "relu":
+        activation = Activation.ReLU
+    elif name.lower() == "tanh":
+        activation = Activation.Tanh
+    elif name.lower() == "sigmoid":
+        activation = Activation.Sigmoid
+    elif name.lower() == "linear" or name.lower() == "none":
+        activation = Activation.Linear
+    else:
+        raise NotImplementedError(f"Activation: {name} not defined")
+
+    return activation
+
+
 def to_packed_layout_coord(idx, rows, cols):
     i = idx // cols
     j = idx % cols
@@ -76,21 +91,30 @@ class Module(torch.nn.Module):
         self.device = device
 
         self.tnn_module = self.create_module()
-        initial_params = self.tnn_module.initial_params(1)
+        if self.tnn_module.n_params():
+            initial_params = self.tnn_module.initial_params(1)
 
-        self.params = torch.nn.Parameter(initial_params.to(device), requires_grad=True)
+            self.params = torch.nn.Parameter(
+                initial_params.to(device), requires_grad=True
+            )
+        else:
+            print(
+                "No params initialised, as n_params = 0. This is correct for Encodings."
+            )
+            self.params = torch.nn.Parameter(torch.zeros(1), requires_grad=False)
 
     def get_reshaped_params(self, weights=None):
         all_weights = []
         if weights is None:
             weights = self.params
 
-        input_matrix = torch.zeros(self.width, self.input_width)
+        input_width = self.width  # because we pad
+        input_matrix = torch.zeros(self.width, input_width)
 
-        for i in range(self.input_width):
+        for i in range(input_width):
             for j in range(self.width):
                 idx = to_packed_layout_coord(
-                    i * self.width + j, self.input_width, self.width
+                    i * self.width + j, input_width, self.width
                 )
                 input_matrix[j, i] = weights[idx]
 
@@ -143,26 +167,34 @@ class Module(torch.nn.Module):
         self.tnn_module.free_memory()
 
 
-class SwiftNet(Module):
-    # TODO: Add Swiftnet with Encoder here, which has a different native module (makign it faster than inputing an embedding in python)
+class Network(Module):
     def __init__(
         self,
-        batch_size=64,  # needs to be % 64 == 0
-        width=64,  # needs to be 16, 32, 64
-        input_width=1,
-        output_width=1,
-        n_hidden_layers=1,
-        activation=Activation.ReLU,
-        output_activation=Activation.ReLU,
+        batch_size=64,
+        n_input_dims=1,
+        n_output_dims=1,
+        network_config=None,
         device="xpu",
     ):
+        if network_config is None:
+            self.network_config = {
+                "activation": "ReLU",
+                "output_activation": "None",
+                "n_neurons": 64,
+                "n_hidden_layers": 1,
+            }
+        else:
+            self.network_config = network_config
+
         self.batch_size = batch_size
-        self.width = width
-        self.input_width = input_width
-        self.output_width = output_width
-        self.n_hidden_layers = n_hidden_layers
-        self.activation = activation
-        self.output_activation = output_activation
+        self.width = self.network_config["n_neurons"]
+        self.input_width = n_input_dims
+        self.output_width = n_output_dims
+        self.n_hidden_layers = self.network_config["n_hidden_layers"]
+        self.activation = get_dpcpp_activation(self.network_config["activation"])
+        self.output_activation = get_dpcpp_activation(
+            self.network_config["output_activation"]
+        )
 
         super().__init__(device=device)
 
@@ -179,41 +211,56 @@ class SwiftNet(Module):
         )
 
 
-class NetworkWithEncoding(Module):
+class NetworkWithInputEncoding(Module):
     def __init__(
         self,
-        batch_size=64,  # needs to be % 64 == 0
-        width=64,  # needs to be 16, 32, 64
-        input_width=1,
-        output_width=1,
-        n_hidden_layers=1,
-        activation=Activation.ReLU,
-        output_activation=Activation.ReLU,
-        encoding_name="Identity",
-        encoding_cfg=None,
+        batch_size=64,
+        n_input_dims=1,
+        n_output_dims=1,
+        network_config=None,
+        encoding_config=None,
         device="xpu",
     ):
-        self.batch_size = batch_size
-        self.width = width
-        self.input_width = input_width
-        self.output_width = output_width
-        self.n_hidden_layers = n_hidden_layers
-        self.activation = activation
-        self.output_activation = output_activation
+        if network_config is None:
+            self.network_config = {
+                "activation": "ReLU",
+                "output_activation": "None",
+                "n_neurons": 64,
+                "n_hidden_layers": 1,
+            }
+        else:
+            self.network_config = network_config
 
-        self.encoding_name = encoding_name
-        self.encoding_cfg = encoding_cfg
-        if self.encoding_cfg is None:
-            self.encoding_cfg = {
-                "n_dims_to_encode": "64",
+        self.batch_size = batch_size
+        self.width = self.network_config["n_neurons"]
+        self.input_width = n_input_dims
+        self.output_width = n_output_dims
+        self.n_hidden_layers = self.network_config["n_hidden_layers"]
+        self.activation = get_dpcpp_activation(self.network_config["activation"])
+        self.output_activation = get_dpcpp_activation(
+            self.network_config["output_activation"]
+        )
+
+        self.encoding_config = encoding_config
+        if self.encoding_config is None:
+            self.encoding_config = {
+                "otype": "Identity",
+                "n_dims_to_encode": str(self.input_width),
                 "scale": "1.0",
                 "offset": "0.0",
             }
+        self.encoding_name = self.encoding_config["otype"]
+
+        if "n_dims_to_encode" not in self.encoding_config:
+            self.encoding_config["n_dims_to_encode"] = str(self.input_width)
+
+        for value in self.encoding_config.values():
+            assert isinstance(value, str), "Not all values are of type str"
 
         super().__init__(device=device)
 
     def create_module(self):
-        return tnn.create_networkwithencoding_module(
+        return tnn.create_networkwithencoding(
             self.width,
             self.input_width,
             self.output_width,
@@ -222,6 +269,45 @@ class NetworkWithEncoding(Module):
             self.output_activation,
             self.batch_size,
             self.encoding_name,
-            self.encoding_cfg,
+            self.encoding_config,
+            self.device,
+        )
+
+
+class Encoding(Module):
+    def __init__(
+        self,
+        batch_size=64,
+        n_input_dims=1,
+        encoding_config=None,
+        device="xpu",
+    ):
+        self.batch_size = batch_size
+        self.input_width = n_input_dims
+
+        self.encoding_config = encoding_config
+        if self.encoding_config is None:
+            self.encoding_config = {
+                "otype": "Identity",
+                "n_dims_to_encode": str(self.input_width),
+                "scale": "1.0",
+                "offset": "0.0",
+            }
+        self.encoding_name = self.encoding_config["otype"]
+
+        if "n_dims_to_encode" not in self.encoding_config:
+            self.encoding_config["n_dims_to_encode"] = str(self.input_width)
+
+        for value in self.encoding_config.values():
+            assert isinstance(value, str), "Not all values are of type str"
+
+        super().__init__(device=device)
+
+    def create_module(self):
+        return tnn.create_encoding(
+            self.input_width,
+            self.batch_size,
+            self.encoding_name,
+            self.encoding_config,
             self.device,
         )
