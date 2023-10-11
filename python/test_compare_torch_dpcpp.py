@@ -28,7 +28,7 @@ class CustomMSELoss(torch.nn.Module):
         return mse
 
 
-def train_model(model, x_train, y_train, n_steps, save_grads=False):
+def train_model(model, x_train, y_train, n_steps, save_grads=0):
     batch_size = BATCH_SIZE
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     loss_fn = CustomMSELoss()
@@ -64,18 +64,23 @@ def train_model(model, x_train, y_train, n_steps, save_grads=False):
                     else:
                         grad = gradient
                     grads_all.append(grad)
+
             if save_grads:
+                name = "torch" if save_grads == 1 else "dpcpp"
+                if isinstance(grads_all, list):
+                    grads_all = grads_all[0]
                 flattened_gradients = [
                     tensor.flatten().tolist() for tensor in grads_all
                 ]
-                file_path = "python/torch_grads.csv"
+
+                file_path = f"python/{name}_grads.csv"
 
                 # Write the flattened gradients to the CSV file
                 with open(file_path, mode="w", newline="") as file:
                     writer = csv.writer(file)
                     writer.writerows(flattened_gradients)
 
-                file_path = "python/torch_loss.csv"
+                file_path = f"python/{name}_loss.csv"
                 with open(file_path, mode="w", newline="") as file:
                     writer = csv.writer(file)
                     writer.writerows([[loss.tolist()]])
@@ -135,10 +140,10 @@ def test_grad(
 
         n_steps = 1  # if this is too large, there will be accumulated error (weights aren't the same, thus the loss is not the same etc)
         loss_dpcpp, y_dpcpp, grads_dpcpp = train_model(
-            model_dpcpp, x_train, y_train, n_steps
+            model_dpcpp, x_train, y_train, n_steps, save_grads=0
         )
         loss_torch, y_torch, grads_torch = train_model(
-            model_torch, x_train, y_train, n_steps, save_grads=False
+            model_torch, x_train, y_train, n_steps, save_grads=0
         )
         grads_dpcpp = grads_dpcpp[0][0]
         grads_torch = grads_torch[0]
@@ -221,19 +226,19 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
 if __name__ == "__main__":
     input_width = 64
     output_width = 64
-    n_hidden_layers = 2
+    n_hidden_layers = 4
     # activation_func = "linear"
     activation_func = "relu"
-    # output_func = "linear"
-    output_func = "sigmoid"
+    output_func = "linear"
+    # output_func = "sigmoid"
 
-    test_fwd(input_width, n_hidden_layers, output_width, activation_func, output_func)
-    print("Passed fwd test")
+    # test_fwd(input_width, n_hidden_layers, output_width, activation_func, output_func)
+    # print("Passed fwd test")
 
-    # test_grad(
-    #     input_width,
-    #     n_hidden_layers,
-    #     output_width,
-    #     activation_func,
-    #     output_func,
-    # )
+    test_grad(
+        input_width,
+        n_hidden_layers,
+        output_width,
+        activation_func,
+        output_func,
+    )
