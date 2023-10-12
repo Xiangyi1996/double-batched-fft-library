@@ -33,7 +33,8 @@ class MLP(torch.nn.Module):
         self.network_width = hidden_sizes[0]
 
         # Input layer
-        self.layers.append(torch.nn.Linear(hidden_sizes[0], hidden_sizes[0], bias=BIAS))
+        input_dim = hidden_sizes[0] if input_size <= 64 else input_size
+        self.layers.append(torch.nn.Linear(input_dim, hidden_sizes[0], bias=BIAS))
         # if input_size < 16:
         #     # the encoding in the current implementaiton doesn't have grad.
         #     # Set requires_grad to False for the parameters of the first layer (layers[0])
@@ -58,7 +59,7 @@ class MLP(torch.nn.Module):
     def forward(self, x):
         batch_size = x.size(0)
         ones = torch.ones(
-            (batch_size, self.network_width - self.input_width),
+            (batch_size, self.layers[0].in_features - self.input_width),
             dtype=x.dtype,
             device=x.device,
         )

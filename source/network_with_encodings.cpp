@@ -1,7 +1,5 @@
 #include "network_with_encodings.h"
 
-#define NETWORK_INPUT_WIDTH 64
-
 DeviceMem<float>* NetworkWithEncoding::forward_pass(GPUMatrix<float>& input,
                                                     int run_inference) {
   //   std::cout << "Input" << std::endl;

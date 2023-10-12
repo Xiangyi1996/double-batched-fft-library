@@ -14,8 +14,8 @@ output_sizes = [1, 2, 8, 16, 64]
 activation_funcs = ["relu", "linear"]
 hidden_layer_counts = [1, 2, 3, 4, 5]
 
-BATCH_SIZE = 128
-DEVICE_NAME = "cpu"
+BATCH_SIZE = 64
+DEVICE_NAME = "xpu"
 
 
 class CustomMSELoss(torch.nn.Module):
@@ -224,21 +224,21 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
 
 
 if __name__ == "__main__":
-    input_width = 64
+    input_width = 80
     output_width = 64
-    n_hidden_layers = 4
+    n_hidden_layers = 1
     # activation_func = "linear"
     activation_func = "relu"
     output_func = "linear"
     # output_func = "sigmoid"
 
-    # test_fwd(input_width, n_hidden_layers, output_width, activation_func, output_func)
-    # print("Passed fwd test")
+    test_fwd(input_width, n_hidden_layers, output_width, activation_func, output_func)
+    print("Passed fwd test")
 
-    test_grad(
-        input_width,
-        n_hidden_layers,
-        output_width,
-        activation_func,
-        output_func,
-    )
+    # test_grad(
+    #     input_width,
+    #     n_hidden_layers,
+    #     output_width,
+    #     activation_func,
+    #     output_func,
+    # )

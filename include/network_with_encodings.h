@@ -14,17 +14,26 @@ class NetworkWithEncoding {
     m_q = sycl::queue();
     encoding =
         create_encoding<bf16>(input_width, encoding_name, encoding_config);
-    encoding->set_padded_output_width(WIDTH);
-    assert(encoding->padded_output_width() == WIDTH);
-    network = new SwiftNetMLP<WIDTH>(m_q, encoding->padded_output_width(),
-                                     output_width, n_hidden_layers, activation,
+    int encoding_output_width;
+    if (input_width > WIDTH) {
+      std::cout << "Input width (" << input_width
+                << ") is larger than WIDTH: " << WIDTH
+                << ". This leads to slower runs as oneMKL gemms are used"
+                << std::endl;
+      encoding_output_width = input_width;
+    } else {
+      encoding_output_width = WIDTH;
+    }
+    encoding->set_padded_output_width(encoding_output_width);
+    // assert(encoding->padded_output_width() == WIDTH);
+    network = new SwiftNetMLP<WIDTH>(m_q, encoding_output_width, output_width,
+                                     n_hidden_layers, activation,
                                      output_activation, batch_size);
 
-    network_input =
-        DeviceMem<bf16>(encoding->padded_output_width() * batch_size, m_q);
+    network_input = DeviceMem<bf16>(encoding_output_width * batch_size, m_q);
     network_output = DeviceMem<float>(output_width * batch_size, m_q);
-    encoding_output = GPUMatrix<bf16>(
-        network_input.data(), encoding->padded_output_width(), batch_size);
+    encoding_output = GPUMatrix<bf16>(network_input.data(),
+                                      encoding_output_width, batch_size);
   }
 
   ~NetworkWithEncoding() {}

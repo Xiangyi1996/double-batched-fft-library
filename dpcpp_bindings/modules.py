@@ -108,7 +108,9 @@ class Module(torch.nn.Module):
         if weights is None:
             weights = self.params
 
-        n_input_dims = self.width  # because we pad
+        n_input_dims = (
+            self.width if self.n_input_dims <= self.width else self.n_input_dims
+        )  # because we pad
         input_matrix = torch.zeros(self.width, n_input_dims)
 
         for i in range(n_input_dims):
