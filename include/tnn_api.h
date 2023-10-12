@@ -79,14 +79,13 @@ class Module {
                                  int use_easy = 0) = 0;
   virtual void free_memory() = 0;
   virtual int n_params() = 0;
-  int n_output_dims() { return output_width; }
+  virtual int n_output_dims() = 0;
 
  protected:
   torch::Device m_device;
   std::string m_device_name;
 
   sycl::queue sycl_queue;
-  int output_width;
 
   template <typename T>
   void set_input(torch::Tensor& input_tensor, DeviceMem<T>* input_device_mem) {
@@ -195,7 +194,10 @@ class EncodingModule : public Module {
     std::cout << "Encodings doesn't have params." << std::endl;
     return 0;
   };
-  int n_output_dims() { return encoding->output_width(); }
+  int n_output_dims() override {
+    // std::cout << "Encoding width: " << encoding->output_width() << std::endl;
+    return encoding->output_width();
+  }
 
  private:
   torch::Tensor forward_impl(int use_inference);
@@ -229,6 +231,11 @@ class NetworkWithEncodingModule : public Module {
   void free_memory() override;
   int n_params() override;
   void set_params(torch::Tensor& params);
+
+  int n_output_dims() {
+    std::cout << "Not implemented" << std::endl;
+    return -1;
+  }
 
  private:
   NetworkWithEncoding* network;
