@@ -79,12 +79,14 @@ class Module {
                                  int use_easy = 0) = 0;
   virtual void free_memory() = 0;
   virtual int n_params() = 0;
+  int n_output_dims() { return output_width; }
 
  protected:
   torch::Device m_device;
   std::string m_device_name;
 
   sycl::queue sycl_queue;
+  int output_width;
 
   template <typename T>
   void set_input(torch::Tensor& input_tensor, DeviceMem<T>* input_device_mem) {
@@ -193,6 +195,7 @@ class EncodingModule : public Module {
     std::cout << "Encodings doesn't have params." << std::endl;
     return 0;
   };
+  int n_output_dims() { return encoding->output_width(); }
 
  private:
   torch::Tensor forward_impl(int use_inference);

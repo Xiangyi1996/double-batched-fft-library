@@ -108,13 +108,13 @@ class Module(torch.nn.Module):
         if weights is None:
             weights = self.params
 
-        input_width = self.width  # because we pad
-        input_matrix = torch.zeros(self.width, input_width)
+        n_input_dims = self.width  # because we pad
+        input_matrix = torch.zeros(self.width, n_input_dims)
 
-        for i in range(input_width):
+        for i in range(n_input_dims):
             for j in range(self.width):
                 idx = to_packed_layout_coord(
-                    i * self.width + j, input_width, self.width
+                    i * self.width + j, n_input_dims, self.width
                 )
                 input_matrix[j, i] = weights[idx]
 
@@ -135,11 +135,11 @@ class Module(torch.nn.Module):
                     ]
             hidden_matrices.append(hidden_matrix)
 
-        output_matrix = torch.zeros(self.output_width, self.width)
+        output_matrix = torch.zeros(self.n_output_dims, self.width)
         for i in range(self.width):
-            for j in range(self.output_width):
+            for j in range(self.n_output_dims):
                 idx = to_packed_layout_coord(
-                    i * self.output_width + j, self.width, self.output_width
+                    i * self.n_output_dims + j, self.width, self.n_output_dims
                 )
                 output_matrix[j, i] = weights[
                     len_input_matrix
@@ -188,8 +188,8 @@ class Network(Module):
 
         self.batch_size = batch_size
         self.width = self.network_config["n_neurons"]
-        self.input_width = n_input_dims
-        self.output_width = n_output_dims
+        self.n_input_dims = n_input_dims
+        self.n_output_dims = n_output_dims
         self.n_hidden_layers = self.network_config["n_hidden_layers"]
         self.activation = get_dpcpp_activation(self.network_config["activation"])
         self.output_activation = get_dpcpp_activation(
@@ -201,8 +201,8 @@ class Network(Module):
     def create_module(self):
         return tnn.create_network(
             self.width,
-            self.input_width,
-            self.output_width,
+            self.n_input_dims,
+            self.n_output_dims,
             self.n_hidden_layers,
             self.activation,
             self.output_activation,
@@ -233,8 +233,8 @@ class NetworkWithInputEncoding(Module):
 
         self.batch_size = batch_size
         self.width = self.network_config["n_neurons"]
-        self.input_width = n_input_dims
-        self.output_width = n_output_dims
+        self.n_input_dims = n_input_dims
+        self.n_output_dims = n_output_dims
         self.n_hidden_layers = self.network_config["n_hidden_layers"]
         self.activation = get_dpcpp_activation(self.network_config["activation"])
         self.output_activation = get_dpcpp_activation(
@@ -245,14 +245,14 @@ class NetworkWithInputEncoding(Module):
         if self.encoding_config is None:
             self.encoding_config = {
                 "otype": "Identity",
-                "n_dims_to_encode": str(self.input_width),
+                "n_dims_to_encode": str(self.n_input_dims),
                 "scale": "1.0",
                 "offset": "0.0",
             }
         self.encoding_name = self.encoding_config["otype"]
 
         if "n_dims_to_encode" not in self.encoding_config:
-            self.encoding_config["n_dims_to_encode"] = str(self.input_width)
+            self.encoding_config["n_dims_to_encode"] = str(self.n_input_dims)
 
         for value in self.encoding_config.values():
             assert isinstance(value, str), "Not all values are of type str"
@@ -262,8 +262,8 @@ class NetworkWithInputEncoding(Module):
     def create_module(self):
         return tnn.create_networkwithencoding(
             self.width,
-            self.input_width,
-            self.output_width,
+            self.n_input_dims,
+            self.n_output_dims,
             self.n_hidden_layers,
             self.activation,
             self.output_activation,
@@ -283,29 +283,31 @@ class Encoding(Module):
         device="xpu",
     ):
         self.batch_size = batch_size
-        self.input_width = n_input_dims
+        self.n_input_dims = n_input_dims
 
         self.encoding_config = encoding_config
         if self.encoding_config is None:
             self.encoding_config = {
                 "otype": "Identity",
-                "n_dims_to_encode": str(self.input_width),
+                "n_dims_to_encode": str(self.n_input_dims),
                 "scale": "1.0",
                 "offset": "0.0",
             }
         self.encoding_name = self.encoding_config["otype"]
 
         if "n_dims_to_encode" not in self.encoding_config:
-            self.encoding_config["n_dims_to_encode"] = str(self.input_width)
+            self.encoding_config["n_dims_to_encode"] = str(self.n_input_dims)
 
         for value in self.encoding_config.values():
             assert isinstance(value, str), "Not all values are of type str"
 
         super().__init__(device=device)
 
+        self.n_output_dims = self.tnn_module.n_output_dims()
+
     def create_module(self):
         return tnn.create_encoding(
-            self.input_width,
+            self.n_input_dims,
             self.batch_size,
             self.encoding_name,
             self.encoding_config,

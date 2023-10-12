@@ -25,7 +25,7 @@ network_with_encoding = NetworkWithInputEncoding(
     device=DEVICE_NAME,
 )
 input_network_with_encoding = torch.ones(
-    network_with_encoding.input_width, BATCH_SIZE, dtype=torch.float32
+    network_with_encoding.n_input_dims, BATCH_SIZE, dtype=torch.float32
 ).to(DEVICE_NAME)
 network_with_encoding(input_network_with_encoding)
 
@@ -42,7 +42,7 @@ dir_encoder = Encoding(
 )
 
 input_encoding = torch.ones(
-    dir_encoder.input_width, BATCH_SIZE, dtype=torch.float32
+    dir_encoder.n_input_dims, BATCH_SIZE, dtype=torch.float32
 ).to(DEVICE_NAME)
 
 output_encoding = dir_encoder(input_encoding)
@@ -59,7 +59,7 @@ rgb_net = Network(
     },
     device=DEVICE_NAME,
 )
-input_network = torch.ones(rgb_net.input_width, BATCH_SIZE, dtype=torch.float32).to(
+input_network = torch.ones(rgb_net.n_input_dims, BATCH_SIZE, dtype=torch.float32).to(
     DEVICE_NAME
 )
 rgb_net(input_network)

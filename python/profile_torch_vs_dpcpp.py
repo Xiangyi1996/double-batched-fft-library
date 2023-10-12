@@ -18,13 +18,16 @@ def test_fwd(model, name, iters=1000):
         DEVICE_NAME
     )
     model.to(DEVICE_NAME)
-    if name == "dpcpp":
-        print("Weird bug where we've to run once")
+    print("Warming up for 100 iters for JIT compilation etc")
+    for _ in range(100):
         y = model(input_data)
 
+    print("Measuring time")
     start_time = time.time()
+    for idx in range(iters):
+        if idx % 100 == 0:
+            print(f"{name} on {DEVICE_NAME} at {idx}.")
 
-    for _ in range(iters):
         y = model(input_data)
 
     end_time = time.time()
@@ -37,11 +40,9 @@ def test_fwd(model, name, iters=1000):
 if __name__ == "__main__":
     input_width = 64
     output_width = 64
-    n_hidden_layers = 2
+    n_hidden_layers = 4
     activation_func = "relu"
     output_func = "linear"
-
-    print("Passed fwd test")
 
     model_dpcpp, model_torch = create_models(
         input_width,

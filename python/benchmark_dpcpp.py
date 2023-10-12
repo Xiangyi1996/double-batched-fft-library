@@ -1,6 +1,6 @@
 import torch
 import intel_extension_for_pytorch
-from modules import SwiftNet
+from modules import Network
 from tiny_nn import Activation
 import numpy as np
 import time
@@ -11,9 +11,6 @@ if __name__ == "__main__":
     input_width = 64
     output_width = 64
     n_hidden_layers = 1
-
-    activation = Activation.ReLU
-    output_activation = Activation.Linear
 
     # for exp in range(20, 22):
     for exp in range(8, 9):
@@ -26,14 +23,18 @@ if __name__ == "__main__":
         y_train = torch.Tensor(y_train.astype(np.float16)).to(DEVICE)
         print(f"Created training data. Took {time.perf_counter() - start}s.")
 
-        network = SwiftNet(
+        network_config = {
+            "activation": "ReLU",
+            "output_activation": "None",
+            "n_neurons": width,
+            "n_hidden_layers": n_hidden_layers,
+        }
+
+        network = Network(
             batch_size,
-            width,
             input_width,
             output_width,
-            n_hidden_layers,
-            activation,
-            output_activation,
+            network_config,
             device=DEVICE,
         )
 

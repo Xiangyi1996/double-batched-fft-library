@@ -51,6 +51,8 @@ class Module {
 
   uint32_t n_params() const { return (uint32_t)m_module->n_params(); }
 
+  uint32_t n_output_dims() const { return (uint32_t)m_module->n_output_dims(); }
+
   void free_memory() { m_module->free_memory(); }
 
  private:
@@ -120,6 +122,7 @@ PYBIND11_MODULE(tiny_nn, m) {
       .def("bwd", &Module::bwd)
       .def("initial_params", &Module::initial_params)
       .def("n_params", &Module::n_params)
+      .def("n_output_dims", &Module::n_output_dims)
       .def("free_memory", &Module::free_memory);
 
   m.def("create_network", &create_network_module);
