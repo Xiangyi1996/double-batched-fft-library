@@ -563,6 +563,21 @@ void DeviceMem<T>::initialize_constant(T constant, DeviceMem<T>& transposed,
   q.memcpy(transposed.data(), data.data(), m_size * constant * sizeof(T))
       .wait();
 }
+
+template <typename T>
+void DeviceMem<T>::initialize_arange(queue q) {
+  std::vector<T> data(m_size);
+
+  // Repeat the col_vector and perform the operations
+  for (int i = 0; i < data.size(); i++) {
+    data[i] = static_cast<T>((i - m_size / 2)) / static_cast<T>(m_size / 2);
+    // std::cout << "Writing at idx: " << i << ": " << data[i] << ", ("
+    //           << static_cast<T>((i - m_size / 2)) / static_cast<T>(m_size /
+    //           2)
+    //           << "), m_size: " << m_size << std::endl;
+  }
+  q.memcpy(m_data, data.data(), m_size * sizeof(T)).wait();
+}
 template <typename T>
 void DeviceMem<T>::initialize_arange(queue q, int input_width, int net_width,
                                      int out_width, int hidden_matrices) {

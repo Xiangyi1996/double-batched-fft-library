@@ -132,6 +132,7 @@ class DeviceMem {
 
   void initialize_arange(queue q, int input_width, int net_width, int out_width,
                          int hidden_matrices);
+  void initialize_arange(queue q);
 
   void allocate_memory(size_t n_bytes);
 };

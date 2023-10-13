@@ -1,3 +1,4 @@
+/*
 #include <CL/sycl.hpp>
 #include <chrono>
 #include <cmath>
@@ -363,3 +364,4 @@ int main() {
   benchmark_time();
   return 0;
 }
+*/
