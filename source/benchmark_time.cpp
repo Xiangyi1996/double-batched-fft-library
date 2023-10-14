@@ -1,4 +1,3 @@
-/*
 #include <CL/sycl.hpp>
 #include <chrono>
 #include <cmath>
@@ -16,6 +15,8 @@
 #include "sgd.h"
 #include "trainer.h"
 
+#include <omp.h>
+
 using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;
 using bf16 = sycl::ext::oneapi::bfloat16;
@@ -23,10 +24,14 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 #define INPUT_WIDTH 64
 #define OUTPUT_WIDTH 64
 #define HIDDEN_LAYERS 4
+
+#define USE_TWO_TILE 1
+
 bool areVectorsWithinTolerance(const std::vector<float>& value,
                                const std::vector<float>& target,
                                float tolerance) {
   //   assert(a.size() == b.size());  // Ensure vectors have the same length
+
   int total_values_checked = 0;
   bool allWithinTolerance = true;
 
@@ -40,10 +45,12 @@ bool areVectorsWithinTolerance(const std::vector<float>& value,
                 << " is not within tolerance. Value: " << value[i]
                 << ", Target: " << target[i % OUTPUT_WIDTH]
                 << ". Diff: " << diff << std::endl;
+
     }
   }
 
   if (allWithinTolerance) {
+
     std::cout << "All elements are within tolerance. Total values checked: "
               << total_values_checked << std::endl;
   } else {
@@ -91,8 +98,8 @@ void benchmark_time() {
   // Fourth step: train the model by sampling the above image and optimizing
   // relative squared error using Adam.
   // Experimental not sure how many batch sizes are possible
+
   std::vector<uint32_t> batch_sizes = {
-      1 << 29, 1 << 28, 1 << 27, 1 << 26, 1 << 25, 1 << 24, 1 << 23, 1 << 22,
       1 << 21, 1 << 20, 1 << 19, 1 << 18, 1 << 17, 1 << 16, 1 << 15, 1 << 14};
   std::string method = "SwiftNet";
   nlohmann::json bench_result;
@@ -108,9 +115,41 @@ void benchmark_time() {
   SGDOptimizer optim =
       SGDOptimizer(OUTPUT_WIDTH, m_n_hidden_layers, 1e-3f, 1e-8f);
 
+#if defined(USE_TWO_TILE)
+    std::cout << "Benchmark on two tiles." << std::endl;
+  sycl::queue Q(sycl::gpu_selector_v, sycl::property::queue::enable_profiling{});
+
+  std::vector<sycl::device> SubDevices = Q.get_device().create_sub_devices<
+    sycl::info::partition_property::partition_by_affinity_domain>(
+    sycl::info::partition_affinity_domain::numa);
+
+  auto C = sycl::context(SubDevices);
+
+  std::cout << "Running on "
+            << Q.get_device().get_info<sycl::info::device::name>()
+            << " which has " << SubDevices.size() << " subdevices\n";
+
+  if (SubDevices.size() != 2)
+      throw std::runtime_error("Need to run on PVC.\n");
+#else
+    std::cout << "Benchmark on one tile." << std::endl;
+#endif
+
   for (uint32_t batch_size : batch_sizes) {
     std::cout << "Batch size 2^" << std::log2(batch_size) << std::endl;
+#if defined(USE_TWO_TILE)
+#pragma omp parallel num_threads(2) shared(C,SubDevices)
+{
+  int dev_id = omp_get_thread_num();
+  // Same context for data sharing
+  sycl::queue q(C, SubDevices[dev_id], sycl::property::queue::enable_profiling{});
+  std::cout << "Starting queue on tile "
+            << dev_id
+            << " / " << SubDevices.size() << "\n";
+#else
     queue q = queue();
+
+#endif
 
     DeviceMem<bf16> inputs = DeviceMem<bf16>(INPUT_WIDTH * batch_size, q);
     DeviceMem<float> output = DeviceMem<float>(batch_size * output_width, q);
@@ -253,9 +292,9 @@ void benchmark_time() {
         end_idx_grads =
             WIDTH * INPUT_WIDTH + (WIDTH * WIDTH) * (i) + WIDTH * OUTPUT_WIDTH;
         std::cout << "For output layer (out): ";
-        tolerance *= 2;  // increase tolerance for last layer (accumulated
-                         // error
-        // through layers between bf16 and float)
+        tolerance *= 2;  // increase tolerance for last layer (accumulated error
+                         // through layers between bf16 and float)
+
         areVectorsWithinTolerance(out, targetVectors[i], tolerance);
       } else {
         layer_size = WIDTH;
@@ -348,11 +387,19 @@ void benchmark_time() {
 
     std::this_thread::sleep_for(std::chrono::seconds{10});
 
+#if defined(USE_TWO_TILE)
+#pragma omp master
+{
+#endif
     bench_result[method].push_back({
         {"batch_size", batch_size},
         {"training_throughput", mean_training_throughput},
         {"inference_throughput", mean_inference_throughput},
     });
+#if defined(USE_TWO_TILE)
+}
+}
+#endif
   }
 
   std::string json_string = bench_result.dump(4);
@@ -364,4 +411,3 @@ int main() {
   benchmark_time();
   return 0;
 }
-*/

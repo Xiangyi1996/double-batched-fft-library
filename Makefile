@@ -5,10 +5,10 @@ OBJ = $(SRC:.cpp=.o)
 GPU = pvc
 
 program: $(OBJ)
-		icpx -fsycl -qmkl=parallel -I include/ -I include/Network -I include/Losses -I include/Optimizers -fsycl-targets=spir64_gen -Xs "-device $(GPU)" $^ -o $@
+		icpx -fsycl -fopenmp -qmkl=parallel -I include/ -I include/Network -I include/Losses -I include/Optimizers -fsycl-targets=spir64_gen -Xs "-device $(GPU)" $^ -o $@
 
 %.o: %.cpp
-		icpx -fsycl -qmkl=parallel -I include/ -I include/Network -I include/Losses -I include/Optimizers -fsycl-targets=spir64_gen -c $< -o $@
+		icpx -fsycl -fopenmp -qmkl=parallel -I include/ -I include/Network -I include/Losses -I include/Optimizers -fsycl-targets=spir64_gen -c $< -o $@
 
 clean:
 		rm -fr source/*.o
