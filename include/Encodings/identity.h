@@ -24,49 +24,6 @@
 #define CONSTANT
 
 #endif
-// template <typename T>
-// void identity(
-// 	const uint32_t num_outputs,
-// 	const uint32_t num_to_encode,
-// 	const uint32_t num_to_pad,
-// 	const float scale,
-// 	const T offset,
-// 	sycl::accessor<float> data_in,
-// 	sycl::accessor<T> data_out,
-// 	const sycl::nd_item<3> &item_ct1)
-// {
-//         const uint32_t encoded_index =
-//             item_ct1.get_local_id(2) +
-//             item_ct1.get_group(2) * item_ct1.get_local_range(2);
-//         if (encoded_index >= num_outputs) return;
-
-// 	const uint32_t fan_out = num_to_encode + num_to_pad;
-// 	const uint32_t i = encoded_index / fan_out;
-// 	const uint32_t j = encoded_index - i * fan_out;
-
-// 	if (j >= num_to_encode) {
-// 		data_out[j] = 1;
-// 	} else {
-// 		data_out[j] = data_in[j] * scale + offset;
-// 	}
-// }
-
-template <typename T>
-void identity_backward(const uint32_t num_outputs,
-                       const uint32_t n_dims_to_encode, const float scale,
-                       MatrixView<const T> dL_dy, MatrixView<float> dL_dx,
-                       const sycl::nd_item<3>& item_ct1) {
-  const uint32_t output_index =
-      item_ct1.get_local_id(2) +
-      item_ct1.get_group(2) * item_ct1.get_local_range(2);
-  if (output_index >= num_outputs) return;
-
-  const uint32_t i = output_index / n_dims_to_encode;
-  const uint32_t j = output_index - i * n_dims_to_encode;
-
-  // The identity encoding can simply pass through the derivative.
-  dL_dx(j, i) = (T)((float)dL_dy(j, i) * scale);
-}
 
 template <typename T>
 class IdentityEncoding : public Encoding<T> {
@@ -79,21 +36,6 @@ class IdentityEncoding : public Encoding<T> {
     //           << n_dims_to_encode << ", m_scale: " << m_scale
     //           << ", m_offset: " << m_offset << std::endl;
   }
-
-  void forward_pass(const DeviceMem<bf16>& input, float* forward, float* A,
-                    float* B, float* C, DeviceMem<float>& output)
-      override{};  // inference_mixed_precision_impl -> forward
-
-  // Perform backward pass through the encoding
-  // tncc: inference_mixed_precision_impl() -> forward()
-  virtual void backward_pass(
-      const DeviceMem<bf16>& input, DeviceMem<bf16>& grads, float* out_inter,
-      float* delta_temp, DeviceMem<bf16> loss, float* A, float* B, float* C,
-      float* A_backward_last_layer, float* B_backward_last_layer,
-      float* C_backward_last_layer, float* D_backward_last_layer,
-      float* E_backward_last_layer, float* F_backward_last_layer,
-      float* A_dgemm, float* B_dgemm, float* C_dgemm,
-      float* forward) override{};
 
   std::unique_ptr<Context> forward_impl(
       dpct::queue_ptr stream, const GPUMatrixDynamic<float>& input,
@@ -274,14 +216,6 @@ class IdentityEncoding : public Encoding<T> {
   uint32_t required_output_alignment() const override { return 1; }
 
   MatrixLayout preferred_output_layout() const override { return AoS; }
-
-  // json hyperparams() const override {
-  // 	return {
-  // 		{"otype", "Identity"},
-  // 		{"scale", m_scale},
-  // 		{"offset", m_offset},
-  // 	};
-  // }
 
  private:
   uint32_t m_n_dims_to_encode;

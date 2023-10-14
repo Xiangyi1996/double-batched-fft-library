@@ -1,4 +1,4 @@
-#include <CL/sycl.hpp>
+/* #include <CL/sycl.hpp>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -273,3 +273,4 @@ int main() {
 
   return 0;
 }
+ */

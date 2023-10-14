@@ -48,24 +48,6 @@ class Encoding {
       bool use_inference_params = false,
       GradientMode param_gradients_mode = GradientMode::Overwrite) = 0;
 
-  // Perform forward pass through the encoding
-  // tncc: inference_mixed_precision_impl() -> forward()
-  virtual void forward_pass(
-      const DeviceMem<bf16>& input, float* forward, float* A, float* B,
-      float* C,
-      DeviceMem<float>& output) = 0;  // inference_mixed_precision_impl
-                                      // -> forward
-
-  // Perform backward pass through the encoding
-  // tncc: inference_mixed_precision_impl() -> forward()
-  virtual void backward_pass(
-      const DeviceMem<bf16>& input, DeviceMem<bf16>& grads, float* out_inter,
-      float* delta_temp, DeviceMem<bf16> loss, float* A, float* B, float* C,
-      float* A_backward_last_layer, float* B_backward_last_layer,
-      float* C_backward_last_layer, float* D_backward_last_layer,
-      float* E_backward_last_layer, float* F_backward_last_layer,
-      float* A_dgemm, float* B_dgemm, float* C_dgemm, float* forward) = 0;
-
   // Get the SYCL queue associated with the network
   queue get_queue() { return m_q; }
 
