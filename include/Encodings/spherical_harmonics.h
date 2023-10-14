@@ -1,62 +1,5 @@
 #pragma once
 
-// #include <DeviceMem.h>
-// #include <common.h>
-// #include <common_device.h>
-// #include <encoding.h>
-// #include <stdint.h>
-
-// #include <dpct/dpct.hpp>
-// #include <numeric>
-// #include <stdexcept>
-// #include <string>
-// #include <sycl/sycl.hpp>
-// #include <vector>
-
-// template <typename T>
-// void kernel_sh(const uint32_t num_elements, const uint32_t degree,
-//                const uint32_t num_to_pad, MatrixView<const float> data_in,
-//                MatrixView<T> data_out, id<1> encoded_idx) {
-// void kernel_sh(const uint32_t num_elements, const uint32_t degree,
-//                const uint32_t num_to_pad) {
-//   if (encoded_idx >= num_elements) return;
-
-//   data_out.advance_cols(encoded_idx);
-
-// #pragma unroll
-//   for (uint32_t j = 0; j < num_to_pad; ++j) {
-//     data_out(j) = (T)1.0f;
-//   }
-
-//   data_out.advance_rows(num_to_pad);
-
-//   sh_enc<T, MatrixView<T>>(degree, data_in(0, encoded_idx) * 2.f - 1.f,
-//                            data_in(1, encoded_idx) * 2.f - 1.f,
-//                            data_in(2, encoded_idx) * 2.f - 1.f, data_out);
-// }
-
-// template <typename T>
-// void kernel_sh_backward(const uint32_t num_elements, const uint32_t degree,
-//                         const uint32_t num_to_pad, MatrixView<const T> dL_dy,
-//                         MatrixView<const float> data_in,
-//                         MatrixView<float> dL_dx,
-//                         const sycl::nd_item<3> &item_ct1) {
-//   const uint32_t i = item_ct1.get_local_id(2) +
-//                      item_ct1.get_group(2) * item_ct1.get_local_range(2);
-//   if (i >= num_elements) return;
-
-//   dL_dy.advance(num_to_pad, i);
-
-//   tnn::vec3 d = sh_enc_grad<T, MatrixView<const T>>(
-//       degree, data_in(0, i) * 2.f - 1.f, data_in(1, i) * 2.f - 1.f,
-//       data_in(2, i) * 2.f - 1.f, dL_dy);
-
-//   // Multiplication by 2 due to the conversion
-//   // from [0,1]^3 to directions in [-1,1]^3.
-//   // See implementation in `kernel_sh`.
-//   dL_dx.set_col(i, 2.0f * d);
-// }
-
 template <typename T>
 class SphericalHarmonicsEncoding : public Encoding<T> {
  public:
@@ -84,47 +27,55 @@ class SphericalHarmonicsEncoding : public Encoding<T> {
       dpct::queue_ptr stream, const GPUMatrixDynamic<float> &input,
       GPUMatrixDynamic<T> *output = nullptr, bool use_inference_params = false,
       bool prepare_input_gradients = false) override {
-    uint32_t n_elements = input.n() * m_n_dims_to_encode;
-
+    const uint32_t n_elements = input.n();
+    // std::cout << "n_elements: " << n_elements << ", stride: " <<
+    // input.stride()
+    //           << std::endl;
     if (!output || padded_output_width() == 0) {
       return std::make_unique<Context>();
     }
 
     {
       // Wrap our data variable in a buffer
-      buffer<float, 1> inputBuf{input.data(), range<1>{n_elements}};
-      buffer<T, 1> outputBuf{output->data(), range<1>{n_elements}};
+      buffer<float, 1> inputBuf{input.data(), range<1>{input.n() * input.m()}};
+      buffer<T, 1> outputBuf{output->data(),
+                             range<1>{output->n() * output->m()}};
+
       auto loc_m_stride = input.stride();
       auto local_m_degree = m_degree;
       auto local_m_n_to_pad = m_n_to_pad;
+      auto local_padded_output_width = padded_output_width();
+      auto local_m_n_output_dims = m_n_output_dims;
       // Create a command group to issue commands to the queue
       stream->submit([&](handler &cgh) {
         accessor input_acc{inputBuf, cgh, read_only};
         accessor output_acc{outputBuf, cgh, write_only};
 
         // Enqueue a parallel_for task with 1024 work-items
-        cgh.parallel_for(n_elements, [=](id<1> encoded_idx) {
-        // kernel_sh(n_elements, local_m_degree, local_m_n_to_pad,
-        // input.view(),
-        //           output->view(), index);
+        cgh.parallel_for(range<1>(n_elements), [=](id<1> index) {
+          const uint32_t batch_idx = index;
 
-        //   if (encoded_idx >= n_elements) {
-        //     exit(0);
-        //   };
+          // kernel_sh(n_elements, local_m_degree, local_m_n_to_pad,
+          // input.view(),
+          //           output->view(), index);
 
-        // output.advance_cols(encoded_idx);
+          //   if (encoded_idx >= n_elements) {
+          //     exit(0);
+          //   };
+
+          // output.advance_cols(encoded_idx);
 
 #pragma unroll
           for (uint32_t j = 0; j < local_m_n_to_pad; ++j) {
-            output_acc[encoded_idx * loc_m_stride + j] = (T)1.0f;
+            output_acc[batch_idx * local_padded_output_width +
+                       (local_m_n_output_dims + j)] = (T)1.0f;
           }
-
           // data_out.advance_rows(m_n_to_pad);
           sh_enc<T>(local_m_degree,
-                    input_acc[0 * loc_m_stride + encoded_idx] * 2.f - 1.f,
-                    input_acc[1 * loc_m_stride + encoded_idx] * 2.f - 1.f,
-                    input_acc[2 * loc_m_stride + encoded_idx] * 2.f - 1.f,
-                    output_acc, local_m_n_to_pad);
+                    input_acc[0 + batch_idx * loc_m_stride] * 2.f - 1.f,
+                    input_acc[1 + batch_idx * loc_m_stride] * 2.f - 1.f,
+                    input_acc[2 + batch_idx * loc_m_stride] * 2.f - 1.f,
+                    output_acc, batch_idx * local_padded_output_width);
 
           // kernel_sh(n_elements, local_m_degree, local_m_n_to_pad);
         });  // End of the kernel function

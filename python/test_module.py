@@ -9,10 +9,14 @@ DEVICE_NAME = "xpu"
 network_with_encoding = NetworkWithInputEncoding(
     n_input_dims=3,
     n_output_dims=16,
+    # encoding_config={
+    #     "otype": "Identity",
+    #     "scale": "1.0",
+    #     "offset": "1.0",
+    # },
     encoding_config={
-        "otype": "Identity",
-        "scale": "1.0",
-        "offset": "1.0",
+        "otype": "SphericalHarmonics",
+        "degree": "4",
     },
     network_config={
         "otype": "FullyFusedMLP",

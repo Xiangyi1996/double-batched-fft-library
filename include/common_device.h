@@ -336,6 +336,12 @@ inline float random_val(uint32_t seed, uint32_t idx) {
 template <typename T, typename ARRAY_T>
 void sh_enc(uint32_t degree, float x, float y, float z, ARRAY_T& data_out,
             int offset) {
+  //   for (int i = 0; i < 16; i++) {
+  //     float val = (offset == 0) ? 1.0f : 2.0f;
+  //     data_out[i + offset] = val;
+  //     // data_out[i] = offset;
+  //   }
+
   // Let compiler figure out how to sequence/reorder these calculations w.r.t.
   // branches
   float xy = x * y, xz = x * z, yz = y * z, x2 = x * x, y2 = y * y, z2 = z * z;
@@ -367,7 +373,7 @@ void sh_enc(uint32_t degree, float x, float y, float z, ARRAY_T& data_out,
           0.31539156525251999f);  // sqrt(5)*(3*z2 - 1)/(4*sqrt(pi))
   data_out[7 + offset] =
       (T)(-1.0925484305920792f * xz);  // -sqrt(15)*xz/(2*sqrt(pi))
-  data_out[8] =
+  data_out[8 + offset] =
       (T)(0.54627421529603959f * x2 -
           0.54627421529603959f * y2);  // sqrt(15)*(x2 - y2)/(4*sqrt(pi))
   if (degree <= 3) {
@@ -376,7 +382,7 @@ void sh_enc(uint32_t degree, float x, float y, float z, ARRAY_T& data_out,
   data_out[9 + offset] =
       (T)(0.59004358992664352f * y *
           (-3.0f * x2 + y2));  // sqrt(70)*y*(-3*x2 + y2)/(8*sqrt(pi))
-  data_out[10] =
+  data_out[10 + offset] =
       (T)(2.8906114426405538f * xy * z);  // sqrt(105)*xy*z/(2*sqrt(pi))
   data_out[11 + offset] =
       (T)(0.45704579946446572f * y *
@@ -389,7 +395,7 @@ void sh_enc(uint32_t degree, float x, float y, float z, ARRAY_T& data_out,
           (1.0f - 5.0f * z2));  // sqrt(42)*x*(1 - 5*z2)/(8*sqrt(pi))
   data_out[14 + offset] = (T)(1.4453057213202769f * z *
                               (x2 - y2));  // sqrt(105)*z*(x2 - y2)/(4*sqrt(pi))
-  data_out[15] =
+  data_out[15 + offset] =
       (T)(0.59004358992664352f * x *
           (-x2 + 3.0f * y2));  // sqrt(70)*x*(-x2 + 3*y2)/(8*sqrt(pi))
   if (degree <= 4) {
@@ -398,53 +404,53 @@ void sh_enc(uint32_t degree, float x, float y, float z, ARRAY_T& data_out,
   data_out[16 + offset] =
       (T)(2.5033429417967046f * xy *
           (x2 - y2));  // 3*sqrt(35)*xy*(x2 - y2)/(4*sqrt(pi))
-  data_out[17] =
+  data_out[17 + offset] =
       (T)(1.7701307697799304f * yz *
           (-3.0f * x2 + y2));  // 3*sqrt(70)*yz*(-3*x2 + y2)/(8*sqrt(pi))
-  data_out[18] =
+  data_out[18 + offset] =
       (T)(0.94617469575756008f * xy *
           (7.0f * z2 - 1.0f));  // 3*sqrt(5)*xy*(7*z2 - 1)/(4*sqrt(pi))
-  data_out[19] =
+  data_out[19 + offset] =
       (T)(0.66904654355728921f * yz *
           (3.0f - 7.0f * z2));  // 3*sqrt(10)*yz*(3 - 7*z2)/(8*sqrt(pi))
-  data_out[20] =
+  data_out[20 + offset] =
       (T)(-3.1735664074561294f * z2 + 3.7024941420321507f * z4 +
           0.31735664074561293f);  // 3*(-30*z2 + 35*z4 + 3)/(16*sqrt(pi))
-  data_out[21] =
+  data_out[21 + offset] =
       (T)(0.66904654355728921f * xz *
           (3.0f - 7.0f * z2));  // 3*sqrt(10)*xz*(3 - 7*z2)/(8*sqrt(pi))
-  data_out[22] =
+  data_out[22 + offset] =
       (T)(0.47308734787878004f * (x2 - y2) *
           (7.0f * z2 - 1.0f));  // 3*sqrt(5)*(x2 - y2)*(7*z2 - 1)/(8*sqrt(pi))
-  data_out[23] =
+  data_out[23 + offset] =
       (T)(1.7701307697799304f * xz *
           (-x2 + 3.0f * y2));  // 3*sqrt(70)*xz*(-x2 + 3*y2)/(8*sqrt(pi))
-  data_out[24] =
+  data_out[24 + offset] =
       (T)(-3.7550144126950569f * x2 * y2 + 0.62583573544917614f * x4 +
           0.62583573544917614f *
               y4);  // 3*sqrt(35)*(-6*x2*y2 + x4 + y4)/(16*sqrt(pi))
   if (degree <= 5) {
     return;
   }
-  data_out[25] =
+  data_out[25 + offset] =
       (T)(0.65638205684017015f * y *
           (10.0f * x2 * y2 - 5.0f * x4 -
            y4));  // 3*sqrt(154)*y*(10*x2*y2 - 5*x4 - y4)/(32*sqrt(pi))
   data_out[26 + offset] =
       (T)(8.3026492595241645f * xy * z *
           (x2 - y2));  // 3*sqrt(385)*xy*z*(x2 - y2)/(4*sqrt(pi))
-  data_out[27] =
+  data_out[27 + offset] =
       (T)(-0.48923829943525038f * y * (3.0f * x2 - y2) *
           (9.0f * z2 -
            1.0f));  // -sqrt(770)*y*(3*x2 - y2)*(9*z2 - 1)/(32*sqrt(pi))
-  data_out[28] =
+  data_out[28 + offset] =
       (T)(4.7935367849733241f * xy * z *
           (3.0f * z2 - 1.0f));  // sqrt(1155)*xy*z*(3*z2 - 1)/(4*sqrt(pi))
   data_out[29 + offset] =
       (T)(0.45294665119569694f * y *
           (14.0f * z2 - 21.0f * z4 -
            1.0f));  // sqrt(165)*y*(14*z2 - 21*z4 - 1)/(16*sqrt(pi))
-  data_out[30] =
+  data_out[30 + offset] =
       (T)(0.1169503224534236f * z *
           (-70.0f * z2 + 63.0f * z4 +
            15.0f));  // sqrt(11)*z*(-70*z2 + 63*z4 + 15)/(16*sqrt(pi))
@@ -456,7 +462,7 @@ void sh_enc(uint32_t degree, float x, float y, float z, ARRAY_T& data_out,
       (T)(2.3967683924866621f * z * (x2 - y2) *
           (3.0f * z2 -
            1.0f));  // sqrt(1155)*z*(x2 - y2)*(3*z2 - 1)/(8*sqrt(pi))
-  data_out[33] =
+  data_out[33 + offset] =
       (T)(-0.48923829943525038f * x * (x2 - 3.0f * y2) *
           (9.0f * z2 -
            1.0f));  // -sqrt(770)*x*(x2 - 3*y2)*(9*z2 - 1)/(32*sqrt(pi))
@@ -464,31 +470,31 @@ void sh_enc(uint32_t degree, float x, float y, float z, ARRAY_T& data_out,
       (T)(2.0756623148810411f * z *
           (-6.0f * x2 * y2 + x4 +
            y4));  // 3*sqrt(385)*z*(-6*x2*y2 + x4 + y4)/(16*sqrt(pi))
-  data_out[35] =
+  data_out[35 + offset] =
       (T)(0.65638205684017015f * x *
           (10.0f * x2 * y2 - x4 -
            5.0f * y4));  // 3*sqrt(154)*x*(10*x2*y2 - x4 - 5*y4)/(32*sqrt(pi))
   if (degree <= 6) {
     return;
   }
-  data_out[36] =
+  data_out[36 + offset] =
       (T)(1.3663682103838286f * xy *
           (-10.0f * x2 * y2 + 3.0f * x4 +
            3.0f *
                y4));  // sqrt(6006)*xy*(-10*x2*y2 + 3*x4 + 3*y4)/(32*sqrt(pi))
-  data_out[37] =
+  data_out[37 + offset] =
       (T)(2.3666191622317521f * yz *
           (10.0f * x2 * y2 - 5.0f * x4 -
            y4));  // 3*sqrt(2002)*yz*(10*x2*y2 - 5*x4 - y4)/(32*sqrt(pi))
-  data_out[38] =
+  data_out[38 + offset] =
       (T)(2.0182596029148963f * xy * (x2 - y2) *
           (11.0f * z2 -
            1.0f));  // 3*sqrt(91)*xy*(x2 - y2)*(11*z2 - 1)/(8*sqrt(pi))
-  data_out[39] =
+  data_out[39 + offset] =
       (T)(-0.92120525951492349f * yz * (3.0f * x2 - y2) *
           (11.0f * z2 -
            3.0f));  // -sqrt(2730)*yz*(3*x2 - y2)*(11*z2 - 3)/(32*sqrt(pi))
-  data_out[40] =
+  data_out[40 + offset] =
       (T)(0.92120525951492349f * xy *
           (-18.0f * z2 + 33.0f * z4 +
            1.0f));  // sqrt(2730)*xy*(-18*z2 + 33*z4 + 1)/(32*sqrt(pi))
@@ -510,19 +516,19 @@ void sh_enc(uint32_t degree, float x, float y, float z, ARRAY_T& data_out,
           (11.0f * z2 * (3.0f * z2 - 1.0f) - 7.0f * z2 +
            1.0f));  // sqrt(2730)*(x2 - y2)*(11*z2*(3*z2 - 1) - 7*z2
                     // + 1)/(64*sqrt(pi))
-  data_out[45] =
+  data_out[45 + offset] =
       (T)(-0.92120525951492349f * xz * (x2 - 3.0f * y2) *
           (11.0f * z2 -
            3.0f));  // -sqrt(2730)*xz*(x2 - 3*y2)*(11*z2 - 3)/(32*sqrt(pi))
-  data_out[46] =
+  data_out[46 + offset] =
       (T)(0.50456490072872406f * (11.0f * z2 - 1.0f) *
           (-6.0f * x2 * y2 + x4 +
            y4));  // 3*sqrt(91)*(11*z2 - 1)*(-6*x2*y2 + x4 + y4)/(32*sqrt(pi))
-  data_out[47] =
+  data_out[47 + offset] =
       (T)(2.3666191622317521f * xz *
           (10.0f * x2 * y2 - x4 -
            5.0f * y4));  // 3*sqrt(2002)*xz*(10*x2*y2 - x4 - 5*y4)/(32*sqrt(pi))
-  data_out[48] =
+  data_out[48 + offset] =
       (T)(10.247761577878714f * x2 * y4 - 10.247761577878714f * x4 * y2 +
           0.6831841051919143f * x6 -
           0.6831841051919143f *
@@ -542,7 +548,7 @@ void sh_enc(uint32_t degree, float x, float y, float z, ARRAY_T& data_out,
                               (-10.0f * x2 * y2 + 5.0f * x4 +
                                y4));  // -3*sqrt(385)*y*(13*z2 - 1)*(-10*x2*y2 +
                                       // 5*x4 + y4)/(64*sqrt(pi))
-  data_out[52] =
+  data_out[52 + offset] =
       (T)(4.1513246297620823f * xy * z * (x2 - y2) *
           (13.0f * z2 -
            3.0f));  // 3*sqrt(385)*xy*z*(x2 - y2)*(13*z2 - 3)/(8*sqrt(pi))
@@ -551,19 +557,19 @@ void sh_enc(uint32_t degree, float x, float y, float z, ARRAY_T& data_out,
           (13.0f * z2 * (11.0f * z2 - 3.0f) - 27.0f * z2 +
            3.0f));  // -3*sqrt(35)*y*(3*x2 - y2)*(13*z2*(11*z2 - 3) -
                     // 27*z2 + 3)/(64*sqrt(pi))
-  data_out[54] =
+  data_out[54 + offset] =
       (T)(0.44253269244498261f * xy * z *
           (-110.0f * z2 + 143.0f * z4 +
            15.0f));  // 3*sqrt(70)*xy*z*(-110*z2 + 143*z4 + 15)/(32*sqrt(pi))
-  data_out[55] =
+  data_out[55 + offset] =
       (T)(0.090331607582517306f * y *
           (-135.0f * z2 + 495.0f * z4 - 429.0f * z6 +
            5.0f));  // sqrt(105)*y*(-135*z2 + 495*z4 - 429*z6 + 5)/(64*sqrt(pi))
-  data_out[56] =
+  data_out[56 + offset] =
       (T)(0.068284276912004949f * z *
           (315.0f * z2 - 693.0f * z4 + 429.0f * z6 -
            35.0f));  // sqrt(15)*z*(315*z2 - 693*z4 + 429*z6 - 35)/(32*sqrt(pi))
-  data_out[57] =
+  data_out[57 + offset] =
       (T)(0.090331607582517306f * x *
           (-135.0f * z2 + 495.0f * z4 - 429.0f * z6 +
            5.0f));  // sqrt(105)*x*(-135*z2 + 495*z4 - 429*z6 + 5)/(64*sqrt(pi))
@@ -576,7 +582,7 @@ void sh_enc(uint32_t degree, float x, float y, float z, ARRAY_T& data_out,
           (13.0f * z2 * (11.0f * z2 - 3.0f) - 27.0f * z2 +
            3.0f));  // -3*sqrt(35)*x*(x2 - 3*y2)*(13*z2*(11*z2 - 3) -
                     // 27*z2 + 3)/(64*sqrt(pi))
-  data_out[60] =
+  data_out[60 + offset] =
       (T)(1.0378311574405206f * z * (13.0f * z2 - 3.0f) *
           (-6.0f * x2 * y2 + x4 + y4));  // 3*sqrt(385)*z*(13*z2 - 3)*(-6*x2*y2
                                          // + x4 + y4)/(32*sqrt(pi))
@@ -593,6 +599,7 @@ void sh_enc(uint32_t degree, float x, float y, float z, ARRAY_T& data_out,
       (T)(0.70716273252459627f * x *
           (-35.0f * x2 * y4 + 21.0f * x4 * y2 - x6 +
            7.0f * y6));  // 3*sqrt(715)*x*(-35*x2*y4 + 21*x4*y2 - x6
+                         // + 7*y6)/(64*sqrt(pi))4*y2 - x6
                          // + 7*y6)/(64*sqrt(pi))
 }
 

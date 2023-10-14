@@ -16,18 +16,18 @@ using namespace sycl::ext::oneapi::experimental::matrix;
 using bf16 = sycl::ext::oneapi::bfloat16;
 
 #define INPUT_WIDTH 3
-#define OUTPUT_WIDTH 16
+#define OUTPUT_WIDTH 20
 #define DEGREE 4
 
 void test_encoding() {
   // SWIFTNET
-  const int batch_size = 1;
+  const int batch_size = 2;
   queue q;
   DeviceMem<float> input_float(INPUT_WIDTH * batch_size, q);
-  input_float.initialize_constant(1.0f, q);
+  input_float.initialize_arange(q);
   GPUMatrix<float> input(input_float.data(), INPUT_WIDTH, batch_size);
 
-  GPUMatrix<bf16> output_float(DEGREE * DEGREE, batch_size);
+  GPUMatrix<bf16> output_float(OUTPUT_WIDTH, batch_size);
 
   output_float.initialize_constant(0.00f);
 
@@ -37,15 +37,20 @@ void test_encoding() {
   output_float.print();
 
   // Define the parameters for creating IdentityEncoding
-  //   std::unordered_map<std::string, std::string> encoding = {
-  //       {"n_dims_to_encode", std::to_string(INPUT_WIDTH)},
-  //       {"scale", "1.0"},
-  //       {"offset", "0.0"}};
+  // std::unordered_map<std::string, std::string> encoding = {
+  //     {"n_dims_to_encode", std::to_string(INPUT_WIDTH)},
+  //     {"scale", "1.0"},
+  //     {"offset", "0.0"}};
+  //     Encoding<bf16>* network =
+  //         create_encoding<bf16>(INPUT_WIDTH, "Identity", encoding);
   //   Encoding<bf16>* network =
-  //       create_encoding<bf16>(INPUT_WIDTH, "Identity", encoding);
+  //       new SphericalHarmonicsEncoding<bf16>(DEGREE, INPUT_WIDTH);
+  std::unordered_map<std::string, std::string> encoding = {
+      {"n_dims_to_encode", std::to_string(INPUT_WIDTH)},
+      {"degree", std::to_string(DEGREE)}};
   Encoding<bf16>* network =
-      new SphericalHarmonicsEncoding<bf16>(DEGREE, INPUT_WIDTH);
-  //   network->set_padded_output_width(OUTPUT_WIDTH);
+      create_encoding<bf16>(INPUT_WIDTH, "SphericalHarmonics", encoding);
+  network->set_padded_output_width(OUTPUT_WIDTH);
 
   std::unique_ptr<Context> model_ctx =
       network->forward_impl(&q, input, &output_float);

@@ -571,10 +571,9 @@ void DeviceMem<T>::initialize_arange(queue q) {
   // Repeat the col_vector and perform the operations
   for (int i = 0; i < data.size(); i++) {
     data[i] = static_cast<T>((i - m_size / 2)) / static_cast<T>(m_size / 2);
-    // std::cout << "Writing at idx: " << i << ": " << data[i] << ", ("
-    //           << static_cast<T>((i - m_size / 2)) / static_cast<T>(m_size /
-    //           2)
-    //           << "), m_size: " << m_size << std::endl;
+    std::cout << "Writing at idx: " << i << ": " << data[i] << ", ("
+              << static_cast<T>((i - m_size / 2)) / static_cast<T>(m_size / 2)
+              << "), m_size: " << m_size << std::endl;
   }
   q.memcpy(m_data, data.data(), m_size * sizeof(T)).wait();
 }

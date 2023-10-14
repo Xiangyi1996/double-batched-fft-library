@@ -2,6 +2,7 @@
 #include <unordered_map>
 
 #include "Encodings/identity.h"
+#include "Encodings/spherical_harmonics.h"
 #include "encoding.h"
 
 // Base EncodingFactory class
@@ -25,6 +26,17 @@ class IdentityEncodingFactory : public EncodingFactory<T> {
   }
 };
 
+// EncodingFactory for IdentityEncoding
+template <typename T>
+class SphericalHarmonicsEncodingFactory : public EncodingFactory<T> {
+ public:
+  Encoding<T>* create(const std::unordered_map<std::string, std::string>&
+                          params) const override {
+    uint32_t degree = std::stoi(params.at("degree"));
+    uint32_t n_dims_to_encode = std::stoi(params.at("n_dims_to_encode"));
+    return new SphericalHarmonicsEncoding<T>(degree, n_dims_to_encode);
+  }
+};
 // // EncodingFactory for GridEncodingTemplated
 // template <typename T>
 // class GridEncodingFactory : public EncodingFactory<T> {
@@ -97,6 +109,17 @@ Encoding<T>* create_encoding(
         encodingRegistry.create("Identity", encoding_config);
     return identityEncoding;
 
+  } else if (name == "SphericalHarmonics") {
+    // Register the IdentityEncoding factory
+    encodingRegistry.registerFactory(
+        "SphericalHarmonics",
+        std::make_unique<SphericalHarmonicsEncodingFactory<T>>());
+
+    // Create an SphericalHarmonicsEncoding instance using the factory and
+    // parameters
+    Encoding<T>* sphericalHarmonicsEncoding =
+        encodingRegistry.create("SphericalHarmonics", encoding_config);
+    return sphericalHarmonicsEncoding;
   } else {
     std::cout << name << " not implemented. Exiting." << std::endl;
     exit(0);
