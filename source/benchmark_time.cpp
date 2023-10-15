@@ -1,4 +1,6 @@
-#include <CL/sycl.hpp>
+/* #include <CL/sycl.hpp>
+#include <omp.h>
+
 #include <chrono>
 #include <cmath>
 #include <iostream>
@@ -14,8 +16,6 @@
 #include "oneapi/mkl.hpp"
 #include "sgd.h"
 #include "trainer.h"
-
-#include <omp.h>
 
 using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;
@@ -117,7 +117,8 @@ void benchmark_time() {
 
 #if defined(USE_TWO_TILE)
     std::cout << "Benchmark on two tiles." << std::endl;
-  sycl::queue Q(sycl::gpu_selector_v, sycl::property::queue::enable_profiling{});
+  sycl::queue Q(sycl::gpu_selector_v,
+sycl::property::queue::enable_profiling{});
 
   std::vector<sycl::device> SubDevices = Q.get_device().create_sub_devices<
     sycl::info::partition_property::partition_by_affinity_domain>(
@@ -142,8 +143,9 @@ void benchmark_time() {
 {
   int dev_id = omp_get_thread_num();
   // Same context for data sharing
-  sycl::queue q(C, SubDevices[dev_id], sycl::property::queue::enable_profiling{});
-  std::cout << "Starting queue on tile "
+  sycl::queue q(C, SubDevices[dev_id],
+sycl::property::queue::enable_profiling{}); std::cout << "Starting queue on tile
+"
             << dev_id
             << " / " << SubDevices.size() << "\n";
 #else
@@ -411,3 +413,4 @@ int main() {
   benchmark_time();
   return 0;
 }
+ */

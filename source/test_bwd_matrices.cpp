@@ -1,4 +1,4 @@
-/* #include <CL/sycl.hpp>
+#include <CL/sycl.hpp>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -138,6 +138,7 @@ int main() {
   std::vector<bf16> inputs_vec(inputs_size);
   std::vector<bf16> grads_vec(grads_size);
   std::vector<bf16> deltas_vec(deltas_size);
+  std::vector<bf16> grads_matrices_vec(network.get_grads_matrices()->size());
   std::vector<float> out_inter_vec(out_inter_size);
   std::vector<float> A_backward_vec(A_backward_size);
   std::vector<float> B_backward_vec(B_backward_size);
@@ -155,6 +156,7 @@ int main() {
       .wait();
   inputs.copy_to_host(inputs_vec, q);
   grads.copy_to_host(grads_vec, q);
+  network.get_grads_matrices()->copy_to_host(grads_matrices_vec, q);
   network.m_deltas.copy_to_host(deltas_vec, q);
 
   q.memcpy(out_inter_vec.data(), network.m_out_inter,
@@ -196,6 +198,8 @@ int main() {
       loadVectorFromCSV<bf16>("bwd_matrices/inputs.csv");
   std::vector<bf16> grads_vec_ref =
       loadVectorFromCSV<bf16>("bwd_matrices/grads.csv");
+  std::vector<bf16> grads_matrices_vec_ref =
+      loadVectorFromCSV<bf16>("bwd_matrices/grads_matrices.csv");
   std::vector<float> out_inter_vec_ref =
       loadVectorFromCSV<float>("bwd_matrices/out_inter.csv");
   std::vector<bf16> deltas_vec_ref =
@@ -229,8 +233,13 @@ int main() {
   std::cout << "Checking inputs..." << std::endl;
   areVectorsWithinTolerance(inputs_vec, inputs_vec_ref, tolerance);
 
-  std::cout << "Checking grads..." << std::endl;
+  std::cout << "Checking output grads (difference prediction and target)..."
+            << std::endl;
   areVectorsWithinTolerance(grads_vec, grads_vec_ref, tolerance);
+
+  std::cout << "Checking grads matrices..." << std::endl;
+  areVectorsWithinTolerance(grads_matrices_vec, grads_matrices_vec_ref,
+                            tolerance);
 
   std::cout << "Checking out_inter..." << std::endl;
   areVectorsWithinTolerance(out_inter_vec, out_inter_vec_ref, tolerance);
@@ -273,4 +282,3 @@ int main() {
 
   return 0;
 }
- */

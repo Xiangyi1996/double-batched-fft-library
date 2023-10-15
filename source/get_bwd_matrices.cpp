@@ -1,4 +1,4 @@
-/*#include <CL/sycl.hpp>
+/* #include <CL/sycl.hpp>
 #include <iostream>
 #include <vector>
 
@@ -111,6 +111,7 @@ void get_matrices() {
   std::vector<float> m_forward_vec(m_forward_size);
   std::vector<bf16> inputs_vec(inputs_size);
   std::vector<bf16> grads_vec(grads_size);
+  std::vector<bf16> grads_matrices_vec(network.get_grads_matrices()->size());
   std::vector<bf16> deltas_vec(deltas_size);
   std::vector<float> out_inter_vec(out_inter_size);
   std::vector<float> A_backward_vec(A_backward_size);
@@ -129,6 +130,8 @@ void get_matrices() {
       .wait();
   inputs.copy_to_host(inputs_vec, q);
   grads.copy_to_host(grads_vec, q);
+  network.get_grads_matrices()->copy_to_host(grads_matrices_vec, q);
+
   network.m_deltas.copy_to_host(deltas_vec, q);
 
   q.memcpy(out_inter_vec.data(), network.m_out_inter,
@@ -166,6 +169,7 @@ void get_matrices() {
   saveVectorToCSV(m_forward_vec, "bwd_matrices/m_forward.csv");
   saveVectorToCSV(inputs_vec, "bwd_matrices/inputs.csv");
   saveVectorToCSV(grads_vec, "bwd_matrices/grads.csv");
+  saveVectorToCSV(grads_matrices_vec, "bwd_matrices/grads_matrices.csv");
   saveVectorToCSV(out_inter_vec, "bwd_matrices/out_inter.csv");
   saveVectorToCSV(deltas_vec, "bwd_matrices/deltas.csv");
   saveVectorToCSV(A_backward_vec, "bwd_matrices/A_backward.csv");
@@ -195,4 +199,4 @@ int main() {
   get_matrices();
   return 0;
 }
-*/
+ */
