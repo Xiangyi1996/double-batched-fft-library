@@ -11,7 +11,7 @@
 #define CONSTANT
 
 #endif
-void get_float(float value, int& integer_val, int& fractional_val) {
+void get_float(float value, int &integer_val, int &fractional_val) {
   // careful with the code. Leading zeros not shown in fractional_val. This is
   // only to debug whether it's zero or non-zero. only for 4 decimals after
   // comma
@@ -46,7 +46,21 @@ DeviceMem<T>::DeviceMem() {}
  * @param queue              SYCL queue associated with the object.
  */
 template <typename T>
-DeviceMem<T>::DeviceMem(int size, sycl::queue& q) {
+DeviceMem<T>::DeviceMem(int size, sycl::queue &q) {
+  if (m_size != 0 || size <= 0) {
+    return;
+  }
+  m_size = size;
+  m_data = malloc_device<T>(size, q);
+}
+/**
+ * Allocate memory for a DeviceMem object.
+ *
+ * @param size               Size of the memory to allocate.
+ * @param queue              SYCL queue associated with the object.
+ */
+template <typename T>
+void DeviceMem<T>::allocate2(int size, queue &q) {
   if (m_size != 0 || size <= 0) {
     return;
   }
@@ -61,12 +75,68 @@ DeviceMem<T>::DeviceMem(int size, sycl::queue& q) {
  * @param queue              SYCL queue associated with the object.
  */
 template <typename T>
-void DeviceMem<T>::allocate(int size, queue& q) {
-  if (m_size != 0 || size <= 0) {
+void DeviceMem<T>::allocate(int n_bytes, queue &q) {
+  if (m_size != 0 || n_bytes <= 0) {
     return;
   }
-  m_size = size;
-  m_data = malloc_device<T>(size, q);
+  // m_size = size;
+  // m_data = malloc_device<T>(size, q);
+
+  // if (n_bytes == 0) return;
+
+  log_debug("DeviceMem: allocating {}.", bytes_to_string(n_bytes));
+
+  uint8_t *rawptr{
+      m_managed
+          ? sycl::malloc_shared<uint8_t>(n_bytes + DEBUG_GUARD_SIZE * 2, q)
+          : sycl::malloc_device<uint8_t>(n_bytes + DEBUG_GUARD_SIZE * 2, q)};
+  if (!rawptr)
+    throw std::runtime_error{"Allocation failed in line __LINE__ in __FILE__."};
+
+#if DEBUG_GUARD_SIZE > 0
+  q.memset(rawptr, 0xFF, DEBUG_GUARD_SIZE);
+  q.memset(rawptr + n_bytes + DEBUG_GUARD_SIZE, 0xFE, DEBUG_GUARD_SIZE);
+#endif
+
+  rawptr += DEBUG_GUARD_SIZE;
+  m_data = reinterpret_cast<T *>(rawptr);
+  total_n_bytes_allocated() += n_bytes;
+}
+
+/**
+ * Allocate memory for a DeviceMem object.
+ *
+ * @param size               Size of the memory to allocate.
+ * @param queue              SYCL queue associated with the object.
+ */
+template <typename T>
+void DeviceMem<T>::allocate(int n_bytes) {
+  if (m_size != 0 || n_bytes <= 0) {
+    return;
+  }
+  // m_size = size;
+  // m_data = malloc_device<T>(size, q);
+
+  // if (n_bytes == 0) return;
+
+  log_debug("DeviceMem: allocating {}.", bytes_to_string(n_bytes));
+
+  sycl::queue &q{dpct::get_default_queue()};
+  uint8_t *rawptr{
+      m_managed
+          ? sycl::malloc_shared<uint8_t>(n_bytes + DEBUG_GUARD_SIZE * 2, q)
+          : sycl::malloc_device<uint8_t>(n_bytes + DEBUG_GUARD_SIZE * 2, q)};
+  if (!rawptr)
+    throw std::runtime_error{"Allocation failed in line __LINE__ in __FILE__."};
+
+#if DEBUG_GUARD_SIZE > 0
+  q.memset(rawptr, 0xFF, DEBUG_GUARD_SIZE);
+  q.memset(rawptr + n_bytes + DEBUG_GUARD_SIZE, 0xFE, DEBUG_GUARD_SIZE);
+#endif
+
+  rawptr += DEBUG_GUARD_SIZE;
+  m_data = reinterpret_cast<T *>(rawptr);
+  total_n_bytes_allocated() += n_bytes;
 }
 
 /**
@@ -75,9 +145,18 @@ void DeviceMem<T>::allocate(int size, queue& q) {
  * @param queue              SYCL queue associated with the object.
  */
 template <typename T>
-void DeviceMem<T>::free_mem(queue& q) {
+void DeviceMem<T>::free_mem(queue &q) {
+  if (!m_data) return;
+
+  uint8_t *rawptr = reinterpret_cast<uint8_t *>(m_data);
+  rawptr -= DEBUG_GUARD_SIZE;
+
+  sycl::free(rawptr, q);
+
+  total_n_bytes_allocated() -= get_bytes();
+
+  m_data = nullptr;
   m_size = 0;
-  free(m_data, q);
 }
 
 /**
@@ -86,8 +165,17 @@ void DeviceMem<T>::free_mem(queue& q) {
  */
 template <typename T>
 void DeviceMem<T>::free_mem() {
+  if (!m_data) return;
+
+  uint8_t *rawptr = reinterpret_cast<uint8_t *>(m_data);
+  rawptr -= DEBUG_GUARD_SIZE;
+
+  sycl::free(rawptr, dpct::get_default_queue());
+
+  total_n_bytes_allocated() -= get_bytes();
+
+  m_data = nullptr;
   m_size = 0;
-  free(m_data);
 }
 
 /**
@@ -98,7 +186,7 @@ void DeviceMem<T>::free_mem() {
  * @param queue              SYCL queue associated with the object.
  */
 template <typename T>
-void DeviceMem<T>::copy_from_host(std::vector<T>& data, int n, queue q) {
+void DeviceMem<T>::copy_from_host(std::vector<T> &data, int n, queue q) {
   q.memcpy(m_data, data.data(), n * sizeof(T)).wait();
 }
 
@@ -110,7 +198,7 @@ void DeviceMem<T>::copy_from_host(std::vector<T>& data, int n, queue q) {
  * @param queue              SYCL queue associated with the object.
  */
 template <typename T>
-void DeviceMem<T>::copy_to_host(std::vector<T>& data, int n, queue q) {
+void DeviceMem<T>::copy_to_host(std::vector<T> &data, int n, queue q) {
   q.memcpy(data.data(), m_data, n * sizeof(T)).wait();
 }
 
@@ -122,7 +210,7 @@ void DeviceMem<T>::copy_to_host(std::vector<T>& data, int n, queue q) {
  * @param queue              SYCL queue associated with the object.
  */
 template <typename T>
-void DeviceMem<T>::copy_from_host(std::vector<T>& data, queue q) {
+void DeviceMem<T>::copy_from_host(std::vector<T> &data, queue q) {
   copy_from_host(data, m_size, q);
 }
 
@@ -135,8 +223,22 @@ void DeviceMem<T>::copy_from_host(std::vector<T>& data, queue q) {
  * @param queue              SYCL queue associated with the object.
  */
 template <typename T>
-void DeviceMem<T>::copy_to_host(std::vector<T>& data, queue q) {
+void DeviceMem<T>::copy_to_host(std::vector<T> &data, queue q) {
   copy_to_host(data, m_size, q);
+}
+
+/**
+ * Set data to a specific id of the DeviceMem object.
+ *
+ * @param id                 Index to set the data.
+ * @param value              Value to set.
+ */
+template <typename T>
+void DeviceMem<T>::set_values(int size, float *array, queue &q) {
+  auto local_m_data = m_data;
+  q.parallel_for<>(range<1>(size), [=](id<1> idx) {
+     local_m_data[idx] = (bf16)(array[idx]);
+   }).wait();
 }
 
 /**
@@ -169,7 +271,7 @@ void DeviceMem<T>::set_data(int id, T value) {
  * @param q              The SYCL queue for parallel computation.
  */
 template <typename T>
-void DeviceMem<T>::initialize_normal(double dev, DeviceMem<T>& transposed,
+void DeviceMem<T>::initialize_normal(double dev, DeviceMem<T> &transposed,
                                      int input_width, int width,
                                      int output_width, int n_hidden, queue q) {
   auto p = m_data;
@@ -209,7 +311,7 @@ void DeviceMem<T>::initialize_normal(double dev, DeviceMem<T>& transposed,
   }
   buffer<T, 1> buf(data.data(), data.size());
   buffer<T, 1> bufT(dataT.data(), dataT.size());
-  q.submit([&](handler& h) {
+  q.submit([&](handler &h) {
      auto acc = buf.get_access(h);
      auto accT = bufT.get_access(h);
      h.parallel_for(m_size, [=](id<1> idx) {
@@ -255,7 +357,7 @@ void DeviceMem<T>::initialize_normal(double dev, queue q) {
  * @param q             The SYCL queue for parallel computation.
  */
 template <typename T>
-void DeviceMem<T>::initialize_uniform(double scale, DeviceMem<T>& transposed,
+void DeviceMem<T>::initialize_uniform(double scale, DeviceMem<T> &transposed,
                                       int input_width, int width,
                                       int output_width, int n_hidden, queue q) {
   //   std::cout << "WRONG" << std::endl;
@@ -329,7 +431,7 @@ void DeviceMem<T>::initialize_uniform(double scale, DeviceMem<T>& transposed,
   //   std::cout << "Crashes here1" << std::endl;
   buffer<T, 1> bufT(dataT.data(), dataT.size());
   //   std::cout << "Crashes here2" << std::endl;
-  q.submit([&](handler& h) {
+  q.submit([&](handler &h) {
      auto acc = buf.get_access(h);
      auto accT = bufT.get_access(h);
      h.parallel_for(m_size, [=](id<1> idx) {
@@ -356,7 +458,7 @@ void DeviceMem<T>::initialize_uniform(double scale, DeviceMem<T>& transposed,
  * @param q             The SYCL queue for parallel computation.
  */
 template <typename T>
-void DeviceMem<T>::make_transposed(DeviceMem<T>& transposed, int input_width,
+void DeviceMem<T>::make_transposed(DeviceMem<T> &transposed, int input_width,
                                    int width, int output_width, int n_hidden,
                                    queue q) {
   auto p = m_data;
@@ -476,7 +578,7 @@ void DeviceMem<T>::initialize_uniform(queue q, double scale) {
  * @param q             The SYCL queue for memory operations.
  */
 template <typename T>
-void DeviceMem<T>::initialize_xavier_unif(DeviceMem<T>& transposed,
+void DeviceMem<T>::initialize_xavier_unif(DeviceMem<T> &transposed,
                                           int input_width, int width,
                                           int output_width, int n_hidden,
                                           queue q) {
@@ -517,7 +619,7 @@ void DeviceMem<T>::initialize_xavier_unif(int input_width, int output_width,
  * @param q             The SYCL queue for memory operations.
  */
 template <typename T>
-void DeviceMem<T>::inititialize_xavier_normal(DeviceMem<T>& transposed,
+void DeviceMem<T>::inititialize_xavier_normal(DeviceMem<T> &transposed,
                                               int input_width, int width,
                                               int output_width, int n_hidden,
                                               queue q) {
@@ -556,7 +658,7 @@ void DeviceMem<T>::initialize_xavier_normal(int input_width, int output_width,
  * @param q             The SYCL queue for memory operations.
  */
 template <typename T>
-void DeviceMem<T>::initialize_constant(T constant, DeviceMem<T>& transposed,
+void DeviceMem<T>::initialize_constant(T constant, DeviceMem<T> &transposed,
                                        queue q) {
   std::vector<T> data(m_size, constant);
   q.memcpy(m_data, data.data(), m_size * sizeof(T)).wait();
@@ -571,9 +673,10 @@ void DeviceMem<T>::initialize_arange(queue q) {
   // Repeat the col_vector and perform the operations
   for (int i = 0; i < data.size(); i++) {
     data[i] = static_cast<T>((i - m_size / 2)) / static_cast<T>(m_size / 2);
-    std::cout << "Writing at idx: " << i << ": " << data[i] << ", ("
-              << static_cast<T>((i - m_size / 2)) / static_cast<T>(m_size / 2)
-              << "), m_size: " << m_size << std::endl;
+    // std::cout << "Writing at idx: " << i << ": " << data[i] << ", ("
+    //           << static_cast<T>((i - m_size / 2)) / static_cast<T>(m_size /
+    //           2)
+    //           << "), m_size: " << m_size << std::endl;
   }
   q.memcpy(m_data, data.data(), m_size * sizeof(T)).wait();
 }
@@ -665,7 +768,7 @@ void DeviceMem<T>::initialize_constant(T constant, queue q) {
  * @param q             The SYCL queue for memory operations.
  */
 template <typename T>
-void DeviceMem<T>::intitialize_he_normal(DeviceMem<T>& transposed,
+void DeviceMem<T>::intitialize_he_normal(DeviceMem<T> &transposed,
                                          int input_width, int width,
                                          int output_width, int n_hidden,
                                          queue q) {
@@ -692,15 +795,15 @@ void DeviceMem<T>::intitialize_he_normal(int input_width, queue q) {
 
 template <typename T>
 void DeviceMem<T>::allocate_memory(size_t n_bytes) try {
-  dpct::device_ext& dev_ct1 = dpct::get_current_device();
-  sycl::queue& q_ct1 = dev_ct1.default_queue();
+  dpct::device_ext &dev_ct1 = dpct::get_current_device();
+  sycl::queue &q_ct1 = dev_ct1.default_queue();
   if (n_bytes == 0) {
     return;
   }
 
   // fmt::print("GPUMemory: allocating {}.", bytes_to_string(n_bytes));
 
-  uint8_t* rawptr = nullptr;
+  uint8_t *rawptr = nullptr;
   if (m_managed) {
     /*
     DPCT1003:63: Migrated API does not return error code.
@@ -712,8 +815,8 @@ void DeviceMem<T>::allocate_memory(size_t n_bytes) try {
     Adjust the code.
     */
     CUDA_CHECK_THROW(
-        (rawptr = (uint8_t*)sycl::malloc_shared(n_bytes + DEBUG_GUARD_SIZE * 2,
-                                                dpct::get_default_queue()),
+        (rawptr = (uint8_t *)sycl::malloc_shared(n_bytes + DEBUG_GUARD_SIZE * 2,
+                                                 dpct::get_default_queue()),
          0));
   } else {
     /*
@@ -726,8 +829,8 @@ void DeviceMem<T>::allocate_memory(size_t n_bytes) try {
     Adjust the code.
     */
     CUDA_CHECK_THROW(
-        (rawptr = (uint8_t*)sycl::malloc_device(n_bytes + DEBUG_GUARD_SIZE * 2,
-                                                dpct::get_default_queue()),
+        (rawptr = (uint8_t *)sycl::malloc_device(n_bytes + DEBUG_GUARD_SIZE * 2,
+                                                 dpct::get_default_queue()),
          0));
   }
 #if DEBUG_GUARD_SIZE > 0
@@ -736,40 +839,51 @@ void DeviceMem<T>::allocate_memory(size_t n_bytes) try {
       cudaMemset(rawptr + n_bytes + DEBUG_GUARD_SIZE, 0xfe, DEBUG_GUARD_SIZE));
 #endif
   if (rawptr) rawptr += DEBUG_GUARD_SIZE;
-  m_data = (T*)(rawptr);
+  m_data = (T *)(rawptr);
   total_n_bytes_allocated() += n_bytes;
-} catch (sycl::exception const& exc) {
+} catch (sycl::exception const &exc) {
   std::cerr << exc.what() << "Exception caught at file:" << __FILE__
             << ", line:" << __LINE__ << std::endl;
   std::exit(1);
 }
 
 template <typename T>
-void DeviceMem<T>::resize(size_t size) {
-  if (m_size != size) {
-    if (m_size) {
-      try {
-        free_mem();
-      } catch (const std::runtime_error& error) {
-        throw std::runtime_error{"Could not free memory"};
-        // throw std::runtime_error{fmt::format("Could not free memory: {}",
-        // error.what())};
-      }
-    }
-
-    if (size > 0) {
-      try {
-        allocate_memory(size * sizeof(T));
-      } catch (const std::runtime_error& error) {
-        throw std::runtime_error{"Could not allocate memory"};
-        // throw std::runtime_error{fmt::format("Could not allocate memory: {}",
-        // error.what())};
-      }
-    }
-
-    m_size = size;
-  }
+void DeviceMem<T>::resize(const size_t size) {
+  if (size == m_size) return;
+  free_mem();
+  allocate_memory(size * sizeof(T));
+  m_size = size;
 }
+
+template <typename T>
+void DeviceMem<T>::enlarge(const size_t size) {
+  if (size > m_size) resize(size);
+}
+
+/** @name Memset
+ *  @{
+ */
+/// Sets the memory of the first num_elements to value
+template <typename T>
+void DeviceMem<T>::memset(const int value, const size_t num_elements,
+                          const size_t offset) {
+  if (num_elements + offset > m_size) {
+    throw std::runtime_error{
+        fmt::format("Could not set memory: Number of elements {}+{} larger "
+                    "than allocated memory {}.",
+                    num_elements, offset, m_size)};
+  }
+
+  dpct::get_default_queue().memset(m_data + offset, value,
+                                   num_elements * sizeof(T));
+}
+
+/// Sets the memory of the all elements to value
+template <typename T>
+void DeviceMem<T>::memset(const int value) {
+  memset(value, m_size);
+}
+/** @} */
 
 template class DeviceMem<float>;
 template class DeviceMem<bf16>;

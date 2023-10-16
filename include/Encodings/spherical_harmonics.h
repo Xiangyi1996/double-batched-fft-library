@@ -120,6 +120,11 @@ class SphericalHarmonicsEncoding : public Encoding<T> {
 
   MatrixLayout preferred_output_layout() const override { return SoA; }
 
+  void initialize_params(float *params_full_precision,
+                         float scale = 1) override {
+    std::cout << "Spherical harmonics has no params" << std::endl;
+  };
+
  private:
   uint32_t m_degree;
   uint32_t m_n_dims_to_encode;

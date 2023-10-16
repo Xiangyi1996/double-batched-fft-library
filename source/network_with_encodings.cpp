@@ -5,8 +5,10 @@ DeviceMem<float>* NetworkWithEncoding::forward_pass(GPUMatrix<float>& input,
   //   std::cout << "Input" << std::endl;
   //   input.print();
   encoding->forward_impl(&m_q, input, &encoding_output);
-  //   std::cout << "Encoding output" << std::endl;
-  //   encoding_output.print();
+  std::cout << "Output encoding: " << std::endl;
+  encoding_output.print();
+  network_input.set_values(encoding_output.n_elements(), encoding_output.data(),
+                           m_q);
   if (run_inference) {
     network->inference(network_input, network->m_forward, network->m_A_forward,
                        network->m_B_forward, network->m_C_forward,
@@ -35,11 +37,11 @@ DeviceMem<bf16>* NetworkWithEncoding::backward_pass(
   return (network->get_grads_matrices());
 }
 
-void NetworkWithEncoding::set_params(float* params) {
+void NetworkWithEncoding::set_params(float* params) {  // for xpu
   network->set_params(params);
 }
 
-void NetworkWithEncoding::set_params(std::vector<bf16> params) {
+void NetworkWithEncoding::set_params(std::vector<bf16> params) {  // for cpu
   network->set_params(params);
 }
 

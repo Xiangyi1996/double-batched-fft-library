@@ -8,17 +8,11 @@ EncodingModule::EncodingModule(
     int input_width, int batch_size, std::string encoding_name,
     const std::unordered_map<std::string, std::string> &encoding_config,
     std::string device_name)
-    : Module(device_name) {
-  encoding =
-      create_encoding<float>(input_width, encoding_name, encoding_config);
+    : Module(device_name),
+      m_input_width(input_width),
+      m_batch_size(batch_size) {
+  encoding = create_encoding<float>(encoding_name, encoding_config);
   sycl_queue = sycl::queue();
-
-  DeviceMem<float> input(input_width * batch_size, sycl_queue);
-  input_matrix = GPUMatrix<float>(input_width, batch_size);
-
-  DeviceMem<float> output(encoding->output_width() * batch_size, sycl_queue);
-  output_matrix =
-      GPUMatrix<float>(output.data(), encoding->output_width(), batch_size);
 }
 
 void EncodingModule::initialize_params(float *params_full_precision,
@@ -29,12 +23,17 @@ void EncodingModule::initialize_params(float *params_full_precision,
 torch::Tensor EncodingModule::forward_pass(torch::Tensor input_tensor,
                                            torch::Tensor params,
                                            int use_inference) {
-  set_input(input_tensor, &input);
+  GPUMatrix<float> input_matrix = GPUMatrix<float>(
+      input_tensor.data_ptr<float>(), m_input_width, m_batch_size);
+
+  torch::Tensor output_tensor = torch::empty(
+      {encoding->output_width(), m_batch_size},
+      torch::TensorOptions().dtype(torch::kFloat32).device(m_device));
+  GPUMatrix<float> output_matrix = GPUMatrix<float>(
+      output_tensor.data_ptr<float>(), m_input_width, m_batch_size);
 
   std::unique_ptr<Context> model_ctx =
       encoding->forward_impl(&sycl_queue, input_matrix, &output_matrix);
-
-  torch::Tensor output_tensor = get_converted_tensor_from_dev_mem(&output);
 
   return output_tensor;
 }
@@ -51,40 +50,32 @@ NetworkWithEncodingModule::NetworkWithEncodingModule(
     std::string encoding_name,
     const std::unordered_map<std::string, std::string> &encoding_config,
     std::string device_name)
-    : Module(device_name) {
-  //   std::cout << "Input width: " << input_width
-  //             << ", output_width: " << output_width
-  //             << ", batch_size: " << batch_size
-  //             << ", encoding name: " << encoding_name << std::endl;
+    : Module(device_name),
+      m_input_width(input_width),
+      m_batch_size(batch_size),
+      m_output_width(output_width) {
+  // grid encoding only works with float/not with bf16, for simplicity, always
+  // using float, otherwise, we'd need another factory...
   network = new NetworkWithEncoding(input_width, output_width, n_hidden_layers,
                                     activation, output_activation, batch_size,
                                     encoding_name, encoding_config);
 
-  input_float = DeviceMem<float>(batch_size * input_width, sycl_queue);
+  //   input_float = DeviceMem<float>(batch_size * input_width, sycl_queue);
   input_backward = DeviceMem<bf16>(batch_size * input_width, sycl_queue);
   grads = DeviceMem<bf16>(batch_size * output_width, sycl_queue);
-
-  //   std::cout << "Input devicemem: " << input_float.size() << std::endl;
-  // using this instead of directly in GPUMatrix because we
-  // pass DeviceMems around for NetworkWithEncoding
-
-  input_float.initialize_constant(0.01f, sycl_queue);
-
-  input_matrix = GPUMatrix<float>(input_float.data(), input_width, batch_size);
 }
 
 torch::Tensor NetworkWithEncodingModule::forward_pass(
     torch::Tensor input_tensor, torch::Tensor params, int use_inference) {
   set_params(params);
-  set_input(input_tensor,
-            &input_float);  // sets input_tensor -> input, and
-                            // input.data() is member of input_matrix
+
+  GPUMatrix<float> input_matrix = GPUMatrix<float>(
+      input_tensor.data_ptr<float>(), m_input_width, m_batch_size);
 
   network->forward_pass(input_matrix, use_inference);
 
   torch::Tensor output_tensor =
       get_converted_tensor_from_dev_mem(network->get_output());
-  //   std::cout << "return: " << output_tensor return output_tensor;
 
   return output_tensor;
 }

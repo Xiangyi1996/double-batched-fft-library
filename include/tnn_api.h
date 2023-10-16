@@ -88,25 +88,6 @@ class Module {
   sycl::queue sycl_queue;
 
   template <typename T>
-  void set_input(torch::Tensor& input_tensor, DeviceMem<T>* input_device_mem) {
-    if (m_device_name == "cpu") {
-      convert_tensor_to_dev_mem(input_tensor, input_device_mem);
-    } else if (m_device_name == "xpu") {
-      float* input_data = input_tensor.data_ptr<float>();
-      auto p = input_device_mem->data();
-      int s = input_device_mem->size();
-      sycl_queue
-          .parallel_for<>(range<1>(s),
-                          [=](id<1> idx) { p[idx] = T(input_data[idx]); })
-          .wait();
-    } else {
-      std::cout << "No behaviour for device " << m_device_name
-                << ". Exiting code." << std::endl;
-      exit(1);
-    }
-  }
-
-  template <typename T>
   std::vector<T> get_vector_from_tensor(torch::Tensor tensor) {
     static_assert(std::is_same<T, bf16>::value || std::is_same<T, float>::value,
                   "get_vector_from_tensor only accepts bf16 or float types.");
@@ -170,7 +151,6 @@ class Module {
     torch::Tensor tensor = torch::from_blob(array, {size}, torch::kFloat32);
     return tensor;
   }
-  DeviceMem<float> input_float;
 };
 
 class EncodingModule : public Module {
@@ -191,7 +171,7 @@ class EncodingModule : public Module {
                          int use_easy = 0) override;
   void free_memory() override;
   int n_params() override {
-    std::cout << "Encodings doesn't have params." << std::endl;
+    std::cout << "Encodings don't have params, thus: n_params = 0" << std::endl;
     return 0;
   };
   int n_output_dims() override {
@@ -200,14 +180,9 @@ class EncodingModule : public Module {
   }
 
  private:
-  torch::Tensor forward_impl(int use_inference);
-
   Encoding<float>* encoding;
-
-  DeviceMem<float> output;
-  DeviceMem<float> input;
-  GPUMatrix<float> output_matrix;
-  GPUMatrix<float> input_matrix;
+  int m_input_width;
+  int m_batch_size;
 };
 
 class NetworkWithEncodingModule : public Module {
@@ -239,11 +214,13 @@ class NetworkWithEncodingModule : public Module {
 
  private:
   NetworkWithEncoding* network;
-  GPUMatrix<float> input_matrix;
-
   // for backward pass
   DeviceMem<bf16> input_backward;
   DeviceMem<bf16> grads;
+
+  int m_input_width;
+  int m_batch_size;
+  int m_output_width;
 };
 
 }  // namespace tnn

@@ -19,8 +19,6 @@ enum class GradientMode {
   Accumulate,
 };
 
-// Base classs for Encoding
-
 template <typename T>
 class Encoding {
  public:
@@ -66,6 +64,9 @@ class Encoding {
   // { } void initialize_params(pcg32& rnd, float* params_full_precision, float
   // scale = 1) override { }
   void initialize_params() {}
+
+  virtual void initialize_params(float* params_full_precision,
+                                 float scale = 1) = 0;
   // size_t n_params() const override { return 0; }
   // std::vector<std::pair<uint32_t, uint32_t>> layer_sizes() const override {
   // return {}; }
@@ -85,6 +86,22 @@ class Encoding {
   virtual uint32_t output_width() const = 0;
 
   virtual uint32_t required_input_alignment() const = 0;
+
+  // TODO: Remove; should be inherited from object.h at soe point
+  T* params() const { return m_params; }
+
+  T* inference_params() const { return m_inference_params; }
+
+  T* gradients() const { return m_gradients; }
+
+  size_t n_params() const {};
+
+  void set_params(T* params, T* inference_params, T* gradients) {
+    std::cout << "Set params got called" << std::endl;
+    m_params = params;
+    m_inference_params = inference_params;
+    m_gradients = gradients;
+  }
 
   // Data members
   float* m_forward;
@@ -137,6 +154,9 @@ class Encoding {
   DeviceMem<bf16> m_weights_matrices_inferences;
 
   int m_total_n_params;
+  T* m_params = nullptr;
+  T* m_inference_params = nullptr;
+  T* m_gradients = nullptr;
 
   struct ForwardContext : public Context {
     GPUMatrixDynamic<T> network_input;

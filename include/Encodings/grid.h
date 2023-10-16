@@ -32,7 +32,8 @@
  * tables.
  */
 
-#pragma once
+#ifndef TINYNN_ENCODINGS_GRID_H
+#define TINYNN_ENCODINGS_GRID_H
 
 #include <DeviceMem.h>
 #include <Encodings/grid_interface.h>
@@ -51,7 +52,231 @@
 #include <string>
 #include <vector>
 
+#include "oneapi/mkl/rng.hpp"
+
 using json = nlohmann::json;
+
+// template <typename T, uint32_t N_POS_DIMS, uint32_t N_FEATURES_PER_LEVEL,
+// HashType HASH_TYPE> void kernel_grid(
+//     const uint32_t num_elements,
+//     const uint32_t num_grid_features,
+//     const GridOffsetTable offset_table,
+//     const uint32_t base_resolution,
+//     const float log2_per_level_scale,
+//     float max_level,
+//     const float* __restrict__ max_level_gpu,
+//     const InterpolationType interpolation_type,
+//     const GridType grid_type,
+//     const T* __restrict__ grid,
+//     MatrixView<const float> positions_in,
+//     T* __restrict__ encoded_positions,
+//     float* __restrict__ dy_dx,
+//     const sycl::nd_item<3> &item_ct1 )
+// {
+//     const uint32_t i = item_ct1.get_global_id(2);
+//     if (i >= num_elements) return;
+
+//     const uint32_t level = item_ct1.get_group(1); // <- the level is the same
+//     for all threads
+
+//     max_level = max_level_gpu ?
+//                     ( (max_level_gpu[i] * num_grid_features) /
+//                     N_FEATURES_PER_LEVEL ) : ( (max_level        *
+//                     num_grid_features) / N_FEATURES_PER_LEVEL ) ;
+
+//     if ( level >= max_level + 1e-3f )
+//     {
+//         if (encoded_positions)
+//         {
+//             for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f)
+//                 encoded_positions[i + (level * N_FEATURES_PER_LEVEL + f) *
+//                 num_elements] = (T)0.0f;
+//         }
+
+//         // Gradient is zero for zeroed-out dimensions.
+//         if (dy_dx)
+//         {
+//             for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f)
+//                 ((tnn::vec<N_POS_DIMS>*)dy_dx)[i + (level *
+//                 N_FEATURES_PER_LEVEL + f) * num_elements] = {0.0f};
+//         }
+
+//         return;
+//     }
+
+//     grid += offset_table.data[level] * N_FEATURES_PER_LEVEL;
+//     const uint32_t hashmap_size = offset_table.data[level + 1] -
+//     offset_table.data[level];
+
+//     const float scale = grid_scale(level, log2_per_level_scale,
+//     base_resolution); const uint32_t resolution = grid_resolution(scale);
+
+//     float pos[N_POS_DIMS];
+//     float pos_derivative[N_POS_DIMS];
+//     tnn::uvec<N_POS_DIMS> pos_grid;
+
+//     if (interpolation_type == InterpolationType::Nearest ||
+//     interpolation_type == InterpolationType::Linear)
+//     {
+//         for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim)
+//         {
+//             auto input = positions_in(dim, i);
+//             auto l_pos = &pos[dim];
+//             auto l_pos_derivative = &pos_derivative[dim];
+//             auto l_pos_grid = &pos_grid[dim];
+//             // scale
+
+//             *l_pos = sycl::fma(scale, (float)input, 0.5f);
+//             float tmp = sycl::floor(*l_pos);
+//             *l_pos_grid = (uint32_t)(int)tmp;
+//             *l_pos -= (float)tmp;
+//             *l_pos_derivative = identity_derivative(*l_pos);
+//             *l_pos = identity_fun(*l_pos);
+//             //pos_fract(positions_in(dim, i), &pos[dim], &pos_grid[dim],
+//             scale,  []( args ) { identity(args); },  [](args) {df(args);},
+//             [](args){d2f(args);} )
+//         }
+//          //   pos_fract(positions_in(dim, i), &pos[dim],
+//          &pos_derivative[dim], &pos_grid[dim], scale, identity_fun,
+//          identity_derivative);
+//     }
+//     else
+//     {
+//         for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim)
+//         {
+//             auto input = positions_in(dim, i);
+//             auto l_pos = &pos[dim];
+//             auto l_pos_derivative = &pos_derivative[dim];
+//             auto l_pos_grid = &pos_grid[dim];
+//             // scale
+
+//             *l_pos = sycl::fma(scale, (float)input, 0.5f);
+//             float tmp = sycl::floor(*l_pos);
+//             *l_pos_grid = (uint32_t)(int)tmp;
+//             *l_pos -= (float)tmp;
+//             *l_pos_derivative = smoothstep_derivative(*l_pos);
+//             *l_pos = smoothstep(*l_pos);
+//             //pos_fract(positions_in(dim, i), &pos[dim], &pos_grid[dim],
+//             scale,  []( args ) { identity(args); },  [](args) {df(args);},
+//             [](args){d2f(args);} )
+//         }
+//          //   pos_fract(positions_in(dim, i), &pos[dim],
+//          &pos_derivative[dim], &pos_grid[dim], scale, smoothstep,
+//          smoothstep_derivative);
+//     }
+
+//     auto grid_val = [&](const tnn::uvec<N_POS_DIMS>& local_pos)
+//     {
+//         const uint32_t index = grid_index<N_POS_DIMS, HASH_TYPE>(grid_type,
+//         hashmap_size, resolution, local_pos) * N_FEATURES_PER_LEVEL; return
+//         *(tnn::tvec<T, N_FEATURES_PER_LEVEL, PARAMS_ALIGNED ? sizeof(T) *
+//         N_FEATURES_PER_LEVEL : sizeof(T)>*)&grid[index];
+//     };
+
+//     if (interpolation_type == InterpolationType::Nearest)
+//     {
+//         auto result = grid_val(pos_grid);
+
+//         if (encoded_positions)
+//         {
+//             for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f)
+//                 encoded_positions[i + (level * N_FEATURES_PER_LEVEL + f) *
+//                 num_elements] = result[f];
+//         }
+
+//         // Gradient is zero when there's no interpolation.
+//         if (dy_dx)
+//         {
+//             for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f)
+//                 ((tnn::vec<N_POS_DIMS>*)dy_dx)[i + (level *
+//                 N_FEATURES_PER_LEVEL + f) * num_elements] = {0.0f};
+//         }
+
+//         return;
+//     }
+
+//     if (encoded_positions)
+//     {
+//         // N-linear interpolation
+//         tnn::tvec<T, N_FEATURES_PER_LEVEL, PARAMS_ALIGNED ? sizeof(T) *
+//         N_FEATURES_PER_LEVEL : sizeof(T)> result = {};
+
+//         for ( uint32_t idx = 0; idx < (1 << N_POS_DIMS); ++idx )
+//         {
+//             float weight = 1;
+//             tnn::uvec<N_POS_DIMS> pos_grid_local;
+
+//             for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim)
+//             {
+//                 if ((idx & (1<<dim)) == 0)
+//                 {
+//                     weight *= 1 - pos[dim];
+//                     pos_grid_local[dim] = pos_grid[dim];
+//                 }
+//                 else
+//                 {
+//                     weight *= pos[dim];
+//                     pos_grid_local[dim] = pos_grid[dim] + 1;
+//                 }
+//             }
+
+//             result = fma((T)weight, grid_val(pos_grid_local), result);
+//         }
+
+//         for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f)
+//             encoded_positions[i + (level * N_FEATURES_PER_LEVEL + f) *
+//             num_elements] = result[f];
+//     }
+
+//     // Gradient
+//     if (dy_dx)
+//     {
+//         tnn::vec<N_POS_DIMS> grads[N_FEATURES_PER_LEVEL] = {0.0f};
+
+//         for (uint32_t grad_dim = 0; grad_dim < N_POS_DIMS; ++grad_dim)
+//         {
+
+//             for (uint32_t idx = 0; idx < (1 << (N_POS_DIMS-1)); ++idx)
+//             {
+//                 float weight = scale;
+//                 tnn::uvec<N_POS_DIMS> pos_grid_local;
+
+//                 for (uint32_t non_grad_dim = 0; non_grad_dim < N_POS_DIMS-1;
+//                 ++non_grad_dim)
+//                 {
+//                     const uint32_t dim = non_grad_dim >= grad_dim ?
+//                     (non_grad_dim+1) : non_grad_dim;
+
+//                     if ((idx & (1<<non_grad_dim)) == 0)
+//                     {
+//                         weight *= 1 - pos[dim];
+//                         pos_grid_local[dim] = pos_grid[dim];
+//                     }
+//                     else
+//                     {
+//                         weight *= pos[dim];
+//                         pos_grid_local[dim] = pos_grid[dim] + 1;
+//                     }
+//                 }
+
+//                 pos_grid_local[grad_dim] = pos_grid[grad_dim];
+//                 auto val_left = grid_val(pos_grid_local);
+//                 pos_grid_local[grad_dim] = pos_grid[grad_dim] + 1;
+//                 auto val_right = grid_val(pos_grid_local);
+
+//                 for (uint32_t feature = 0; feature < N_FEATURES_PER_LEVEL;
+//                 ++feature)
+//                     grads[feature][grad_dim] += weight *
+//                     ((float)val_right[feature] - (float)val_left[feature]) *
+//                     pos_derivative[grad_dim];
+//             }
+//         }
+
+//         for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f)
+//             ((tnn::vec<N_POS_DIMS>*)dy_dx)[i + (level * N_FEATURES_PER_LEVEL
+//             + f) * num_elements] = grads[f];
+//     }
+// }
 
 template <typename T, uint32_t N_POS_DIMS, uint32_t N_FEATURES_PER_LEVEL,
           HashType HASH_TYPE>
@@ -62,11 +287,14 @@ void kernel_grid(const uint32_t num_elements, const uint32_t num_grid_features,
                  const float* __restrict__ max_level_gpu,
                  const InterpolationType interpolation_type,
                  const GridType grid_type, const T* __restrict__ grid,
-                 MatrixView<const float> positions_in,
-                 T* __restrict__ encoded_positions, float* __restrict__ dy_dx,
-                 const sycl::nd_item<3>& item_ct1) {
-  const uint32_t i = item_ct1.get_group(2) * item_ct1.get_local_range(2) +
-                     item_ct1.get_local_id(2);
+                 float* positions_in_data, uint32_t pin_stride_i,
+                 uint32_t pin_stride_j, T* __restrict__ encoded_positions,
+                 float* __restrict__ dy_dx, const sycl::nd_item<3>& item_ct1) {
+  assert(grid != nullptr && "grid is nullptr, expected a valid pointer");
+
+  MatrixView<const float> positions_in(positions_in_data, pin_stride_i,
+                                       pin_stride_j);
+  const uint32_t i = item_ct1.get_global_id(2);
   if (i >= num_elements) return;
 
   const uint32_t level =
@@ -74,24 +302,22 @@ void kernel_grid(const uint32_t num_elements, const uint32_t num_grid_features,
 
   max_level =
       max_level_gpu
-          ? (max_level_gpu[i] * num_grid_features) / N_FEATURES_PER_LEVEL
-          : (max_level * num_grid_features) / N_FEATURES_PER_LEVEL;
+          ? ((max_level_gpu[i] * num_grid_features) / N_FEATURES_PER_LEVEL)
+          : ((max_level * num_grid_features) / N_FEATURES_PER_LEVEL);
 
   if (level >= max_level + 1e-3f) {
     if (encoded_positions) {
-      for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f) {
+      for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f)
         encoded_positions[i + (level * N_FEATURES_PER_LEVEL + f) *
                                   num_elements] = (T)0.0f;
-      }
     }
 
     // Gradient is zero for zeroed-out dimensions.
     if (dy_dx) {
-      for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f) {
+      for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f)
         ((tnn::vec<N_POS_DIMS>*)
              dy_dx)[i + (level * N_FEATURES_PER_LEVEL + f) * num_elements] = {
             0.0f};
-      }
     }
 
     return;
@@ -111,14 +337,44 @@ void kernel_grid(const uint32_t num_elements, const uint32_t num_grid_features,
   if (interpolation_type == InterpolationType::Nearest ||
       interpolation_type == InterpolationType::Linear) {
     for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
-      pos_fract(positions_in(dim, i), &pos[dim], &pos_derivative[dim],
-                &pos_grid[dim], scale, identity_fun, identity_derivative);
+      auto input = positions_in(dim, i);
+      auto l_pos = &pos[dim];
+      auto l_pos_derivative = &pos_derivative[dim];
+      auto l_pos_grid = &pos_grid[dim];
+      // scale
+
+      *l_pos = sycl::fma(scale, (float)input, 0.5f);
+      float tmp = sycl::floor(*l_pos);
+      *l_pos_grid = (uint32_t)(int)tmp;
+      *l_pos -= (float)tmp;
+      *l_pos_derivative = identity_derivative(*l_pos);
+      *l_pos = identity_fun(*l_pos);
+      // pos_fract(positions_in(dim, i), &pos[dim], &pos_grid[dim], scale,  [](
+      // args ) { identity(args); },  [](args) {df(args);}, [](args){d2f(args);}
+      // )
     }
+    //   pos_fract(positions_in(dim, i), &pos[dim], &pos_derivative[dim],
+    //   &pos_grid[dim], scale, identity_fun, identity_derivative);
   } else {
     for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
-      pos_fract(positions_in(dim, i), &pos[dim], &pos_derivative[dim],
-                &pos_grid[dim], scale, smoothstep, smoothstep_derivative);
+      auto input = positions_in(dim, i);
+      auto l_pos = &pos[dim];
+      auto l_pos_derivative = &pos_derivative[dim];
+      auto l_pos_grid = &pos_grid[dim];
+      // scale
+
+      *l_pos = sycl::fma(scale, (float)input, 0.5f);
+      float tmp = sycl::floor(*l_pos);
+      *l_pos_grid = (uint32_t)(int)tmp;
+      *l_pos -= (float)tmp;
+      *l_pos_derivative = smoothstep_derivative(*l_pos);
+      *l_pos = smoothstep(*l_pos);
+      // pos_fract(positions_in(dim, i), &pos[dim], &pos_grid[dim], scale,  [](
+      // args ) { identity(args); },  [](args) {df(args);}, [](args){d2f(args);}
+      // )
     }
+    //   pos_fract(positions_in(dim, i), &pos[dim], &pos_derivative[dim],
+    //   &pos_grid[dim], scale, smoothstep, smoothstep_derivative);
   }
 
   auto grid_val = [&](const tnn::uvec<N_POS_DIMS>& local_pos) {
@@ -134,19 +390,17 @@ void kernel_grid(const uint32_t num_elements, const uint32_t num_grid_features,
     auto result = grid_val(pos_grid);
 
     if (encoded_positions) {
-      for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f) {
+      for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f)
         encoded_positions[i + (level * N_FEATURES_PER_LEVEL + f) *
                                   num_elements] = result[f];
-      }
     }
 
     // Gradient is zero when there's no interpolation.
     if (dy_dx) {
-      for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f) {
+      for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f)
         ((tnn::vec<N_POS_DIMS>*)
              dy_dx)[i + (level * N_FEATURES_PER_LEVEL + f) * num_elements] = {
             0.0f};
-      }
     }
 
     return;
@@ -175,10 +429,9 @@ void kernel_grid(const uint32_t num_elements, const uint32_t num_grid_features,
       result = fma((T)weight, grid_val(pos_grid_local), result);
     }
 
-    for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f) {
+    for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f)
       encoded_positions[i + (level * N_FEATURES_PER_LEVEL + f) * num_elements] =
           result[f];
-    }
   }
 
   // Gradient
@@ -209,21 +462,136 @@ void kernel_grid(const uint32_t num_elements, const uint32_t num_grid_features,
         pos_grid_local[grad_dim] = pos_grid[grad_dim] + 1;
         auto val_right = grid_val(pos_grid_local);
 
-        for (uint32_t feature = 0; feature < N_FEATURES_PER_LEVEL; ++feature) {
+        for (uint32_t feature = 0; feature < N_FEATURES_PER_LEVEL; ++feature)
           grads[feature][grad_dim] +=
               weight * ((float)val_right[feature] - (float)val_left[feature]) *
               pos_derivative[grad_dim];
-        }
       }
     }
 
-    for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f) {
+    for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f)
       ((tnn::vec<N_POS_DIMS>*)
            dy_dx)[i + (level * N_FEATURES_PER_LEVEL + f) * num_elements] =
           grads[f];
-    }
   }
 }
+
+/*
+template <typename T, typename GRAD_T, uint32_t N_POS_DIMS, uint32_t
+N_FEATURES_PER_LEVEL, uint32_t N_FEATURES_PER_THREAD, HashType HASH_TYPE> void
+kernel_grid_backward( const uint32_t num_elements, const uint32_t
+num_grid_features, const GridOffsetTable offset_table, const uint32_t
+base_resolution, const float log2_per_level_scale, float max_level, const float*
+__restrict__ max_level_gpu, const bool stochastic_interpolation, const
+InterpolationType interpolation_type, const GridType grid_type, GRAD_T*
+__restrict__ grid_gradient, MatrixView<const float> positions_in, const T*
+__restrict__ dL_dy, const sycl::nd_item<3> &item_ct1)
+{
+    const uint32_t i = ( item_ct1.get_global_id(2) * N_FEATURES_PER_THREAD ) /
+N_FEATURES_PER_LEVEL; if (i >= num_elements) return;
+
+    const uint32_t level   = item_ct1.get_group(1); // <- the level is the same
+for all threads. const uint32_t feature = item_ct1.get_global_id(2) *
+N_FEATURES_PER_THREAD - i*N_FEATURES_PER_LEVEL;
+
+    max_level = max_level_gpu ?
+                    ( (max_level_gpu[i] * num_grid_features) /
+N_FEATURES_PER_LEVEL ) : ( (max_level        * num_grid_features) /
+N_FEATURES_PER_LEVEL ) ;
+
+    if (level >= max_level + 1e-3f) return;
+
+    grid_gradient += offset_table.data[level] * N_FEATURES_PER_LEVEL;
+    const uint32_t hashmap_size = offset_table.data[level + 1] -
+offset_table.data[level];
+
+    const float scale = grid_scale(level, log2_per_level_scale,
+base_resolution); const uint32_t resolution = grid_resolution(scale);
+
+    auto add_grid_gradient =
+    [&](const tnn::uvec<N_POS_DIMS> &local_pos, const tnn::tvec<GRAD_T,
+N_FEATURES_PER_THREAD> &grad, const float weight )
+    {
+        uint32_t index = grid_index<N_POS_DIMS, HASH_TYPE>(grid_type,
+hashmap_size, resolution, local_pos) * N_FEATURES_PER_LEVEL + feature;
+
+        // Original
+        // atomic_add_gmem(grid_gradient + index, (GRAD_T)weight * grad);
+        // TODO: Consider optimisations for half-precision, once they are
+supported by SYCL. for ( size_t i = 0; i < N_FEATURES_PER_THREAD; ++i )
+        {
+            sycl::atomic_ref<GRAD_T,sycl::memory_order::relaxed,sycl::memory_scope::device>
+atomic( grid_gradient + index + i ); atomic.fetch_add( ((GRAD_T)weight) *
+grad[i] );
+        }
+    };
+
+    float pos[N_POS_DIMS];
+    tnn::uvec<N_POS_DIMS> pos_grid;
+
+    if (interpolation_type == InterpolationType::Nearest || interpolation_type
+== InterpolationType::Linear)
+    {
+        for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
+            pos_fract(input,pos,pos_derivative,pos_2nd_derivative,pos_grid,scale,
+[]( args ) { f(args); },  [](args) {df(args);},  [](args){d2f(args);} )
+        }
+        //pos_fract(positions_in(dim, i), &pos[dim], &pos_grid[dim], scale,
+identity_fun);
+    }
+    else
+    {
+        for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim)
+            pos_fract(positions_in(dim, i), &pos[dim], &pos_grid[dim], scale,
+smoothstep);
+    }
+
+    tnn::tvec<T, N_FEATURES_PER_THREAD> grad;
+
+    for (uint32_t f = 0; f < N_FEATURES_PER_THREAD; ++f)
+        grad[f] = dL_dy[i + (level * N_FEATURES_PER_LEVEL + feature + f) *
+num_elements];
+
+    if (interpolation_type == InterpolationType::Nearest)
+    {
+        add_grid_gradient(pos_grid, grad, 1.0f);
+        return;
+    }
+
+    if (stochastic_interpolation)
+    {
+        float sample = random_val(1337, i + level * num_elements);
+        tnn::uvec<N_POS_DIMS> pos_grid_local;
+
+        for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim)
+            pos_grid_local[dim] = (sample>=pos[dim]) ? (pos_grid[dim]) :
+(pos_grid[dim]+1);
+
+        add_grid_gradient(pos_grid_local, grad, 1.0f);
+        return;
+    }
+
+    // N-linear interpolation
+
+    for (uint32_t idx = 0; idx < (1 << N_POS_DIMS); ++idx)
+    {
+        float weight = 1;
+        tnn::uvec<N_POS_DIMS> pos_grid_local;
+
+        for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
+            if ((idx & (1<<dim)) == 0) {
+                weight *= 1 - pos[dim];
+                pos_grid_local[dim] = pos_grid[dim];
+            } else {
+                weight *= pos[dim];
+                pos_grid_local[dim] = pos_grid[dim] + 1;
+            }
+        }
+
+        add_grid_gradient(pos_grid_local, grad, weight);
+    }
+}
+*/
 
 template <typename T, typename GRAD_T, uint32_t N_POS_DIMS,
           uint32_t N_FEATURES_PER_LEVEL, uint32_t N_FEATURES_PER_THREAD,
@@ -235,31 +603,27 @@ void kernel_grid_backward(
     const float* __restrict__ max_level_gpu,
     const bool stochastic_interpolation,
     const InterpolationType interpolation_type, const GridType grid_type,
-    GRAD_T* __restrict__ grid_gradient, MatrixView<const float> positions_in,
+    GRAD_T* __restrict__ grid_gradient, float* positions_in_data,
+    uint32_t pin_stride_i, uint32_t pin_stride_j,
+    // MatrixView<const float> positions_in,
     const T* __restrict__ dL_dy, const sycl::nd_item<3>& item_ct1) {
-  const uint32_t i = ((item_ct1.get_group(2) * item_ct1.get_local_range(2) +
-                       item_ct1.get_local_id(2)) *
-                      N_FEATURES_PER_THREAD) /
+  MatrixView<const float> positions_in(positions_in_data, pin_stride_i,
+                                       pin_stride_j);
+  const uint32_t i = (item_ct1.get_global_id(2) * N_FEATURES_PER_THREAD) /
                      N_FEATURES_PER_LEVEL;
   if (i >= num_elements) return;
 
   const uint32_t level =
       item_ct1.get_group(1);  // <- the level is the same for all threads.
-  const uint32_t feature =
-      (item_ct1.get_group(2) * item_ct1.get_local_range(2) +
-       item_ct1.get_local_id(2)) *
-          N_FEATURES_PER_THREAD -
-      i * N_FEATURES_PER_LEVEL;
+  const uint32_t feature = item_ct1.get_global_id(2) * N_FEATURES_PER_THREAD -
+                           i * N_FEATURES_PER_LEVEL;
 
-  if (max_level_gpu) {
-    max_level = (max_level_gpu[i] * num_grid_features) / N_FEATURES_PER_LEVEL;
-  } else {
-    max_level = (max_level * num_grid_features) / N_FEATURES_PER_LEVEL;
-  }
+  max_level =
+      max_level_gpu
+          ? ((max_level_gpu[i] * num_grid_features) / N_FEATURES_PER_LEVEL)
+          : ((max_level * num_grid_features) / N_FEATURES_PER_LEVEL);
 
-  if (level > max_level + 1e-3f) {
-    return;
-  }
+  if (level >= max_level + 1e-3f) return;
 
   grid_gradient += offset_table.data[level] * N_FEATURES_PER_LEVEL;
   const uint32_t hashmap_size =
@@ -276,7 +640,17 @@ void kernel_grid_backward(
                              grid_type, hashmap_size, resolution, local_pos) *
                              N_FEATURES_PER_LEVEL +
                          feature;
-        atomic_add_gmem(grid_gradient + index, (GRAD_T)weight * grad);
+
+        // Original
+        // atomic_add_gmem(grid_gradient + index, (GRAD_T)weight * grad);
+        // TODO: Consider optimisations for half-precision, once they are
+        // supported by SYCL.
+        for (size_t i = 0; i < N_FEATURES_PER_THREAD; ++i) {
+          int tmp = 0;
+          // sycl::atomic_ref<GRAD_T,sycl::memory_order::relaxed,sycl::memory_scope::device>
+          // atomic( *grid_gradient /*+ index + i*/ ); atomic.fetch_add(
+          // ((GRAD_T)weight) * grad[i] );
+        }
       };
 
   float pos[N_POS_DIMS];
@@ -285,22 +659,48 @@ void kernel_grid_backward(
   if (interpolation_type == InterpolationType::Nearest ||
       interpolation_type == InterpolationType::Linear) {
     for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
-      pos_fract(positions_in(dim, i), &pos[dim], &pos_grid[dim], scale,
-                identity_fun);
+      auto input = positions_in(dim, i);
+      auto l_pos = &pos[dim];
+      auto l_pos_grid = &pos_grid[dim];
+      // scale
+
+      *l_pos = sycl::fma(scale, (float)input, 0.5f);
+      float tmp = sycl::floor(*l_pos);
+      *l_pos_grid = (uint32_t)(int)tmp;
+      *l_pos -= tmp;
+      *l_pos = identity_fun(*l_pos);
+      // pos_fract(positions_in(dim, i), &pos[dim], &pos_grid[dim], scale,  [](
+      // args ) { identity(args); },  [](args) {df(args);}, [](args){d2f(args);}
+      // )
     }
+    // pos_fract(positions_in(dim, i), &pos[dim], &pos_grid[dim], scale,
+    // identity_fun);
+
   } else {
     for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
-      pos_fract(positions_in(dim, i), &pos[dim], &pos_grid[dim], scale,
-                smoothstep);
+      auto input = positions_in(dim, i);
+      auto l_pos = &pos[dim];
+      auto l_pos_grid = &pos_grid[dim];
+      // scale
+
+      *l_pos = sycl::fma(scale, (float)input, 0.5f);
+      float tmp = sycl::floor(*l_pos);
+      *l_pos_grid = (uint32_t)(int)tmp;
+      *l_pos -= tmp;
+      *l_pos = smoothstep(*l_pos);
+      // pos_fract(positions_in(dim, i), &pos[dim], &pos_grid[dim], scale,  [](
+      // args ) { identity(args); },  [](args) {df(args);}, [](args){d2f(args);}
+      // )
     }
+    // pos_fract(positions_in(dim, i), &pos[dim], &pos_grid[dim], scale,
+    // smoothstep);
   }
 
   tnn::tvec<T, N_FEATURES_PER_THREAD> grad;
 
-  for (uint32_t f = 0; f < N_FEATURES_PER_THREAD; ++f) {
+  for (uint32_t f = 0; f < N_FEATURES_PER_THREAD; ++f)
     grad[f] =
         dL_dy[i + (level * N_FEATURES_PER_LEVEL + feature + f) * num_elements];
-  }
 
   if (interpolation_type == InterpolationType::Nearest) {
     add_grid_gradient(pos_grid, grad, 1.0f);
@@ -311,13 +711,9 @@ void kernel_grid_backward(
     float sample = random_val(1337, i + level * num_elements);
     tnn::uvec<N_POS_DIMS> pos_grid_local;
 
-    for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
-      if (sample >= pos[dim]) {
-        pos_grid_local[dim] = pos_grid[dim];
-      } else {
-        pos_grid_local[dim] = pos_grid[dim] + 1;
-      }
-    }
+    for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim)
+      pos_grid_local[dim] =
+          (sample >= pos[dim]) ? (pos_grid[dim]) : (pos_grid[dim] + 1);
 
     add_grid_gradient(pos_grid_local, grad, 1.0f);
     return;
@@ -350,8 +746,7 @@ void kernel_grid_backward_input(const uint32_t num_elements,
                                 const float* __restrict__ dy_dx,
                                 MatrixView<float> dL_dx,
                                 const sycl::nd_item<3>& item_ct1) {
-  const uint32_t i = item_ct1.get_local_id(2) +
-                     item_ct1.get_group(2) * item_ct1.get_local_range(2);
+  const uint32_t i = item_ct1.get_global_id(2);
   if (i >= num_elements) return;
 
   tnn::vec<N_POS_DIMS> result = {0.0f};
@@ -360,14 +755,11 @@ void kernel_grid_backward_input(const uint32_t num_elements,
     float dL_dy_local = (float)dL_dy_rm[i + k * num_elements];
     auto dy_dx_local = ((tnn::vec<N_POS_DIMS>*)dy_dx)[i + k * num_elements];
 
-    for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
+    for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim)
       result[dim] += dL_dy_local * dy_dx_local[dim];
-    }
   }
 
-  for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
-    dL_dx(dim, i) = result[dim];
-  }
+  for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) dL_dx(dim, i) = result[dim];
 }
 
 template <typename T, typename GRAD_T, uint32_t N_POS_DIMS,
@@ -385,29 +777,21 @@ void kernel_grid_backward_input_backward_grid(
     const T* __restrict__ dL_dy,
     // outputs
     GRAD_T* __restrict__ grid_gradient, const sycl::nd_item<3>& item_ct1) {
-  const uint32_t i = ((item_ct1.get_group(2) * item_ct1.get_local_range(2) +
-                       item_ct1.get_local_id(2)) *
-                      N_FEATURES_PER_THREAD) /
+  const uint32_t i = (item_ct1.get_global_id(2) * N_FEATURES_PER_THREAD) /
                      N_FEATURES_PER_LEVEL;
   if (i >= num_elements) return;
 
   const uint32_t level =
       item_ct1.get_group(1);  // <- the level is the same for all threads.
-  const uint32_t feature =
-      (item_ct1.get_group(2) * item_ct1.get_local_range(2) +
-       item_ct1.get_local_id(2)) *
-          N_FEATURES_PER_THREAD -
-      i * N_FEATURES_PER_LEVEL;
+  const uint32_t feature = item_ct1.get_global_id(2) * N_FEATURES_PER_THREAD -
+                           i * N_FEATURES_PER_LEVEL;
 
-  if (max_level_gpu) {
-    max_level = (max_level_gpu[i] * num_grid_features) / N_FEATURES_PER_LEVEL;
-  } else {
-    max_level = (max_level * num_grid_features) / N_FEATURES_PER_LEVEL;
-  }
+  max_level =
+      max_level_gpu
+          ? ((max_level_gpu[i] * num_grid_features) / N_FEATURES_PER_LEVEL)
+          : ((max_level * num_grid_features) / N_FEATURES_PER_LEVEL);
 
-  if (level > max_level + 1e-3f) {
-    return;
-  }
+  if (level >= max_level + 1e-3f) return;
 
   grid_gradient += offset_table.data[level] * N_FEATURES_PER_LEVEL;
   const uint32_t hashmap_size =
@@ -425,7 +809,16 @@ void kernel_grid_backward_input_backward_grid(
                                               resolution, local_pos) *
                 N_FEATURES_PER_LEVEL +
             feature;
-        atomic_add_gmem(grid_gradient + index, (GRAD_T)weight * grad);
+        // Original
+        // atomic_add_gmem(grid_gradient + index, (GRAD_T)weight * grad);
+        // TODO: Consider optimisations for half-precision, once they are
+        // supported by SYCL.
+        for (size_t i = 0; i < N_FEATURES_PER_THREAD; ++i) {
+          sycl::atomic_ref<GRAD_T, sycl::memory_order::relaxed,
+                           sycl::memory_scope::device>
+              atomic(grid_gradient + index + i);
+          atomic.fetch_add(((GRAD_T)weight) * grad[i]);
+        }
       };
 
   float pos[N_POS_DIMS];
@@ -435,30 +828,56 @@ void kernel_grid_backward_input_backward_grid(
   if (interpolation_type == InterpolationType::Nearest ||
       interpolation_type == InterpolationType::Linear) {
     for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
-      pos_fract(positions_in(dim, i), &pos[dim], &pos_derivative[dim],
-                &pos_grid[dim], scale, identity_fun, identity_derivative);
+      auto input = positions_in(dim, i);
+      auto l_pos = &pos[dim];
+      auto l_pos_derivative = &pos_derivative[dim];
+      auto l_pos_grid = &pos_grid[dim];
+      // scale
+
+      *l_pos = sycl::fma(scale, (float)input, 0.5f);
+      float tmp = sycl::floor(*l_pos);
+      *l_pos_grid = (uint32_t)(int)tmp;
+      *l_pos -= tmp;
+      *l_pos_derivative = identity_derivative(*l_pos);
+      *l_pos = identity_fun(*l_pos);
+      // pos_fract(positions_in(dim, i), &pos[dim], &pos_grid[dim], scale,  [](
+      // args ) { identity(args); },  [](args) {df(args);}, [](args){d2f(args);}
+      // )
     }
+    // pos_fract(positions_in(dim, i), &pos[dim], &pos_derivative[dim],
+    // &pos_grid[dim], scale, identity_fun, identity_derivative);
   } else {
     for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
-      pos_fract(positions_in(dim, i), &pos[dim], &pos_derivative[dim],
-                &pos_grid[dim], scale, smoothstep, smoothstep_derivative);
+      auto input = positions_in(dim, i);
+      auto l_pos = &pos[dim];
+      auto l_pos_derivative = &pos_derivative[dim];
+      auto l_pos_grid = &pos_grid[dim];
+      // scale
+
+      *l_pos = sycl::fma(scale, (float)input, 0.5f);
+      float tmp = sycl::floor(*l_pos);
+      *l_pos_grid = (uint32_t)(int)tmp;
+      *l_pos -= tmp;
+      *l_pos_derivative = smoothstep_derivative(*l_pos);
+      *l_pos = smoothstep(*l_pos);
+      // pos_fract(positions_in(dim, i), &pos[dim], &pos_grid[dim], scale,  [](
+      // args ) { identity(args); },  [](args) {df(args);}, [](args){d2f(args);}
+      // )
     }
+    // pos_fract(positions_in(dim, i), &pos[dim], &pos_derivative[dim],
+    // &pos_grid[dim], scale, smoothstep, smoothstep_derivative);
   }
 
   tnn::tvec<T, N_FEATURES_PER_THREAD> grad;
 
-  for (uint32_t f = 0; f < N_FEATURES_PER_THREAD; ++f) {
+  for (uint32_t f = 0; f < N_FEATURES_PER_THREAD; ++f)
     grad[f] =
         dL_dy[i + (level * N_FEATURES_PER_LEVEL + feature + f) * num_elements];
-  }
 
-  if (interpolation_type == InterpolationType::Nearest) {
-    // d(dydx)_dgrid is zero when there's no interpolation.
-    return;
-  }
+  // d(dydx)_dgrid is zero when there's no interpolation.
+  if (interpolation_type == InterpolationType::Nearest) return;
 
   // for N-linear interpolation
-
   for (uint32_t grad_dim = 0; grad_dim < N_POS_DIMS; ++grad_dim) {
     float grad_in = scale * dL_ddLdx(grad_dim, i) * pos_derivative[grad_dim];
 
@@ -503,29 +922,21 @@ void kernel_grid_backward_input_backward_input(
     const T* __restrict__ dL_dy, const T* __restrict__ grid,
     // outputs
     MatrixView<float> dL_dx, const sycl::nd_item<3>& item_ct1) {
-  const uint32_t i = ((item_ct1.get_group(2) * item_ct1.get_local_range(2) +
-                       item_ct1.get_local_id(2)) *
-                      N_FEATURES_PER_THREAD) /
+  const uint32_t i = (item_ct1.get_global_id(2) * N_FEATURES_PER_THREAD) /
                      N_FEATURES_PER_LEVEL;
   if (i >= num_elements) return;
 
   const uint32_t level =
       item_ct1.get_group(1);  // <- the level is the same for all threads.
-  const uint32_t feature =
-      (item_ct1.get_group(2) * item_ct1.get_local_range(2) +
-       item_ct1.get_local_id(2)) *
-          N_FEATURES_PER_THREAD -
-      i * N_FEATURES_PER_LEVEL;
+  const uint32_t feature = item_ct1.get_global_id(2) * N_FEATURES_PER_THREAD -
+                           i * N_FEATURES_PER_LEVEL;
 
-  if (max_level_gpu) {
-    max_level = (max_level_gpu[i] * num_grid_features) / N_FEATURES_PER_LEVEL;
-  } else {
-    max_level = (max_level * num_grid_features) / N_FEATURES_PER_LEVEL;
-  }
+  max_level =
+      max_level_gpu
+          ? ((max_level_gpu[i] * num_grid_features) / N_FEATURES_PER_LEVEL)
+          : ((max_level * num_grid_features) / N_FEATURES_PER_LEVEL);
 
-  if (level > max_level + 1e-3f) {
-    return;
-  }
+  if (level >= max_level + 1e-3f) return;
 
   grid += offset_table.data[level] * N_FEATURES_PER_LEVEL;
   const uint32_t hashmap_size =
@@ -542,32 +953,62 @@ void kernel_grid_backward_input_backward_input(
   if (interpolation_type == InterpolationType::Nearest ||
       interpolation_type == InterpolationType::Linear) {
     for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
-      pos_fract(positions_in(dim, i), &pos[dim], &pos_derivative[dim],
-                &pos_2nd_derivative[dim], &pos_grid[dim], scale, identity_fun,
-                identity_derivative, identity_2nd_derivative);
+      auto input = positions_in(dim, i);
+      auto l_pos = &pos[dim];
+      auto l_pos_derivative = &pos_derivative[dim];
+      auto l_pos_2nd_derivative = &pos_2nd_derivative[dim];
+      auto l_pos_grid = &pos_grid[dim];
+      // scale
+
+      *l_pos = sycl::fma(scale, (float)input, 0.5f);
+      float tmp = sycl::floor(*l_pos);
+      *l_pos_grid = (uint32_t)(int)tmp;
+      *l_pos -= (float)tmp;
+      *l_pos_2nd_derivative = identity_2nd_derivative(*l_pos);
+      *l_pos_derivative = identity_derivative(*l_pos);
+      *l_pos = identity_fun(*l_pos);
+      // pos_fract(positions_in(dim, i), &pos[dim], &pos_grid[dim], scale,  [](
+      // args ) { identity(args); },  [](args) {df(args);}, [](args){d2f(args);}
+      // )
     }
+    // pos_fract(positions_in(dim, i), &pos[dim], &pos_derivative[dim],
+    // &pos_2nd_derivative[dim], &pos_grid[dim], scale, identity_fun,
+    // identity_derivative, identity_2nd_derivative);
   } else {
     for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
-      pos_fract(positions_in(dim, i), &pos[dim], &pos_derivative[dim],
-                &pos_2nd_derivative[dim], &pos_grid[dim], scale, smoothstep,
-                smoothstep_derivative, smoothstep_2nd_derivative);
+      auto input = positions_in(dim, i);
+      auto l_pos = &pos[dim];
+      auto l_pos_derivative = &pos_derivative[dim];
+      auto l_pos_2nd_derivative = &pos_2nd_derivative[dim];
+      auto l_pos_grid = &pos_grid[dim];
+      // scale
+
+      *l_pos = sycl::fma(scale, (float)input, 0.5f);
+      float tmp = sycl::floor(*l_pos);
+      *l_pos_grid = (uint32_t)(int)tmp;
+      *l_pos -= (float)tmp;
+      *l_pos_2nd_derivative = smoothstep_2nd_derivative(*l_pos);
+      *l_pos_derivative = smoothstep_derivative(*l_pos);
+      *l_pos = smoothstep(*l_pos);
+      // pos_fract(positions_in(dim, i), &pos[dim], &pos_grid[dim], scale,  [](
+      // args ) { identity(args); },  [](args) {df(args);}, [](args){d2f(args);}
+      // )
     }
+    //   pos_fract(positions_in(dim, i), &pos[dim], &pos_derivative[dim],
+    //   &pos_2nd_derivative[dim], &pos_grid[dim], scale, smoothstep,
+    //   smoothstep_derivative, smoothstep_2nd_derivative);
   }
 
   tnn::tvec<T, N_FEATURES_PER_THREAD> grad;
 
-  for (uint32_t f = 0; f < N_FEATURES_PER_THREAD; ++f) {
+  for (uint32_t f = 0; f < N_FEATURES_PER_THREAD; ++f)
     grad[f] =
         dL_dy[i + (level * N_FEATURES_PER_LEVEL + feature + f) * num_elements];
-  }
 
-  if (interpolation_type == InterpolationType::Nearest) {
-    // d(dydx)_dx is zero when there's no interpolation
-    return;
-  }
+  // d(dydx)_dx is zero when there's no interpolation
+  if (interpolation_type == InterpolationType::Nearest) return;
 
   // for N-linear interpolation
-
   auto calc_dLdx = [&](const tnn::uvec<N_POS_DIMS>& local_pos,
                        const float weight) {
     const uint32_t index = grid_index<N_POS_DIMS, HASH_TYPE>(
@@ -576,9 +1017,8 @@ void kernel_grid_backward_input_backward_input(
                            feature;
     float dL_dx_dim = 0;
 
-    for (uint32_t f = 0; f < N_FEATURES_PER_THREAD; ++f) {
+    for (uint32_t f = 0; f < N_FEATURES_PER_THREAD; ++f)
       dL_dx_dim += (float)grid[index + f] * (float)grad[f] * weight;
-    }
 
     return dL_dx_dim;
   };
@@ -591,10 +1031,11 @@ void kernel_grid_backward_input_backward_input(
     grad_in_diag[grad_dim] =
         scale * scale * dL_ddLdx(grad_dim, i) * pos_2nd_derivative[grad_dim];
     // from other part of Hessian
-    grad_in_other[grad_dim] = scale * scale * dL_ddLdx(grad_dim, i) *
-                              pos_derivative[grad_dim];  // will do " *
-                                                         // pos_derivative[real_other_grad_dim]
-                                                         // " later
+    grad_in_other[grad_dim] =
+        scale * scale * dL_ddLdx(grad_dim, i) *
+        pos_derivative[grad_dim];  // will do " *
+                                   // pos_derivative[real_other_grad_dim]
+                                   // " later
   }
 
   static constexpr bool dimension_greater_than_1 = (N_POS_DIMS > 1);
@@ -650,16 +1091,13 @@ void kernel_grid_backward_input_backward_input(
                                      ? (non_grad_dim + 1)
                                      : non_grad_dim;
             if ((idx & 1 << non_grad_dim) == 0) {
-              if (dim != grad_dim) {
+              if (dim != grad_dim)
                 weight_2nd_other *= 1 - pos[dim];
-              } else {
+              else
                 weight_2nd_other *= -1;
-              }
               pos_grid_local[dim] = pos_grid[dim];
             } else {
-              if (dim != grad_dim) {
-                weight_2nd_other *= pos[dim];
-              }
+              if (dim != grad_dim) weight_2nd_other *= pos[dim];
               pos_grid_local[dim] = pos_grid[dim] + 1;
             }
           }
@@ -675,7 +1113,16 @@ void kernel_grid_backward_input_backward_input(
       }
     }
 
-    tnn::atomic_add_gmem_float((float*)&dL_dx(grad_dim, i), grad_out);
+    // Original
+    // tnn::atomic_add_gmem_float((float*)&dL_dx(grad_dim, i), grad_out);
+
+    float* target = &(dL_dx(grad_dim, i));
+    float val = grad_out;
+
+    sycl::atomic_ref<float, sycl::memory_order::relaxed,
+                     sycl::memory_scope::device>
+        atomic_target(*target);
+    atomic_target.fetch_add(val);
   }
 }
 
@@ -687,18 +1134,15 @@ void kernel_grid_backward_input_backward_dLdoutput(
     const T* dL_dy_rm,
     // ouputs
     MatrixView<T> dL_ddLdy, const sycl::nd_item<3>& item_ct1) {
-  const uint32_t i = item_ct1.get_group(2) * item_ct1.get_local_range(2) +
-                     item_ct1.get_local_id(2);
+  const uint32_t i = item_ct1.get_global_id(2);
   if (i >= num_elements) return;
 
   for (uint32_t k = 0; k < num_grid_features; ++k) {
     auto dy_dx_local = ((tnn::vec<N_POS_DIMS>*)dy_dx)[i + k * num_elements];
-
     float result = 0;
 
-    for (uint32_t grad_dim = 0; grad_dim < N_POS_DIMS; ++grad_dim) {
+    for (uint32_t grad_dim = 0; grad_dim < N_POS_DIMS; ++grad_dim)
       result += dy_dx_local[grad_dim] * dL_ddLdx(grad_dim, i);
-    }
 
     dL_ddLdy(k, i) = (T)result;
   }
@@ -709,18 +1153,27 @@ template <typename T, uint32_t N_POS_DIMS = 3,
           HashType HASH_TYPE = HashType::CoherentPrime>
 class GridEncodingTemplated : public GridEncoding<T> {
  public:
-#if TCNN_MIN_GPU_ARCH >= 62 || TCNN_MIN_GPU_ARCH == 60
-  // The GPUs that we tested this on do not have an efficient 1D fp16
-  // atomicAdd feature. Thus, we accumulate gradients at fp32 if we're
-  // forced to use 1D atomicAdds. As soon as 2D or higher is possible,
-  // we can make use the efficient atomicAdd(half2) function.
-  using grad_t = std::conditional_t<N_FEATURES_PER_LEVEL == 1, float, T>;
-#else
-  // atomicAdd(__half2) is only supported with compute capability 60 and above.
-  // Since atomicAdd(__half) is relatively slow / doesn't exist for low compute
-  // capabilities, accumulate in fp32 instead.
+  /////////////////////////////////////////////////////////////////////////////////
+  // TODO: SYCL does not support atomic operations on half-precision data-types.
+  // //
+  /////////////////////////////////////////////////////////////////////////////////
+
   using grad_t = float;
-#endif
+
+  // #if TCNN_MIN_GPU_ARCH >= 62 || TCNN_MIN_GPU_ARCH == 60
+  //     // The GPUs that we tested this on do not have an efficient 1D fp16
+  //     // atomicAdd feature. Thus, we accumulate gradients at fp32 if we're
+  //     // forced to use 1D atomicAdds. As soon as 2D or higher is possible,
+  //     // we can make use the efficient atomicAdd(half2) function.
+  //     using grad_t = std::conditional_t<N_FEATURES_PER_LEVEL == 1, float, T>;
+  // #else
+  //     // atomicAdd(__half2) is only supported with compute capability 60 and
+  //     above.
+  //     // Since atomicAdd(__half) is relatively slow / doesn't exist for low
+  //     compute
+  //     // capabilities, accumulate in fp32 instead.
+  //     using grad_t = float;
+  // #endif
 
   GridEncodingTemplated(uint32_t n_features, uint32_t log2_hashmap_size,
                         uint32_t base_resolution, float per_level_scale,
@@ -742,8 +1195,8 @@ class GridEncodingTemplated : public GridEncoding<T> {
       // be at most MAX_N_LEVELS={}", m_n_levels, MAX_N_LEVELS)};
       throw std::runtime_error{
           "GridEncoding: m_n_levels={} must be at most MAX_N_LEVELS={}"};  //,
-                                                                           //m_n_levels,
-                                                                           //MAX_N_LEVELS)};
+                                                                           // m_n_levels,
+                                                                           // MAX_N_LEVELS)};
     }
 
     for (uint32_t i = 0; i < m_n_levels; ++i) {
@@ -761,8 +1214,8 @@ class GridEncodingTemplated : public GridEncoding<T> {
       params_in_level = next_multiple(params_in_level, 8u);
 
       if (grid_type == GridType::Dense) {
-        // No-op
-      } else if (grid_type == GridType::Tiled) {
+      }  // No-op
+      else if (grid_type == GridType::Tiled) {
         // If tiled grid needs fewer params than dense, then use fewer and tile.
         params_in_level =
             std::min(params_in_level, powi(base_resolution, N_POS_DIMS));
@@ -802,34 +1255,56 @@ class GridEncodingTemplated : public GridEncoding<T> {
   }
 
   std::unique_ptr<Context> forward_impl(
-      sycl::queue* stream, const GPUMatrixDynamic<float>& input,
+      dpct::queue_ptr stream, const GPUMatrixDynamic<float>& input,
       GPUMatrixDynamic<T>* output = nullptr, bool use_inference_params = false,
       bool prepare_input_gradients = false) override {
     auto forward = std::make_unique<ForwardContext>();
-
     const uint32_t num_elements = input.n();
     if ((!output && !prepare_input_gradients) || padded_output_width() == 0 ||
-        num_elements == 0) {
+        num_elements == 0)
       return forward;
-    }
 
     // TODO: SyncedMultiStream synced_streams{stream, m_n_to_pad > 0 ? 2u : 1u};
 
     // Take care of padding on the auxiliary stream
     if (output && m_n_to_pad > 0) {
       if (output->layout() == AoS) {
-        parallel_for_gpu_aos(
-            stream, num_elements, m_n_to_pad,
-            [n_output_dims = m_n_output_dims, out = output->pitched_ptr()](
-                size_t elem, size_t dim) {
-              out(elem)[n_output_dims + dim] = 0;
-            });
+        // Original:
+        // parallel_for_gpu_aos(stream, num_elements, m_n_to_pad,
+        // [n_output_dims=m_n_output_dims, out=output->pitched_ptr()] (size_t
+        // elem, size_t dim) {
+        //    out(elem)[n_output_dims + dim] = 0;
+        //});
+
+        auto n_output_dims = m_n_output_dims;
+        auto out = output->pitched_ptr();
+        uint32_t n_dims = m_n_to_pad;
+
+        if (n_dims <= 0 || num_elements <= 0) return forward;
+
+        const size_t n_threads =
+            n_dims * div_round_up(N_THREADS_LINEAR, n_dims);
+        const sycl::range<3> threads = {
+            1, div_round_up(N_THREADS_LINEAR, n_dims), n_dims};
+        const sycl::range<3> blocks = {
+            1, 1, div_round_up((size_t)(num_elements * n_dims), n_threads)};
+        const sycl::nd_range<3> ndrange{blocks * threads, threads};
+
+        stream->parallel_for(ndrange, [=](nd_item<3> it) {
+          const size_t dim = it.get_local_id(2);
+          const size_t elem =
+              it.get_local_id(1) + it.get_group(2) * it.get_local_range(1);
+          if (dim >= n_dims || elem >= num_elements) return;
+
+          out(elem)[n_output_dims + dim] = 0;
+        });
+
       } else {
-        parallel_for_gpu(
-            stream, num_elements * m_n_to_pad,
-            [out = output->data() + num_elements * m_n_output_dims](size_t i) {
-              out[i] = 0;
-            });
+        auto out = output->data() + num_elements * m_n_output_dims;
+        size_t size = num_elements * m_n_to_pad;
+
+        stream->parallel_for(sycl::range<1>(size),
+                             [=](size_t i) { out[i] = 0; });
       }
     }
 
@@ -838,15 +1313,17 @@ class GridEncodingTemplated : public GridEncoding<T> {
     // needs to fit into caches at a time (and it reused for consecutive
     // elements) until it is time to process the next level.
 
-    static consforward_impltexpr uint32_t N_THREADS_HASHGRID = 512;
+    static constexpr uint32_t N_THREADS_HASHGRID = 512;
     const sycl::range<3> blocks_hashgrid = {
         1, m_n_levels, div_round_up(num_elements, N_THREADS_HASHGRID)};
 
     T* encoded_positions_soa = output ? output->data() : nullptr;
+
     DeviceMemArena::Allocation workspace;
     if (output && output->layout() == AoS) {
       workspace =
           allocate_workspace(stream, num_elements * m_n_features * sizeof(T));
+
       encoded_positions_soa = (T*)workspace.data();
     }
 
@@ -854,8 +1331,11 @@ class GridEncodingTemplated : public GridEncoding<T> {
       forward->dy_dx =
           GPUMatrix<float, RM>{N_POS_DIMS * m_n_features, input.n(), *stream};
     }
-
-    ((sycl::queue*)(stream))->submit([&](sycl::handler& cgh) {
+    auto use_inference_params2 =
+        use_inference_params ? this->inference_params() : this->params();
+    std::cout << "use_inference_params: " << use_inference_params
+              << ", pointer: " << use_inference_params2 << std::endl;
+    stream->submit([&](sycl::handler& cgh) {
       auto m_n_features_ct1 = m_n_features;
       auto m_offset_table_ct2 = m_offset_table;
       auto m_base_resolution_ct3 = m_base_resolution;
@@ -868,6 +1348,15 @@ class GridEncodingTemplated : public GridEncoding<T> {
           use_inference_params ? this->inference_params() : this->params();
       auto forward_positions_data_forward_positions_view_input_view_ct10 =
           forward->positions.data() ? forward->positions.view() : input.view();
+      float* positions_in_data =
+          forward->positions.data() ? forward->positions.data() : input.data();
+      uint32_t pin_stride_i = forward->positions.data()
+                                  ? forward->positions.view().stride_i
+                                  : input.view().stride_i;
+      uint32_t pin_stride_j = forward->positions.data()
+                                  ? forward->positions.view().stride_j
+                                  : input.view().stride_j;
+
       auto forward_dy_dx_data_ct12 = forward->dy_dx.data();
 
       cgh.parallel_for(
@@ -881,7 +1370,8 @@ class GridEncodingTemplated : public GridEncoding<T> {
                 this_m_max_level_ct5, this_m_max_level_gpu_ct6,
                 m_interpolation_type_ct7, m_grid_type_ct8,
                 use_inference_params_this_inference_params_this_params_ct9,
-                forward_positions_data_forward_positions_view_input_view_ct10,
+                positions_in_data, pin_stride_i, pin_stride_j,
+                // forward_positions_data_forward_positions_view_input_view_ct10,
                 encoded_positions_soa, forward_dy_dx_data_ct12, item_ct1);
           });
     });
@@ -892,9 +1382,8 @@ class GridEncodingTemplated : public GridEncoding<T> {
           1, 8, m_n_levels * N_FEATURES_PER_LEVEL};
       const uint32_t blocks_transpose =
           div_round_up(num_elements, (uint32_t)threads_transpose[1]);
-      ((sycl::queue*)(stream))->submit([&](sycl::handler& cgh) {
+      stream->submit([&](sycl::handler& cgh) {
         auto output_pitched_ptr_ct2 = output->pitched_ptr();
-
         cgh.parallel_for(
             sycl::nd_range<3>(
                 sycl::range<3>(1, 1, blocks_transpose) * threads_transpose,
@@ -918,9 +1407,8 @@ class GridEncodingTemplated : public GridEncoding<T> {
       GradientMode param_gradients_mode = GradientMode::Overwrite) override {
     const uint32_t num_elements = input.n();
     if ((!dL_dinput && param_gradients_mode == GradientMode::Ignore) ||
-        num_elements == 0) {
+        num_elements == 0)
       return;
-    }
 
     const auto& forward = dynamic_cast<const ForwardContext&>(ctx);
 
@@ -995,6 +1483,14 @@ class GridEncodingTemplated : public GridEncoding<T> {
         auto m_grid_type_ct9 = m_grid_type;
         auto forward_positions_data_forward_positions_view_input_view_ct11 =
             forward.positions.data() ? forward.positions.view() : input.view();
+        float* positions_in_data =
+            forward.positions.data() ? forward.positions.data() : input.data();
+        uint32_t pin_stride_i = forward.positions.data()
+                                    ? forward.positions.view().stride_i
+                                    : input.view().stride_i;
+        uint32_t pin_stride_j = forward.positions.data()
+                                    ? forward.positions.view().stride_j
+                                    : input.view().stride_j;
 
         cgh.parallel_for(
             sycl::nd_range<3>(
@@ -1007,22 +1503,24 @@ class GridEncodingTemplated : public GridEncoding<T> {
                   m_base_resolution_ct3, std_log2_m_per_level_scale_ct4,
                   this_m_max_level_ct5, this_m_max_level_gpu_ct6,
                   m_stochastic_interpolation_ct7, m_interpolation_type_ct8,
-                  m_grid_type_ct9, grid_gradient,
-                  forward_positions_data_forward_positions_view_input_view_ct11,
+                  m_grid_type_ct9, grid_gradient, positions_in_data,
+                  pin_stride_i, pin_stride_j,
+                  // forward_positions_data_forward_positions_view_input_view_ct11,
+                  // // MatrixView
                   dL_dy_rm, item_ct1);
             });
       });
 
-      if (!std::is_same<grad_t, T>::value) {
-        parallel_for_gpu(stream, n_params(),
-                         [grad = this->gradients(), grad_tmp = grid_gradient](
-                             size_t i) { grad[i] = (T)grad_tmp[i]; });
+      if constexpr (!std::is_same<grad_t, T>::value) {
+        auto grad = this->gradients();
+        auto grad_tmp = grid_gradient;
+
+        stream->parallel_for(sycl::range<1>(n_params()),
+                             [&](size_t i) { grad[i] = (T)grad_tmp[i]; });
       }
     }
 
-    if (!dL_dinput) {
-      return;
-    }
+    if (!dL_dinput) return;
 
     linear_kernel(kernel_grid_backward_input<T, N_POS_DIMS>, 0, stream,
                   num_elements, m_n_features, dL_dy_rm, forward.dy_dx.data(),
@@ -1037,12 +1535,13 @@ class GridEncodingTemplated : public GridEncoding<T> {
       GPUMatrixDynamic<T>* dL_ddLdoutput = nullptr,
       GPUMatrixDynamic<float>* dL_dinput = nullptr,
       bool use_inference_params = false,
-      GradientMode param_gradients_mode = GradientMode::Overwrite) override {
+      GradientMode param_gradients_mode =
+          GradientMode::Overwrite)  // TODO: override
+  {
     const uint32_t num_elements = input.n();
     if ((!dL_ddLdoutput && param_gradients_mode == GradientMode::Ignore) ||
-        padded_output_width() == 0 || num_elements == 0) {
+        padded_output_width() == 0 || num_elements == 0)
       return;
-    }
 
     const auto& forward = dynamic_cast<const ForwardContext&>(ctx);
 
@@ -1137,10 +1636,11 @@ class GridEncodingTemplated : public GridEncoding<T> {
             });
       });
 
-      if (!std::is_same<grad_t, T>::value) {
-        parallel_for_gpu(stream, n_params(),
-                         [grad = this->gradients(), grad_tmp = grid_gradient](
-                             size_t i) { grad[i] = (T)grad_tmp[i]; });
+      if constexpr (!std::is_same<grad_t, T>::value) {
+        auto grad = this->gradients();
+        auto grad_tmp = grid_gradient;
+        stream->parallel_for(sycl::range<1>(n_params()),
+                             [&](size_t i) { grad[i] = (T)grad_tmp[i]; });
       }
     }
 
@@ -1226,77 +1726,32 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
   MatrixLayout preferred_output_layout() const override { return SoA; }
 
-  void set_params_impl(T* params, T* inference_params, T* gradients) override {}
+  void set_params_impl(T* params, T* inference_params,
+                       T* gradients)  // TODO: override
+  {}
 
-  // (pcg32& rnd,
   void initialize_params(float* params_full_precision,
                          float scale = 1) override {
     // // Initialize the hashgrid from the GPU, because the number of parameters
     // can be quite large. generate_random_uniform<float>(rnd, n_params(),
     // params_full_precision, -1e-4f * scale, 1e-4f * scale);
 
-    // std::cout << "HERE2" << std::endl;
-    // std::default_random_engine gen;
-    // std::uniform_real_distribution<double> distrib(-1e-4f * scale, 1e-4f *
-    // scale); std::vector<T> data(m_size); std::cout << "msize" << m_size <<
-    // std::endl;
-
-    // for (int i = 0; i < m_size; i++) {
-    // 	params_full_precision[i] = (T)distrib(gen);
-    // }
-    // q.memcpy(m_data, data.data(), m_size * sizeof(T)).wait();
-
-    // // Create minstd_rand engine
-    // oneapi::dpl::minstd_rand engine(seed, idx);
-    // oneapi::dpl::uniform_real_distribution<float> distr;
-    // // Generate float random number
-    // return distr(engine);
-    std::uint32_t seed = 777;  // TODO: TEMP
-    sycl::buffer<float, 1> x_buf(params_full_precision,
-                                 sycl::range<1>(n_params()));
-    sycl::queue queue;
-    queue.submit([&](sycl::handler& cgh) {
-      auto x_acc = x_buf.template get_access<sycl::access::mode::write>(cgh);
-
-      cgh.parallel_for<class count_kernel>(
-          sycl::range<1>(n_params()), [=](sycl::item<1> idx) {
-            std::uint64_t offset = idx.get_linear_id();
-
-            // Create minstd_rand engine
-            oneapi::dpl::minstd_rand engine(seed, offset);
-
-            // Create float uniform_real_distribution distribution
-            oneapi::dpl::uniform_real_distribution<float> distr(-1e-4f * scale,
-                                                                1e-4f * scale);
-
-            // Generate float random number
-            auto res = distr(engine);
-
-            // Store results to x_acc
-            x_acc[idx] = res;
-          });
-      training_step
-    });
+    constexpr std::uint64_t seed = 777;
+    oneapi::mkl::rng::philox4x32x10 engine(dpct::get_default_queue(), seed);
+    oneapi::mkl::rng::uniform<float> distribution(-1e-4f * scale,
+                                                  1e-4f * scale);
+    oneapi::mkl::rng::generate(distribution, engine, n_params(),
+                               params_full_precision)
+        .wait();
   }
-
-  // void initialize_params(pcg32& rnd, float* params_full_precision, float
-  // scale = 1) override {
-  // 	// Initialize the hashgrid from the GPU, because the number of
-  // parameters can be quite large. 	generate_random_uniform<float>(rnd,
-  // n_params(), params_full_precision, -1e-4f * scale, 1e-4f * scale);
-  // }
-
-  size_t n_params() const override { return m_n_params; }
 
   size_t level_n_params(uint32_t level) const override {
     return level_params_offset(level + 1) - level_params_offset(level);
   }
 
   size_t level_params_offset(uint32_t level) const override {
-    if (level >= m_offset_table.size) {
+    if (level >= m_offset_table.size)
       throw std::runtime_error{"Out of bounds params offset request."};
-    }
-
     return m_offset_table.data[level];
   }
 
@@ -1304,7 +1759,9 @@ class GridEncodingTemplated : public GridEncoding<T> {
     return m_offset_table;
   }
 
-  std::vector<std::pair<uint32_t, uint32_t>> layer_sizes() const override {
+  std::vector<std::pair<uint32_t, uint32_t>> layer_sizes()
+      const  // TODO: override
+  {
     // Even though we have parameters, they can't really be considered a
     // "layer". So we return an empty array here.
     return {};
@@ -1316,7 +1773,8 @@ class GridEncodingTemplated : public GridEncoding<T> {
     return N_FEATURES_PER_LEVEL;
   }
 
-  json hyperparams() const override {
+  json hyperparams() const  // TODO: override
+  {
     json result = {
         {"otype", "Grid"},
         {"type", to_string(m_grid_type)},
@@ -1334,6 +1792,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
     return result;
   }
+  size_t n_params() const { return m_n_params; }
 
  private:
   struct ForwardContext : public Context {
@@ -1343,7 +1802,6 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
   uint32_t m_n_features;
   uint32_t m_n_levels;
-  uint32_t m_n_params;
   GridOffsetTable m_offset_table;
   uint32_t m_log2_hashmap_size;
   uint32_t m_base_resolution;
@@ -1356,6 +1814,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
   float m_per_level_scale;
 
+  uint32_t m_n_params;
   bool m_stochastic_interpolation;
   InterpolationType m_interpolation_type;
   GridType m_grid_type;
@@ -1474,3 +1933,5 @@ GridEncoding<T>* create_grid_encoding(uint32_t n_dims_to_encode,
       throw std::runtime_error{"GridEncoding: invalid hash type."};
   }
 }
+
+#endif  // Include guard.

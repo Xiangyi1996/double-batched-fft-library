@@ -5,11 +5,9 @@
 #include "L2.h"
 #include "SwiftNetMLP.h"
 #include "activation.h"
+#include "encoding_factory.h"
 #include "mkl.h"
 #include "mkl_omp_offload.h"
-// #include "network_with_encodings.h"
-#include "Encodings/spherical_harmonics.h"
-#include "encoding_factory.h"
 #include "oneapi/mkl.hpp"
 using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;
@@ -49,7 +47,7 @@ void test_encoding() {
       {"n_dims_to_encode", std::to_string(INPUT_WIDTH)},
       {"degree", std::to_string(DEGREE)}};
   Encoding<bf16>* network =
-      create_encoding<bf16>(INPUT_WIDTH, "SphericalHarmonics", encoding);
+      create_encoding<bf16>("SphericalHarmonics", encoding);
   network->set_padded_output_width(OUTPUT_WIDTH);
 
   std::unique_ptr<Context> model_ctx =

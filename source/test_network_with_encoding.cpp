@@ -29,16 +29,17 @@ void test_network_with_encoding() {
   input.initialize_constant(0.1f);
   DeviceMem<float>* output;
 
-  // Define the parameters for creating IdentityEncoding
-  //   std::unordered_map<std::string, std::string> encoding = {
-  //       {"n_dims_to_encode", std::to_string(INPUT_WIDTH)},
-  //       {"scale", "1.0"},
-  //       {"offset", "0.0"}};
+  //   Define the parameters for creating IdentityEncoding
   std::unordered_map<std::string, std::string> encoding = {
       {"n_dims_to_encode", std::to_string(INPUT_WIDTH)},
-      {"degree", std::to_string(4)}};
-  std::string encoding_name = "SphericalHarmonics";
-  //   std::string encoding_name = "Identity";
+      {"scale", "1.0"},
+      {"offset", "0.0"}};
+  std::string encoding_name = "Identity";
+
+  //   std::unordered_map<std::string, std::string> encoding = {
+  //       {"n_dims_to_encode", std::to_string(INPUT_WIDTH)},
+  //       {"degree", std::to_string(4)}};
+  //   std::string encoding_name = "SphericalHarmonics";
   NetworkWithEncoding network = NetworkWithEncoding(
       INPUT_WIDTH, OUTPUT_WIDTH, m_n_hidden_layers, Activation::ReLU,
       Activation::None, batch_size, encoding_name, encoding);

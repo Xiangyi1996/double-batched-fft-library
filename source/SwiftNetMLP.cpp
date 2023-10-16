@@ -4,7 +4,7 @@
 #define SKEW 0
 
 #define SG_SIZE 8
-#define WG_SIZE 8*SG_SIZE
+#define WG_SIZE 8 * SG_SIZE
 
 #define BATCH_CHUNK 16
 #define SHMEM_SIZE 1024
@@ -956,22 +956,30 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(queue q, int input_width, int output_width,
   m_n_hidden_matrices = m_n_hidden_layers - 1;
 
   // Allocate memory for various matrices
-  m_weightsT_matrices.allocate(
+  m_weightsT_matrices.allocate2(
       m_net_width * m_inputs_width +
           (m_net_width * m_net_width) * m_n_hidden_matrices +
           m_net_width * m_output_width,
       m_q);
-  m_weights_matrices.allocate(
+  //   std::cout << "Allocating: m_net_width" << m_net_width
+  //             << ", m_inputs_width: " << m_inputs_width
+  //             << ", m_n_hidden_matrices: " << m_n_hidden_matrices << ",
+  //             output"
+  //             << m_output_width << std::endl;
+  //   std::cout << "size: " << m_weights_matrices.size() << std::endl;
+
+  m_weights_matrices.allocate2(
       m_net_width * m_inputs_width +
           (m_net_width * m_net_width) * m_n_hidden_matrices +
           m_net_width * m_output_width,
       m_q);
-  m_weights_matrices_inferences.allocate(
+  //   std::cout << "size: " << m_weights_matrices.size() << std::endl;
+  m_weights_matrices_inferences.allocate2(
       m_net_width * m_inputs_width +
           (m_net_width * m_net_width) * m_n_hidden_matrices +
           m_net_width * m_output_width,
       m_q);
-  m_grads_matrices.allocate(
+  m_grads_matrices.allocate2(
       m_net_width * m_inputs_width +
           (m_net_width * m_net_width) * m_n_hidden_matrices +
           m_net_width * m_output_width,
@@ -999,7 +1007,7 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(queue q, int input_width, int output_width,
   // note that the memory on m_deltas (also called loss sometimes) is
   // "flexible". It doesn't allow m_output_width > WIDTH, as in the
   // last layer backward pass, the m_output_width is first written
-  m_deltas.allocate(WIDTH * m_batch_size, q);
+  m_deltas.allocate2(WIDTH * m_batch_size, q);
 
   m_A_backward =
       sycl::aligned_alloc_device<float>(m_alignment, WIDTH * m_batch_size, q);
@@ -1213,13 +1221,7 @@ void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16>& input,
   // Constants and dimensions
   //   std::vector<float> fwd(m_batch_size * (m_inputs_width + m_output_width +
   //                                          WIDTH * m_n_hidden_layers));
-  // std::cout << "calling fwd" << std::endl;
-  //   // std::vector<bf16> weightsT(m_weightsT_matrices.size());
-  //   // //   std::cout << " grads T before " << std::endl;
-  //   m_q.memcpy(fwd.data(), forward, fwd.size() * sizeof(bf16)).wait();
-  //   for (int i = 0; i < fwd.size(); i++) {
-  //     std::cout << "fwd Weight at " << i << ": " << fwd[i] << std::endl;
-  //   }
+
   //   std::cout << "== == == == == == == == == == == == == == == == == == == ==
   //   == "
   //                "== == == == == == == == "

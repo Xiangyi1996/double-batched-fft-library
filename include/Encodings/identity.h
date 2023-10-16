@@ -128,7 +128,6 @@ class IdentityEncoding : public Encoding<T> {
         });  // End of the kernel function
       });    // End of our commands for this queue
     }  // End of scope, so we wait for work producing resultBuf to complete
-
     return std::make_unique<Context>();
   }
 
@@ -216,6 +215,11 @@ class IdentityEncoding : public Encoding<T> {
   uint32_t required_output_alignment() const override { return 1; }
 
   MatrixLayout preferred_output_layout() const override { return AoS; }
+
+  void initialize_params(float* params_full_precision,
+                         float scale = 1) override {
+    std::cout << "Identity has no params" << std::endl;
+  };
 
  private:
   uint32_t m_n_dims_to_encode;

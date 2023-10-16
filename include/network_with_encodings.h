@@ -12,9 +12,19 @@ class NetworkWithEncoding {
       std::string encoding_name,
       const std::unordered_map<std::string, std::string>& encoding_config) {
     m_q = sycl::queue();
-    encoding =
-        create_encoding<bf16>(input_width, encoding_name, encoding_config);
+
+    // if (encoding_name.find("Grid") !=
+    //     std::string::npos) {  // ugly if else (change to Factory later)
+    //     because
+    //                           // we can only run grids with float
+    //   encoding_grid = create_encoding<float>(encoding_name, encoding_config);
+    // } else {
+    //   encoding = create_encoding<bf16>(encoding_name, encoding_config);
+    encoding = create_encoding<float>(encoding_name, encoding_config);
+    // }
+
     int encoding_output_width;
+
     if (input_width > WIDTH) {
       std::cout << "Input width (" << input_width
                 << ") is larger than WIDTH: " << WIDTH
@@ -24,6 +34,7 @@ class NetworkWithEncoding {
     } else {
       encoding_output_width = WIDTH;
     }
+
     encoding->set_padded_output_width(encoding_output_width);
     // assert(encoding->padded_output_width() == WIDTH);
     network = new SwiftNetMLP<WIDTH>(m_q, encoding_output_width, output_width,
@@ -32,8 +43,9 @@ class NetworkWithEncoding {
 
     network_input = DeviceMem<bf16>(encoding_output_width * batch_size, m_q);
     network_output = DeviceMem<float>(output_width * batch_size, m_q);
-    encoding_output = GPUMatrix<bf16>(network_input.data(),
-                                      encoding_output_width, batch_size);
+    encoding_output = GPUMatrix<float>(encoding_output_width, batch_size);
+    // encoding_output = GPUMatrix<float>(network_input.data(),
+    //                                   encoding_output_width, batch_size);
   }
 
   ~NetworkWithEncoding() {}
@@ -57,10 +69,13 @@ class NetworkWithEncoding {
   DeviceMem<float>* get_output() { return &network_output; }
 
  private:
-  Encoding<bf16>* encoding;
+  //   Encoding<float>* encoding_grid;
+  Encoding<float>* encoding;
+
   Network* network;
   queue m_q;
-  GPUMatrix<bf16> encoding_output;
+  GPUMatrix<float> encoding_output;
+
   DeviceMem<float> network_output;
 
   DeviceMem<bf16> network_input;

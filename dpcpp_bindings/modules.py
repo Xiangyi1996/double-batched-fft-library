@@ -99,7 +99,7 @@ class Module(torch.nn.Module):
             )
         else:
             print(
-                "No params initialised, as n_params = 0. This is correct for Encodings."
+                "No params initialised, as n_params = 0. This is correct for Encodings (apart from grid encodings)."
             )
             self.params = torch.nn.Parameter(torch.zeros(1), requires_grad=False)
 

@@ -1,6 +1,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "Encodings/grid.h"
 #include "Encodings/identity.h"
 #include "Encodings/spherical_harmonics.h"
 #include "encoding.h"
@@ -26,7 +27,7 @@ class IdentityEncodingFactory : public EncodingFactory<T> {
   }
 };
 
-// EncodingFactory for IdentityEncoding
+// EncodingFactory for SphericalHarmonicsEncoding
 template <typename T>
 class SphericalHarmonicsEncodingFactory : public EncodingFactory<T> {
  public:
@@ -37,29 +38,63 @@ class SphericalHarmonicsEncodingFactory : public EncodingFactory<T> {
     return new SphericalHarmonicsEncoding<T>(degree, n_dims_to_encode);
   }
 };
-// // EncodingFactory for GridEncodingTemplated
-// template <typename T>
-// class GridEncodingFactory : public EncodingFactory<T> {
-//  public:
-//   std::unique_ptr<Encoding<T>> create(
-//       const std::unordered_map<std::string, std::string>& params)
-//       const override {
-//     uint32_t n_features = std::stoi(params.at("n_features"));
-//     uint32_t log2_hashmap_size = std::stoi(params.at("log2_hashmap_size"));
-//     uint32_t base_resolution = std::stoi(params.at("base_resolution"));
-//     float per_level_scale = std::stof(params.at("per_level_scale"));
-//     bool stochastic_interpolation =
-//         params.at("stochastic_interpolation") == "true";
-//     InterpolationType interpolation_type = static_cast<InterpolationType>(
-//         std::stoi(params.at("interpolation_type")));
-//     GridType grid_type =
-//         static_cast<GridType>(std::stoi(params.at("grid_type")));
 
-//     return std::make_unique<GridEncodingTemplated<T>>(
-//         n_features, log2_hashmap_size, base_resolution, per_level_scale,
-//         stochastic_interpolation, interpolation_type, grid_type);
-//   }
-// };
+template <typename T>
+class GridEncodingFactory;
+
+// Specialization for T = bf16 (exclude implementation)
+template <>
+class GridEncodingFactory<bf16> : public EncodingFactory<bf16> {
+ public:
+  Encoding<bf16>* create(const std::unordered_map<std::string, std::string>&
+                             params) const override {
+    // Throw an error or handle the unsupported case for bf16
+    throw std::runtime_error("GridEncodingFactory does not support bf16");
+  }
+};
+
+// Specialization for T != bf16 (include implementation)
+// EncodingFactory for GridEncodingTemplated
+template <typename T>
+class GridEncodingFactory : public EncodingFactory<T> {
+ public:
+  Encoding<T>* create(const std::unordered_map<std::string, std::string>&
+                          params) const override {
+    uint32_t n_levels =
+        params.count("n_levels") ? std::stoi(params.at("n_levels")) : 16u;
+    uint32_t n_features_per_level =
+        params.count("n_features_per_level")
+            ? std::stoi(params.at("n_features_per_level"))
+            : 2u;
+    uint32_t n_dims_to_encode = params.count("n_dims_to_encode")
+                                    ? std::stoi(params.at("n_dims_to_encode"))
+                                    : 2u;
+
+    uint32_t log2_hashmap_size = params.count("log2_hashmap_size")
+                                     ? std::stoi(params.at("log2_hashmap_size"))
+                                     : 19u;
+    uint32_t base_resolution = params.count("base_resolution")
+                                   ? std::stoi(params.at("base_resolution"))
+                                   : 16u;
+    float per_level_scale = params.count("per_level_scale")
+                                ? std::stof(params.at("per_level_scale"))
+                                : 2.0f;
+
+    std::string type = params.count("type") ? params.at("type") : "Hash";
+    json encoding_json = {
+        {"n_dims_to_encode", n_dims_to_encode},
+        {"otype", "Grid"},
+        {"type", type},
+        {"n_levels", n_levels},
+        {"n_features_per_level", n_features_per_level},
+        {"log2_hashmap_size", log2_hashmap_size},
+        {"base_resolution", base_resolution},
+        {"per_level_scale", per_level_scale},
+    };
+
+    return create_grid_encoding<T>(n_dims_to_encode, encoding_json);
+  }
+};
 
 // Create a map to associate encoding names with their factories
 template <typename T>
@@ -89,9 +124,8 @@ class EncodingFactoryRegistry {
 
 template <typename T>
 Encoding<T>* create_encoding(
-    uint32_t n_dims_to_encode, std::string name,
-    std::unordered_map<std::string, std::string> encoding_config,
-    uint32_t alignment = 8) {
+    std::string name,
+    std::unordered_map<std::string, std::string> encoding_config) {
   //   std::cout << "Contents of encoding config:" << std::endl;
   //   for (const auto& pair : encoding_config) {
   //     std::cout << pair.first << ": " << pair.second << std::endl;
@@ -110,7 +144,7 @@ Encoding<T>* create_encoding(
     return identityEncoding;
 
   } else if (name == "SphericalHarmonics") {
-    // Register the IdentityEncoding factory
+    // Register the SphericalHarmonicsEncoding factory
     encodingRegistry.registerFactory(
         "SphericalHarmonics",
         std::make_unique<SphericalHarmonicsEncodingFactory<T>>());
@@ -120,6 +154,16 @@ Encoding<T>* create_encoding(
     Encoding<T>* sphericalHarmonicsEncoding =
         encodingRegistry.create("SphericalHarmonics", encoding_config);
     return sphericalHarmonicsEncoding;
+  } else if (name.find("Grid") != std::string::npos) {
+    // Register the GridEncodings factory
+    encodingRegistry.registerFactory(
+        "Grid", std::make_unique<GridEncodingFactory<T>>());
+
+    // Create an GridEncoding instance using the factory and
+    // parameters
+    Encoding<T>* gridEncoding =
+        encodingRegistry.create("Grid", encoding_config);
+    return gridEncoding;
   } else {
     std::cout << name << " not implemented. Exiting." << std::endl;
     exit(0);

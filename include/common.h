@@ -87,10 +87,10 @@ enum class ReductionType {
 struct Context {
   Context() = default;
   virtual ~Context() {}
-  Context(const Context&) = delete;
-  Context& operator=(const Context&) = delete;
-  Context(Context&&) = delete;
-  Context& operator=(Context&&) = delete;
+  Context(const Context &) = delete;
+  Context &operator=(const Context &) = delete;
+  Context(Context &&) = delete;
+  Context &operator=(Context &&) = delete;
 };
 
 // from common.h
@@ -111,9 +111,29 @@ constexpr uint32_t n_blocks_linear(T n_elements,
 }
 
 template <typename T>
+T previous_multiple(T val, T divisor) {
+  return (val / divisor) * divisor;
+}
+
+template <typename T>
+constexpr bool is_pot(T val) {
+  return (val & (val - 1)) == 0;
+}
+
+inline constexpr uint32_t next_pot(uint32_t v) {
+  --v;
+  v |= v >> 1;
+  v |= v >> 2;
+  v |= v >> 4;
+  v |= v >> 8;
+  v |= v >> 16;
+  return v + 1;
+}
+
+template <typename T>
 struct PitchedPtr {
   PitchedPtr() : ptr{nullptr}, stride_in_bytes{sizeof(T)} {}
-  PitchedPtr(T* ptr, size_t stride_in_elements, size_t offset = 0,
+  PitchedPtr(T *ptr, size_t stride_in_elements, size_t offset = 0,
              size_t extra_stride_bytes = 0)
       : ptr{ptr + offset},
         stride_in_bytes{
@@ -121,35 +141,35 @@ struct PitchedPtr {
 
   template <typename U>
   explicit PitchedPtr(PitchedPtr<U> other)
-      : ptr{(T*)other.ptr}, stride_in_bytes{other.stride_in_bytes} {}
+      : ptr{(T *)other.ptr}, stride_in_bytes{other.stride_in_bytes} {}
 
-  T* operator()(uint32_t y) const {
-    return (T*)((const char*)ptr + y * stride_in_bytes);
+  T *operator()(uint32_t y) const {
+    return (T *)((const char *)ptr + y * stride_in_bytes);
   }
 
   void operator+=(uint32_t y) {
-    ptr = (T*)((const char*)ptr + y * stride_in_bytes);
+    ptr = (T *)((const char *)ptr + y * stride_in_bytes);
   }
 
   void operator-=(uint32_t y) {
-    ptr = (T*)((const char*)ptr - y * stride_in_bytes);
+    ptr = (T *)((const char *)ptr - y * stride_in_bytes);
   }
 
   explicit operator bool() const { return ptr; }
 
-  T* ptr;
+  T *ptr;
   uint32_t stride_in_bytes;
 };
 
 template <typename T>
 struct MatrixView {
   MatrixView() : data{nullptr}, stride_i{0}, stride_j{0} {}
-  MatrixView(T* data, uint32_t stride_i, uint32_t stride_j)
+  MatrixView(T *data, uint32_t stride_i, uint32_t stride_j)
       : data{data}, stride_i{stride_i}, stride_j{stride_j} {}
-  MatrixView(const MatrixView<std::remove_const_t<T>>& other)
+  MatrixView(const MatrixView<std::remove_const_t<T>> &other)
       : data{other.data}, stride_i{other.stride_i}, stride_j{other.stride_j} {}
 
-  T& operator()(uint32_t i, uint32_t j = 0) const {
+  T &operator()(uint32_t i, uint32_t j = 0) const {
     return data[i * stride_i + j * stride_j];
   }
 
@@ -180,14 +200,14 @@ struct MatrixView {
   }
 
   template <typename U, uint32_t N, size_t A>
-  void set_row(uint32_t m, const tnn::tvec<U, N, A>& val) {
+  void set_row(uint32_t m, const tnn::tvec<U, N, A> &val) {
     for (uint32_t i = 0; i < N; ++i) {
       (*this)(m, i) = val[i];
     }
   }
 
   template <typename U, uint32_t N, size_t A>
-  void set_col(uint32_t n, const tnn::tvec<U, N, A>& val) {
+  void set_col(uint32_t n, const tnn::tvec<U, N, A> &val) {
     for (uint32_t i = 0; i < N; ++i) {
       (*this)(i, n) = val[i];
     }
@@ -195,7 +215,7 @@ struct MatrixView {
 
   explicit operator bool() const { return data; }
 
-  T* data;
+  T *data;
   uint32_t stride_i, stride_j;
 };
 
@@ -226,7 +246,7 @@ extern SYCL_EXTERNAL int fromPackedLayoutCoord(int idx, int rows, int cols);
  * @param str2 Second string
  * @return True if the strings are equal, false otherwise
  */
-extern SYCL_EXTERNAL bool isequalstring(const std::string& str1,
-                                        const std::string& str2);
+extern SYCL_EXTERNAL bool isequalstring(const std::string &str1,
+                                        const std::string &str2);
 
 #endif
