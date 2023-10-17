@@ -5,8 +5,8 @@ DeviceMem<float>* NetworkWithEncoding::forward_pass(GPUMatrix<float>& input,
   //   std::cout << "Input" << std::endl;
   //   input.print();
   encoding->forward_impl(&m_q, input, &encoding_output);
-  std::cout << "Output encoding: " << std::endl;
-  encoding_output.print();
+  //   std::cout << "Output encoding: " << std::endl;
+  //   encoding_output.print();
   network_input.set_values(encoding_output.n_elements(), encoding_output.data(),
                            m_q);
   if (run_inference) {

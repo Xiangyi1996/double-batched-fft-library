@@ -154,11 +154,15 @@ class Module(torch.nn.Module):
         return all_weights
 
     def forward(self, x):
-        batch_size = x.shape[1]
+        # Input is batch_size, feature_size, but internally we work with feature_size, batch_size
+        if self.batch_size is None:
+            batch_size = x.shape[0]
+        else:
+            batch_size = self.batch_size
         # x = x.reshape(-1, 1)  # flatten for tiny nn
-        output = _module_function.apply(self.tnn_module, x, self.params)
+        output = _module_function.apply(self.tnn_module, x.T, self.params)
 
-        output = output.reshape(-1, batch_size).to(self.device)
+        output = output.reshape(batch_size, -1).to(self.device)
 
         # zero_vals = int((output == 0).sum())
         # if zero_vals > 2:
@@ -280,14 +284,12 @@ class NetworkWithInputEncoding(Module):
 class Encoding(Module):
     def __init__(
         self,
-        batch_size=64,
         n_input_dims=1,
         encoding_config=None,
         device="xpu",
     ):
-        self.batch_size = batch_size
         self.n_input_dims = n_input_dims
-
+        self.batch_size = None  # inferred from input
         self.encoding_config = encoding_config
         if self.encoding_config is None:
             self.encoding_config = {
