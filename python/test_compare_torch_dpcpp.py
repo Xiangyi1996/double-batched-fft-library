@@ -14,7 +14,7 @@ output_sizes = [1, 2, 8, 16, 64]
 activation_funcs = ["relu", "linear"]
 hidden_layer_counts = [1, 2, 3, 4, 5]
 
-BATCH_SIZE = 64
+BATCH_SIZE = 127
 DEVICE_NAME = "xpu"
 
 
@@ -222,9 +222,9 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
 
 
 if __name__ == "__main__":
-    input_width = 80
-    output_width = 64
-    n_hidden_layers = 4
+    input_width = 48
+    output_width = 1
+    n_hidden_layers = 1
     # activation_func = "linear"
     activation_func = "relu"
     output_func = "linear"

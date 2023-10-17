@@ -159,18 +159,41 @@ class Module(torch.nn.Module):
         if not self.flipped_input:
             x = x.T
         batch_size = x.shape[1]
+<<<<<<< HEAD
+
+        # batch_size needs to be % 64 == 0
+        padding_rows = (64 - (batch_size % 64)) % 64
+
+        # Create a tensor of zeros to pad with
+        padding_shape = (
+            x.size(0),
+            padding_rows,
+        )  # Assuming the second dimension (N) remains the same
+        padding_tensor = torch.zeros(padding_shape, dtype=x.dtype, device=x.device)
+
+        # Concatenate the original tensor and the padding tensor along the batch dimension
+        padded_tensor = torch.cat((x, padding_tensor), dim=1)
+
+        output = _module_function.apply(self.tnn_module, padded_tensor, self.params)
+
+        # if self.flipped_input:
+        #     output = output.reshape(-1, batch_size).to(self.device)
+        # else:
+        output = output.reshape(batch_size + padding_rows, -1).to(self.device)
+=======
         output = _module_function.apply(self.tnn_module, x, self.params)
 
         # if self.flipped_input:
         #     output = output.reshape(-1, batch_size).to(self.device)
         # else:
         output = output.reshape(batch_size, -1).to(self.device)
+>>>>>>> 938d538 (Pybindings with fwd also work)
 
         # zero_vals = int((output == 0).sum())
         # if zero_vals > 2:
         #     print(f"{zero_vals} values are exactly zero. Check if intended behaviour.")
 
-        return output
+        return output[:batch_size, :]
 
     def free_memory(self):
         self.tnn_module.free_memory()
