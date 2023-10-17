@@ -94,7 +94,7 @@ class Encoding {
 
   T* gradients() const { return m_gradients; }
 
-  size_t n_params() const {};
+  size_t n_params() const { return 0; };
 
   void set_params(T* params, T* inference_params, T* gradients) {
     std::cout << "Set params got called" << std::endl;

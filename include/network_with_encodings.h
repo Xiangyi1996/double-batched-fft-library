@@ -8,7 +8,7 @@ class NetworkWithEncoding {
  public:
   NetworkWithEncoding(
       int input_width, int output_width, int n_hidden_layers,
-      Activation activation, Activation output_activation, const int batch_size,
+      Activation activation, Activation output_activation,
       std::string encoding_name,
       const std::unordered_map<std::string, std::string>& encoding_config) {
     m_q = sycl::queue();
@@ -23,38 +23,32 @@ class NetworkWithEncoding {
     encoding = create_encoding<float>(encoding_name, encoding_config);
     // }
 
-    int encoding_output_width;
-
     if (input_width > WIDTH) {
       std::cout << "Input width (" << input_width
                 << ") is larger than WIDTH: " << WIDTH
                 << ". This leads to slower runs as oneMKL gemms are used"
                 << std::endl;
-      encoding_output_width = input_width;
+      m_encoding_output_width = input_width;
     } else {
-      encoding_output_width = WIDTH;
+      m_encoding_output_width = WIDTH;
     }
 
-    encoding->set_padded_output_width(encoding_output_width);
+    encoding->set_padded_output_width(m_encoding_output_width);
     // assert(encoding->padded_output_width() == WIDTH);
-    network = new SwiftNetMLP<WIDTH>(m_q, encoding_output_width, output_width,
-                                     n_hidden_layers, activation,
-                                     output_activation, batch_size);
+    network =
+        new SwiftNetMLP<WIDTH>(m_q, m_encoding_output_width, output_width,
+                               n_hidden_layers, activation, output_activation);
 
-    network_input = DeviceMem<bf16>(encoding_output_width * batch_size, m_q);
-    network_output = DeviceMem<float>(output_width * batch_size, m_q);
-    encoding_output = GPUMatrix<float>(encoding_output_width, batch_size);
     // encoding_output = GPUMatrix<float>(network_input.data(),
-    //                                   encoding_output_width, batch_size);
+    //                                   m_encoding_output_width, batch_size);
   }
 
   ~NetworkWithEncoding() {}
 
-  DeviceMem<float>* forward_pass(GPUMatrix<float>& input,
-                                 int use_inference = 0);
+  DeviceMem<float> forward_pass(GPUMatrix<float>& input, int use_inference = 0);
 
   DeviceMem<bf16>* backward_pass(DeviceMem<bf16>& input_backward,
-                                 DeviceMem<bf16>& grad_output);
+                                 DeviceMem<bf16>& grad_output, int batch_size);
 
   void initialize_params(int use_easy = 0);
 
@@ -66,19 +60,16 @@ class NetworkWithEncoding {
   void set_params(std::vector<bf16> params);
 
   Network* get_network() { return network; }
-  DeviceMem<float>* get_output() { return &network_output; }
+  //   DeviceMem<float>* get_output() { return &network_output; }
 
  private:
+  int m_encoding_output_width;
+
   //   Encoding<float>* encoding_grid;
   Encoding<float>* encoding;
 
   Network* network;
   queue m_q;
-  GPUMatrix<float> encoding_output;
-
-  DeviceMem<float> network_output;
-
-  DeviceMem<bf16> network_input;
 };
 
 NetworkWithEncoding* create_networkwith_encoding(

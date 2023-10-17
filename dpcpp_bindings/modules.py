@@ -86,9 +86,10 @@ class _module_function(torch.autograd.Function):
 
 
 class Module(torch.nn.Module):
-    def __init__(self, device="xpu"):
+    def __init__(self, device="xpu", flipped_input=False):
         super(Module, self).__init__()
         self.device = device
+        self.flipped_input = flipped_input
 
         self.tnn_module = self.create_module()
         if self.tnn_module.n_params():
@@ -155,13 +156,14 @@ class Module(torch.nn.Module):
 
     def forward(self, x):
         # Input is batch_size, feature_size, but internally we work with feature_size, batch_size
-        if self.batch_size is None:
-            batch_size = x.shape[0]
-        else:
-            batch_size = self.batch_size
-        # x = x.reshape(-1, 1)  # flatten for tiny nn
-        output = _module_function.apply(self.tnn_module, x.T, self.params)
+        if not self.flipped_input:
+            x = x.T
+        batch_size = x.shape[1]
+        output = _module_function.apply(self.tnn_module, x, self.params)
 
+        # if self.flipped_input:
+        #     output = output.reshape(-1, batch_size).to(self.device)
+        # else:
         output = output.reshape(batch_size, -1).to(self.device)
 
         # zero_vals = int((output == 0).sum())
@@ -177,11 +179,11 @@ class Module(torch.nn.Module):
 class Network(Module):
     def __init__(
         self,
-        batch_size=64,
         n_input_dims=1,
         n_output_dims=1,
         network_config=None,
         device="xpu",
+        flipped_input=False,
     ):
         if network_config is None:
             self.network_config = {
@@ -193,7 +195,6 @@ class Network(Module):
         else:
             self.network_config = network_config
 
-        self.batch_size = batch_size
         self.width = self.network_config["n_neurons"]
         self.n_input_dims = n_input_dims
         self.n_output_dims = n_output_dims
@@ -203,7 +204,7 @@ class Network(Module):
             self.network_config["output_activation"]
         )
 
-        super().__init__(device=device)
+        super().__init__(device=device, flipped_input=flipped_input)
 
     def create_module(self):
         return tnn.create_network(
@@ -213,7 +214,6 @@ class Network(Module):
             self.n_hidden_layers,
             self.activation,
             self.output_activation,
-            self.batch_size,
             self.device,
         )
 
@@ -221,12 +221,12 @@ class Network(Module):
 class NetworkWithInputEncoding(Module):
     def __init__(
         self,
-        batch_size=64,
         n_input_dims=1,
         n_output_dims=1,
         network_config=None,
         encoding_config=None,
         device="xpu",
+        flipped_input=False,
     ):
         if network_config is None:
             self.network_config = {
@@ -238,7 +238,6 @@ class NetworkWithInputEncoding(Module):
         else:
             self.network_config = network_config
 
-        self.batch_size = batch_size
         self.width = self.network_config["n_neurons"]
         self.n_input_dims = n_input_dims
         self.n_output_dims = n_output_dims
@@ -264,7 +263,7 @@ class NetworkWithInputEncoding(Module):
         for value in self.encoding_config.values():
             assert isinstance(value, str), "Not all values are of type str"
 
-        super().__init__(device=device)
+        super().__init__(device=device, flipped_input=flipped_input)
 
     def create_module(self):
         return tnn.create_networkwithencoding(
@@ -274,7 +273,6 @@ class NetworkWithInputEncoding(Module):
             self.n_hidden_layers,
             self.activation,
             self.output_activation,
-            self.batch_size,
             self.encoding_name,
             self.encoding_config,
             self.device,
@@ -287,9 +285,9 @@ class Encoding(Module):
         n_input_dims=1,
         encoding_config=None,
         device="xpu",
+        flipped_input=False,
     ):
         self.n_input_dims = n_input_dims
-        self.batch_size = None  # inferred from input
         self.encoding_config = encoding_config
         if self.encoding_config is None:
             self.encoding_config = {
@@ -306,7 +304,7 @@ class Encoding(Module):
         for value in self.encoding_config.values():
             assert isinstance(value, str), "Not all values are of type str"
 
-        super().__init__(device=device)
+        super().__init__(device=device, flipped_input=flipped_input)
 
         self.n_output_dims = self.tnn_module.n_output_dims()
 

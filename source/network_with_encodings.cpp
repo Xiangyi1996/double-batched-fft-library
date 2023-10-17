@@ -1,39 +1,139 @@
 #include "network_with_encodings.h"
 
-DeviceMem<float>* NetworkWithEncoding::forward_pass(GPUMatrix<float>& input,
-                                                    int run_inference) {
+DeviceMem<float> NetworkWithEncoding::forward_pass(GPUMatrix<float>& input,
+                                                   int run_inference) {
+  int batch_size = input.n();
+
   //   std::cout << "Input" << std::endl;
   //   input.print();
+  // Declare all memory here. Bit ugly, but no other way
+  int net_width = network->get_net_width();
+  int input_width = network->get_inputs_width();
+  int n_hidden_layers = network->get_n_hidden_layers();
+  int output_width = network->get_output_width();
+  int m_alignment = network->m_alignment;
+
+  // Allocate and initialize various memory buffers
+  float* forward = malloc_device<float>(
+      batch_size * (input_width + output_width + net_width * n_hidden_layers),
+      m_q);
+
+  float* A_forward = sycl::aligned_alloc_device<float>(
+      m_alignment, input_width * net_width, m_q);
+  float* B_forward = sycl::aligned_alloc_device<float>(
+      m_alignment, output_width * net_width, m_q);
+  float* C_forward = sycl::aligned_alloc_device<float>(
+      m_alignment, output_width * batch_size, m_q);
+
+  std::cout << "FWD pass in network with ecndoings.cpp Batch size: "
+            << batch_size << std::endl;
+
+  DeviceMem<bf16> network_input =
+      DeviceMem<bf16>(m_encoding_output_width * batch_size, m_q);
+  DeviceMem<float> network_output =
+      DeviceMem<float>(output_width * batch_size, m_q);
+  GPUMatrix<float> encoding_output =
+      GPUMatrix<float>(m_encoding_output_width, batch_size);
+
   encoding->forward_impl(&m_q, input, &encoding_output);
   //   std::cout << "Output encoding: " << std::endl;
   //   encoding_output.print();
   network_input.set_values(encoding_output.n_elements(), encoding_output.data(),
                            m_q);
   if (run_inference) {
-    network->inference(network_input, network->m_forward, network->m_A_forward,
-                       network->m_B_forward, network->m_C_forward,
-                       network_output);
+    network->inference(network_input, forward, A_forward, B_forward, C_forward,
+                       network_output, batch_size);
   } else {
-    network->forward_pass(network_input, network->m_forward,
-                          network->m_A_forward, network->m_B_forward,
-                          network->m_C_forward, network_output);
+    network->forward_pass(network_input, forward, A_forward, B_forward,
+                          C_forward, network_output, batch_size);
   }
-  return &network_output;
+
+  free(forward, m_q);
+  free(A_forward, m_q);
+  free(B_forward, m_q);
+  free(C_forward, m_q);
+
+  return network_output;
 }
 
 DeviceMem<bf16>* NetworkWithEncoding::backward_pass(
-    DeviceMem<bf16>& input_backward, DeviceMem<bf16>& grad_output) {
-  // no encoding bwd, as their gradients are handled individually
+    DeviceMem<bf16>& input_backward, DeviceMem<bf16>& grad_output,
+    int batch_size) {
+  // Not implemented, as we need the forward pass here as well!, have forward
+  // here
 
-  network->backward_pass(
-      input_backward, grad_output, network->m_out_inter, network->m_deltas,
-      network->m_A_backward, network->m_B_backward, network->m_C_backward,
-      network->m_A_backward_last_layer, network->m_B_backward_last_layer,
-      network->m_C_backward_last_layer, network->m_D_backward_last_layer,
-      network->m_E_backward_last_layer, network->m_F_backward_last_layer,
-      network->m_A_dgemm, network->m_B_dgemm, network->m_C_dgemm,
-      network->m_forward);
+  //   // no encoding bwd, as their gradients are handled individually
+  //   int input_width = network->get_inputs_width();
+  //   int net_width = network->get_net_width();
+  //   int n_hidden_matrices = network->get_n_hidden_matrices();
+  //   int m_alignment = network->m_alignment;
+  //   int output_width = network->get_output_width();
 
+  //   float* out_inter =
+  //       malloc_device<float>(batch_size * net_width * (n_hidden_matrices),
+  //       m_q);
+
+  //   DeviceMem<bf16> m_deltas;
+  //   m_deltas.allocate2(net_width * batch_size, m_q);
+
+  //   float* m_A_backward = sycl::aligned_alloc_device<float>(
+  //       m_alignment, net_width * batch_size, m_q);
+  //   float* m_B_backward = sycl::aligned_alloc_device<float>(
+  //       m_alignment, batch_size * output_width, m_q);
+  //   float* m_C_backward = sycl::aligned_alloc_device<float>(
+  //       m_alignment, net_width * output_width, m_q);
+
+  //   float* m_A_backward_last_layer = sycl::aligned_alloc_device<float>(
+  //       m_alignment, batch_size * output_width, m_q);
+  //   float* m_B_backward_last_layer = sycl::aligned_alloc_device<float>(
+  //       m_alignment, output_width * net_width, m_q);
+  //   float* m_C_backward_last_layer = sycl::aligned_alloc_device<float>(
+  //       m_alignment, net_width * batch_size, m_q);
+  //   float* m_D_backward_last_layer = sycl::aligned_alloc_device<float>(
+  //       m_alignment, net_width * batch_size, m_q);
+  //   float* m_E_backward_last_layer = sycl::aligned_alloc_device<float>(
+  //       m_alignment, batch_size * net_width, m_q);
+
+  //   float* m_F_backward_last_layer;
+  //   if (n_hidden_matrices == 0) {
+  //     // in this case, the penultimate layer is the input layer
+  //     m_F_backward_last_layer = sycl::aligned_alloc_device<float>(
+  //         m_alignment, input_width * net_width, m_q);
+  //   } else {
+  //     m_F_backward_last_layer = sycl::aligned_alloc_device<float>(
+  //         m_alignment, net_width * net_width, m_q);
+  //   }
+
+  //   float* m_A_dgemm = sycl::aligned_alloc_device<float>(
+  //       m_alignment, batch_size * net_width, m_q);
+  //   float* m_B_dgemm = sycl::aligned_alloc_device<float>(
+  //       m_alignment, batch_size * net_width, m_q);
+  //   // net_width * net_width is the maximum, for the first layer, it's
+  //   // technically input_width * net_width
+  //   float* m_C_dgemm = sycl::aligned_alloc_device<float>(
+  //       m_alignment, net_width * net_width, m_q);
+
+  //   network->backward_pass(
+  //       input_backward, grad_output, out_inter, deltas, A_backward,
+  //       B_backward, C_backward, A_backward_last_layer, B_backward_last_layer,
+  //       C_backward_last_layer, D_backward_last_layer, E_backward_last_layer,
+  //       F_backward_last_layer, A_dgemm, B_dgemm, C_dgemm, forward);
+
+  // Free memory for DeviceMem<bf16> arrays using their free_mem member function
+  //   m_deltas.free_mem(m_q);
+
+  //   free(m_A_backward, m_q);
+  //   free(m_B_backward, m_q);
+  //   free(m_C_backward, m_q);
+  //   free(m_A_backward_last_layer, m_q);
+  //   free(m_B_backward_last_layer, m_q);
+  //   free(m_C_backward_last_layer, m_q);
+  //   free(m_D_backward_last_layer, m_q);
+  //   free(m_E_backward_last_layer, m_q);
+  //   free(m_F_backward_last_layer, m_q);
+  //   free(m_A_dgemm, m_q);
+  //   free(m_B_dgemm, m_q);
+  //   free(m_C_dgemm, m_q);
   return (network->get_grads_matrices());
 }
 
@@ -58,6 +158,6 @@ NetworkWithEncoding* create_networkwith_encoding(
     std::string encoding_name,
     const std::unordered_map<std::string, std::string>& encoding_config) {
   return new NetworkWithEncoding(input_width, output_width, n_hidden_layers,
-                                 activation, output_activation, batch_size,
-                                 encoding_name, encoding_config);
+                                 activation, output_activation, encoding_name,
+                                 encoding_config);
 }

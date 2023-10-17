@@ -35,13 +35,12 @@ class SwiftNetMLPFactory {
   static std::unique_ptr<Network> create(queue q, int width, int input_width,
                                          int output_width, int n_hidden_layers,
                                          Activation activation,
-                                         Activation output_activation,
-                                         int batch_size) {
+                                         Activation output_activation) {
     switch (width) {
       case 64:
         return std::make_unique<SwiftNetMLP<64>>(q, input_width, output_width,
                                                  n_hidden_layers, activation,
-                                                 output_activation, batch_size);
+                                                 output_activation);
       default:
         throw std::runtime_error(
             "SwiftNetMLP not implemented for the specified width: " +
@@ -123,10 +122,10 @@ class Module {
 
   template <typename T>
   torch::Tensor get_converted_tensor_from_dev_mem(
-      DeviceMem<T>* device_mem_array, int print_out = 0) {
+      DeviceMem<T>& device_mem_array, int print_out = 0) {
     // Conversion to float array for pybindings
-    std::vector<T> list_T(device_mem_array->size());
-    device_mem_array->copy_to_host(list_T, sycl_queue);
+    std::vector<T> list_T(device_mem_array.size());
+    device_mem_array.copy_to_host(list_T, sycl_queue);
 
     // Convert the original vector to a std::vector<float>
     std::vector<float> list_float(list_T.size());
@@ -188,7 +187,7 @@ class NetworkWithEncodingModule : public Module {
  public:
   NetworkWithEncodingModule(
       int width, int input_width, int output_width, int n_hidden_layers,
-      Activation activation, Activation output_activation, const int batch_size,
+      Activation activation, Activation output_activation,
       std::string encoding_name,
       const std::unordered_map<std::string, std::string>& encoding_config,
       std::string device_name);
@@ -213,12 +212,7 @@ class NetworkWithEncodingModule : public Module {
 
  private:
   NetworkWithEncoding* network;
-  // for backward pass
-  DeviceMem<bf16> input_backward;
-  DeviceMem<bf16> grads;
-
   int m_input_width;
-  int m_batch_size;
   int m_output_width;
 };
 

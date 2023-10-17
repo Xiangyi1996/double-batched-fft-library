@@ -134,7 +134,6 @@ def test_grad(
             output_size,
             activation_func,
             output_func,
-            BATCH_SIZE,
             DEVICE_NAME,
         )
 
@@ -194,7 +193,6 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
         output_size,
         activation_func,
         output_func,
-        batch_size=BATCH_SIZE,
         device_name=DEVICE_NAME,
     )
     model_torch.to(DEVICE_NAME)

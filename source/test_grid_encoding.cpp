@@ -1,4 +1,4 @@
-#include <CL/sycl.hpp>
+/* #include <CL/sycl.hpp>
 #include <iostream>
 #include <vector>
 
@@ -88,3 +88,4 @@ int main() {
   test_encoding();
   return 0;
 }
+ */

@@ -20,7 +20,6 @@ def create_models(
     output_size,
     activation_func,
     output_func,
-    batch_size,
     device_name,
 ):
     # Create and test CustomMLP
@@ -48,12 +47,12 @@ def create_models(
         "offset": "0.0",
     }
     model_dpcpp = NetworkWithInputEncoding(
-        batch_size=batch_size,
         n_input_dims=input_size,
         n_output_dims=output_size,
         network_config=network_config,
         encoding_config=encoding_config,
         device=device_name,
+        flipped_input=True,
     )
     # model_dpcpp.eval()
 

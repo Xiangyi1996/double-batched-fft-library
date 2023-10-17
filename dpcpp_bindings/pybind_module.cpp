@@ -61,7 +61,7 @@ class Module {
 
 Module create_network_module(const int width, int input_width, int output_width,
                              int n_hidden_layers, Activation activation,
-                             Activation output_activation, const int batch_size,
+                             Activation output_activation,
                              std::string device_name) {
   //   tnn::SwiftNetModule* network_module = new tnn::SwiftNetModule(
   //       width, input_width, output_width, n_hidden_layers, activation,
@@ -75,8 +75,7 @@ Module create_network_module(const int width, int input_width, int output_width,
   tnn::NetworkWithEncodingModule* networkwithencoding_module =
       new tnn::NetworkWithEncodingModule(
           width, input_width, output_width, n_hidden_layers, activation,
-          output_activation, batch_size, "Identity", encoding_config,
-          device_name);
+          output_activation, "Identity", encoding_config, device_name);
   return Module{networkwithencoding_module};
 }
 
@@ -91,15 +90,14 @@ Module create_encoding_module(
 
 Module create_networkwithencoding_module(
     int width, int input_width, int output_width, int n_hidden_layers,
-    Activation activation, Activation output_activation, const int batch_size,
+    Activation activation, Activation output_activation,
     std::string encoding_name,
     const std::unordered_map<std::string, std::string>& encoding_config,
     std::string device_name) {
   tnn::NetworkWithEncodingModule* networkwithencoding_module =
       new tnn::NetworkWithEncodingModule(
           width, input_width, output_width, n_hidden_layers, activation,
-          output_activation, batch_size, encoding_name, encoding_config,
-          device_name);
+          output_activation, encoding_name, encoding_config, device_name);
   return Module{networkwithencoding_module};
 }
 

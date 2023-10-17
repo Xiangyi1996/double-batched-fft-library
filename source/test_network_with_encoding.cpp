@@ -1,4 +1,4 @@
-/* #include <CL/sycl.hpp>
+#include <CL/sycl.hpp>
 #include <iostream>
 #include <vector>
 
@@ -27,7 +27,7 @@ void test_network_with_encoding() {
   GPUMatrix<float> input(INPUT_WIDTH, batch_size);
   //   GPUMatrix<float> input(batch_size, INPUT_WIDTH);
   input.initialize_constant(0.1f);
-  DeviceMem<float>* output;
+  DeviceMem<float> output;
 
   //   Define the parameters for creating IdentityEncoding
   std::unordered_map<std::string, std::string> encoding = {
@@ -42,12 +42,12 @@ void test_network_with_encoding() {
   //   std::string encoding_name = "SphericalHarmonics";
   NetworkWithEncoding network = NetworkWithEncoding(
       INPUT_WIDTH, OUTPUT_WIDTH, m_n_hidden_layers, Activation::ReLU,
-      Activation::None, batch_size, encoding_name, encoding);
+      Activation::None, encoding_name, encoding);
   network.initialize_params(1);
   output = network.forward_pass(input, 0);
 
   std::vector<float> out(batch_size * (OUTPUT_WIDTH));
-  output->copy_to_host(out, network.get_queue());
+  output.copy_to_host(out, network.get_queue());
 
   for (int j = 0; j < batch_size * OUTPUT_WIDTH; j++) {
     std::cout << j << ": " << out[j] << std::endl;
@@ -59,4 +59,4 @@ void test_network_with_encoding() {
 int main() {
   test_network_with_encoding();
   return 0;
-} */
+}
