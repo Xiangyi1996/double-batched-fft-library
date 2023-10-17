@@ -4,7 +4,7 @@
 #define SKEW 0
 
 #define SG_SIZE 8
-#define WG_SIZE 8 * SG_SIZE
+#define WG_SIZE 8*SG_SIZE
 
 #define BATCH_CHUNK 16
 #define SHMEM_SIZE 1024

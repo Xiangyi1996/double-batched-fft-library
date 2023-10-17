@@ -81,11 +81,11 @@ Module create_network_module(const int width, int input_width, int output_width,
 }
 
 Module create_encoding_module(
-    int input_width, int batch_size, std::string encoding_name,
+    int input_width, std::string encoding_name,
     const std::unordered_map<std::string, std::string>& encoding_config,
     std::string device_name) {
   tnn::EncodingModule* encoding_module = new tnn::EncodingModule(
-      input_width, batch_size, encoding_name, encoding_config, device_name);
+      input_width, encoding_name, encoding_config, device_name);
   return Module{encoding_module};
 }
 

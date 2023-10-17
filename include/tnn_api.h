@@ -156,7 +156,7 @@ class Module {
 class EncodingModule : public Module {
  public:
   EncodingModule(
-      int input_width, int batch_size, std::string encoding_name,
+      int input_width, std::string encoding_name,
       const std::unordered_map<std::string, std::string>& encoding_config,
       std::string device_name);
   ~EncodingModule() {}
@@ -182,7 +182,6 @@ class EncodingModule : public Module {
  private:
   Encoding<float>* encoding;
   int m_input_width;
-  int m_batch_size;
 };
 
 class NetworkWithEncodingModule : public Module {

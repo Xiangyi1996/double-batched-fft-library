@@ -22,7 +22,7 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 
 void test_encoding() {
   // SWIFTNET
-  const int batch_size = 1;
+  const int batch_size = 6;
   queue q;
   DeviceMem<float> input_float(INPUT_WIDTH * batch_size, q);
   //   input_float.initialize_arange(q);
@@ -70,7 +70,6 @@ void test_encoding() {
   //   network->initialize_params(params_full_precision.data());
   network->set_params(params_full_precision.data(),
                       params_full_precision.data(), nullptr);
-
   //   std::unordered_map<std::string, std::string> encoding = {
   //       {"n_dims_to_encode", std::to_string(INPUT_WIDTH)},
   //       {"degree", std::to_string(DEGREE)}};

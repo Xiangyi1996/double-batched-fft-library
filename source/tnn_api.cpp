@@ -5,12 +5,10 @@
 namespace tnn {
 
 EncodingModule::EncodingModule(
-    int input_width, int batch_size, std::string encoding_name,
+    int input_width, std::string encoding_name,
     const std::unordered_map<std::string, std::string> &encoding_config,
     std::string device_name)
-    : Module(device_name),
-      m_input_width(input_width),
-      m_batch_size(batch_size) {
+    : Module(device_name), m_input_width(input_width) {
   encoding = create_encoding<float>(encoding_name, encoding_config);
   sycl_queue = sycl::queue();
 }
@@ -23,14 +21,18 @@ void EncodingModule::initialize_params(float *params_full_precision,
 torch::Tensor EncodingModule::forward_pass(torch::Tensor input_tensor,
                                            torch::Tensor params,
                                            int use_inference) {
+  //   assert(input_tensor.sizes() == 2 &&
+  //          "Tensor length for Encoding forward is not equal to 2!");
+  //   std::cout << "Input tensor sizes: " << input_tensor.sizes() << std::endl;
+  int batch_size = input_tensor.sizes()[1];
   GPUMatrix<float> input_matrix = GPUMatrix<float>(
-      input_tensor.data_ptr<float>(), m_input_width, m_batch_size);
+      input_tensor.data_ptr<float>(), m_input_width, batch_size);
 
   torch::Tensor output_tensor = torch::empty(
-      {encoding->output_width(), m_batch_size},
+      {encoding->output_width(), batch_size},
       torch::TensorOptions().dtype(torch::kFloat32).device(m_device));
   GPUMatrix<float> output_matrix = GPUMatrix<float>(
-      output_tensor.data_ptr<float>(), m_input_width, m_batch_size);
+      output_tensor.data_ptr<float>(), m_input_width, batch_size);
 
   std::unique_ptr<Context> model_ctx =
       encoding->forward_impl(&sycl_queue, input_matrix, &output_matrix);

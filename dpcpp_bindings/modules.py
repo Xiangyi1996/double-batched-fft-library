@@ -154,10 +154,11 @@ class Module(torch.nn.Module):
         return all_weights
 
     def forward(self, x):
-        x = x.reshape(-1, 1)  # flatten for tiny nn
+        batch_size = x.shape[1]
+        # x = x.reshape(-1, 1)  # flatten for tiny nn
         output = _module_function.apply(self.tnn_module, x, self.params)
 
-        output = output.reshape(self.batch_size, -1).to(self.device)
+        output = output.reshape(-1, batch_size).to(self.device)
 
         # zero_vals = int((output == 0).sum())
         # if zero_vals > 2:
@@ -310,7 +311,6 @@ class Encoding(Module):
     def create_module(self):
         return tnn.create_encoding(
             self.n_input_dims,
-            self.batch_size,
             self.encoding_name,
             self.encoding_config,
             self.device,
