@@ -212,8 +212,13 @@ class NetworkWithEncodingModule : public Module {
 
  private:
   NetworkWithEncoding* network;
+
   int m_input_width;
   int m_output_width;
+  int m_width;
+  int m_n_hidden_layers;
+
+  float* forward;
 };
 
 }  // namespace tnn

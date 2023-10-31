@@ -45,10 +45,12 @@ class NetworkWithEncoding {
 
   ~NetworkWithEncoding() {}
 
-  DeviceMem<float> forward_pass(GPUMatrix<float>& input, int use_inference = 0);
+  void forward_pass(GPUMatrix<float>& input, int run_inference,
+                    DeviceMem<float>& network_output, float* forward);
 
   DeviceMem<bf16>* backward_pass(DeviceMem<bf16>& input_backward,
-                                 DeviceMem<bf16>& grad_output, int batch_size);
+                                 DeviceMem<bf16>& grad_output, float* forward,
+                                 int batch_size);
 
   void initialize_params(int use_easy = 0);
 
