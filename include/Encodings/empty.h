@@ -30,12 +30,12 @@
 
 #pragma once
 
-#include <sycl/sycl.hpp>
-#include <dpct/dpct.hpp>
 #include <common.h>
+#include <common_device.h>
+#include <dpct/dpct.hpp>
 #include <encoding.h>
 #include <gpu_memory.h>
-#include <common_device.h>
+#include <sycl/sycl.hpp>
 
 #include <numeric>
 #include <stdexcept>
@@ -46,109 +46,74 @@
 namespace tcnn {
 
 template <typename T>
-void empty_backward(
-	const uint32_t num_outputs,
-	const uint32_t n_dims_to_encode,
-	MatrixView<float> dL_dx,
-	const sycl::nd_item<3> &item_ct1)
-{
-        const uint32_t output_index =
-            item_ct1.get_local_id(2) +
-            item_ct1.get_group(2) * item_ct1.get_local_range(2);
-        if (output_index >= num_outputs) return;
+void empty_backward(const uint32_t num_outputs, const uint32_t n_dims_to_encode, MatrixView<float> dL_dx,
+                    const sycl::nd_item<3> &item_ct1) {
+    const uint32_t output_index = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
+    if (output_index >= num_outputs) return;
 
-	const uint32_t i = output_index / n_dims_to_encode;
-	const uint32_t j = output_index - i * n_dims_to_encode;
+    const uint32_t i = output_index / n_dims_to_encode;
+    const uint32_t j = output_index - i * n_dims_to_encode;
 
-	dL_dx(j, i) = 0;
+    dL_dx(j, i) = 0;
 }
 
-template <typename T>
-class EmptyEncoding : public Encoding<T> {
-public:
-	EmptyEncoding(uint32_t n_dims_to_encode)
-	: m_n_dims_to_encode{n_dims_to_encode} {}
+template <typename T> class EmptyEncoding : public Encoding<T> {
+  public:
+    EmptyEncoding(uint32_t n_dims_to_encode) : m_n_dims_to_encode{n_dims_to_encode} {}
 
-        std::unique_ptr<Context>
-        forward_impl(dpct::queue_ptr stream,
-                     const GPUMatrixDynamic<float> &input,
-                     GPUMatrixDynamic<T> *output = nullptr,
-                     bool use_inference_params = false,
-                     bool prepare_input_gradients = false) override {
-                const uint32_t num_elements = input.n();
-		if (!output || padded_output_width() == 0 || num_elements == 0) {
-			return std::make_unique<Context>();
-		}
+    std::unique_ptr<Context> forward_impl(dpct::queue_ptr stream, const GPUMatrixDynamic<float> &input,
+                                          GPUMatrixDynamic<T> *output = nullptr, bool use_inference_params = false,
+                                          bool prepare_input_gradients = false) override {
+        const uint32_t num_elements = input.n();
+        if (!output || padded_output_width() == 0 || num_elements == 0) {
+            return std::make_unique<Context>();
+        }
 
-		if (output->layout() == AoS) {
-			parallel_for_gpu_aos(stream, num_elements, m_n_to_pad, [out=output->pitched_ptr()] (size_t elem, size_t dim) {
-				out(elem)[dim] = (T)1.0f;
-			});
-		} else {
-			parallel_for_gpu(stream, num_elements * m_n_to_pad, [out=output->data()] (size_t i) {
-				out[i] = (T)1.0f;
-			});
-		}
+        if (output->layout() == AoS) {
+            parallel_for_gpu_aos(stream, num_elements, m_n_to_pad,
+                                 [out = output->pitched_ptr()](size_t elem, size_t dim) { out(elem)[dim] = (T)1.0f; });
+        } else {
+            parallel_for_gpu(stream, num_elements * m_n_to_pad, [out = output->data()](size_t i) { out[i] = (T)1.0f; });
+        }
 
-		return std::make_unique<Context>();
-	}
+        return std::make_unique<Context>();
+    }
 
-        void backward_impl(dpct::queue_ptr stream, const Context &ctx,
-                           const GPUMatrixDynamic<float> &input,
-                           const GPUMatrixDynamic<T> &output,
-                           const GPUMatrixDynamic<T> &dL_doutput,
-                           GPUMatrixDynamic<float> *dL_dinput = nullptr,
-                           bool use_inference_params = false,
-                           GradientMode param_gradients_mode =
-                               GradientMode::Overwrite) override {
-                if (!dL_dinput) {
-			return;
-		}
+    void backward_impl(dpct::queue_ptr stream, const Context &ctx, const GPUMatrixDynamic<float> &input,
+                       const GPUMatrixDynamic<T> &output, const GPUMatrixDynamic<T> &dL_doutput,
+                       GPUMatrixDynamic<float> *dL_dinput = nullptr, bool use_inference_params = false,
+                       GradientMode param_gradients_mode = GradientMode::Overwrite) override {
+        if (!dL_dinput) {
+            return;
+        }
 
-		linear_kernel(empty_backward<T>, 0, stream,
-			input.n() * m_n_dims_to_encode,
-			m_n_dims_to_encode,
-			dL_dinput->view()
-		);
-	}
+        linear_kernel(empty_backward<T>, 0, stream, input.n() * m_n_dims_to_encode, m_n_dims_to_encode,
+                      dL_dinput->view());
+    }
 
-	uint32_t input_width() const override {
-		return m_n_dims_to_encode;
-	}
+    uint32_t input_width() const override { return m_n_dims_to_encode; }
 
-	uint32_t padded_output_width() const override {
-		return m_n_to_pad;
-	}
+    uint32_t padded_output_width() const override { return m_n_to_pad; }
 
-	uint32_t output_width() const override {
-		return padded_output_width();
-	}
+    uint32_t output_width() const override { return padded_output_width(); }
 
-	uint32_t required_input_alignment() const override {
-		return 1;
-	}
+    uint32_t required_input_alignment() const override { return 1; }
 
-	void set_padded_output_width(uint32_t padded_output_width) override {
-		m_n_to_pad = padded_output_width;
-	}
+    void set_padded_output_width(uint32_t padded_output_width) override { m_n_to_pad = padded_output_width; }
 
-	uint32_t required_output_alignment() const override {
-		return 1;
-	}
+    uint32_t required_output_alignment() const override { return 1; }
 
-	MatrixLayout preferred_output_layout() const override {
-		return AoS;
-	}
+    MatrixLayout preferred_output_layout() const override { return AoS; }
 
-	json hyperparams() const override {
-		return {
-			{"otype", "Empty"},
-		};
-	}
+    json hyperparams() const override {
+        return {
+            {"otype", "Empty"},
+        };
+    }
 
-private:
-	uint32_t m_n_dims_to_encode;
-	uint32_t m_n_to_pad = 0;
+  private:
+    uint32_t m_n_dims_to_encode;
+    uint32_t m_n_to_pad = 0;
 };
 
-}
+} // namespace tcnn

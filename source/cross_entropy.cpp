@@ -14,22 +14,21 @@
  * @param grads Pointer to gradient values (bf16 type).
  * @param values Pointer to store loss values.
  */
-void cross_entropy_loss(id<1> idx, const int n_elements, const int dims,
-                        const int stride, const float scale, float* preds,
-                        float* targets, bf16* grads, float* values) {
-  const int intra_idx = idx % stride;
-  const int inter_idx = idx / stride;
+void cross_entropy_loss(id<1> idx, const int n_elements, const int dims, const int stride, const float scale,
+                        float *preds, float *targets, bf16 *grads, float *values) {
+    const int intra_idx = idx % stride;
+    const int inter_idx = idx / stride;
 
-  const int N_total_elements = n_elements * dims / stride;
+    const int N_total_elements = n_elements * dims / stride;
 
-  const int target_idx = inter_idx * dims + intra_idx;
+    const int target_idx = inter_idx * dims + intra_idx;
 
-  const float weight = -targets[target_idx] / N_total_elements;
-  const float pred = (float)preds[idx];
+    const float weight = -targets[target_idx] / N_total_elements;
+    const float pred = (float)preds[idx];
 
-  values[idx] = weight * logf(pred);
+    values[idx] = weight * logf(pred);
 
-  grads[idx] = bf16(scale * weight / pred);
+    grads[idx] = bf16(scale * weight / pred);
 }
 
 /**
@@ -44,17 +43,14 @@ void cross_entropy_loss(id<1> idx, const int n_elements, const int dims,
  * @param grads Gradient values (DeviceMem<bf16>).
  * @param values Array to store loss values (DeviceMem<float>).
  */
-void CrossEntropyLoss::evaluate(queue q, const int dims, const int stride,
-                                const float scale, DeviceMem<float>& preds,
-                                DeviceMem<float>& targets,
-                                DeviceMem<bf16>& grads,
-                                DeviceMem<float>& values) {
-  // Get the total number of elements
-  int n_elements = preds.size();
-  // Perform parallel computation using SYCL
-  q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
-     // Call the cross_entropy_loss function to calculate loss and gradients
-     cross_entropy_loss(idx, n_elements, dims, stride, scale, preds.data(),
-                        targets.data(), grads.data(), values.data());
-   }).wait();
+void CrossEntropyLoss::evaluate(queue q, const int dims, const int stride, const float scale, DeviceMem<float> &preds,
+                                DeviceMem<float> &targets, DeviceMem<bf16> &grads, DeviceMem<float> &values) {
+    // Get the total number of elements
+    int n_elements = preds.size();
+    // Perform parallel computation using SYCL
+    q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
+         // Call the cross_entropy_loss function to calculate loss and gradients
+         cross_entropy_loss(idx, n_elements, dims, stride, scale, preds.data(), targets.data(), grads.data(),
+                            values.data());
+     }).wait();
 }

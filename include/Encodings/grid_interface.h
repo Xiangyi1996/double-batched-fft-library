@@ -40,80 +40,70 @@
 #include <sycl/sycl.hpp>
 
 template <typename T>
-void extract_position(const uint32_t num_elements,
-                      PitchedPtr<const float> data_in, T* __restrict__ output,
-                      const sycl::nd_item<3>& item_ct1) {
-  const uint32_t i = item_ct1.get_local_id(2) +
-                     item_ct1.get_group(2) * item_ct1.get_local_range(2);
-  if (i >= num_elements) return;
+void extract_position(const uint32_t num_elements, PitchedPtr<const float> data_in, T *__restrict__ output,
+                      const sycl::nd_item<3> &item_ct1) {
+    const uint32_t i = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
+    if (i >= num_elements) return;
 
-  const uint32_t dim_idx = item_ct1.get_local_id(1);
+    const uint32_t dim_idx = item_ct1.get_local_id(1);
 
-  output[i + dim_idx * num_elements] = (T)data_in(i)[dim_idx];
+    output[i + dim_idx * num_elements] = (T)data_in(i)[dim_idx];
 }
 
 template <typename T>
-void transpose_encoded_position(const uint32_t n_elements,
-                                const T* __restrict__ encoded_positions,
-                                PitchedPtr<T> output,
-                                const sycl::nd_item<3>& item_ct1) {
-  const uint32_t i = item_ct1.get_local_id(1) +
-                     item_ct1.get_group(2) * item_ct1.get_local_range(1);
-  if (i >= n_elements) return;
+void transpose_encoded_position(const uint32_t n_elements, const T *__restrict__ encoded_positions,
+                                PitchedPtr<T> output, const sycl::nd_item<3> &item_ct1) {
+    const uint32_t i = item_ct1.get_local_id(1) + item_ct1.get_group(2) * item_ct1.get_local_range(1);
+    if (i >= n_elements) return;
 
-  const uint32_t elem_idx = i;
-  const uint32_t dim_idx = item_ct1.get_local_id(2);
+    const uint32_t elem_idx = i;
+    const uint32_t dim_idx = item_ct1.get_local_id(2);
 
-  output(elem_idx)[dim_idx] =
-      encoded_positions[elem_idx + n_elements * dim_idx];
+    output(elem_idx)[dim_idx] = encoded_positions[elem_idx + n_elements * dim_idx];
 }
 
 template <typename T>
-void transpose_gradients(const uint32_t n_elements,
-                         T* __restrict__ transposed_dL_dy,
-                         PitchedPtr<const T> dL_dy,
-                         const sycl::nd_item<3>& item_ct1) {
-  const uint32_t i = item_ct1.get_local_id(1) +
-                     item_ct1.get_group(2) * item_ct1.get_local_range(1);
-  if (i >= n_elements) return;
+void transpose_gradients(const uint32_t n_elements, T *__restrict__ transposed_dL_dy, PitchedPtr<const T> dL_dy,
+                         const sycl::nd_item<3> &item_ct1) {
+    const uint32_t i = item_ct1.get_local_id(1) + item_ct1.get_group(2) * item_ct1.get_local_range(1);
+    if (i >= n_elements) return;
 
-  const uint32_t elem_idx = i;
-  const uint32_t dim_idx = item_ct1.get_local_id(2);
+    const uint32_t elem_idx = i;
+    const uint32_t dim_idx = item_ct1.get_local_id(2);
 
-  transposed_dL_dy[elem_idx + n_elements * dim_idx] = dL_dy(elem_idx)[dim_idx];
+    transposed_dL_dy[elem_idx + n_elements * dim_idx] = dL_dy(elem_idx)[dim_idx];
 }
 
 static constexpr uint32_t MAX_N_LEVELS = 128;
 struct GridOffsetTable {
-  uint32_t data[MAX_N_LEVELS + 1] = {};
-  uint32_t size = 0;
+    uint32_t data[MAX_N_LEVELS + 1] = {};
+    uint32_t size = 0;
 };
 
-template <typename T>
-class GridEncoding : public Encoding<T> {
- public:
-  virtual uint32_t n_pos_dims() const = 0;
-  virtual uint32_t n_features_per_level() const = 0;
+template <typename T> class GridEncoding : public Encoding<T> {
+  public:
+    virtual uint32_t n_pos_dims() const = 0;
+    virtual uint32_t n_features_per_level() const = 0;
 
-  virtual size_t level_n_params(uint32_t level) const = 0;
-  virtual size_t level_params_offset(uint32_t level) const = 0;
+    virtual size_t level_n_params(uint32_t level) const = 0;
+    virtual size_t level_params_offset(uint32_t level) const = 0;
 
-  virtual const GridOffsetTable& grid_offset_table() const = 0;
+    virtual const GridOffsetTable &grid_offset_table() const = 0;
 
-  float max_level() const { return m_max_level; }
+    float max_level() const { return m_max_level; }
 
-  void set_max_level(float value) { m_max_level = value; }
+    void set_max_level(float value) { m_max_level = value; }
 
-  float* max_level_gpu() const { return m_max_level_gpu; }
+    float *max_level_gpu() const { return m_max_level_gpu; }
 
-  void set_max_level_gpu(float* value) { m_max_level_gpu = value; }
+    void set_max_level_gpu(float *value) { m_max_level_gpu = value; }
 
- protected:
-  // Disables lookups of finer levels than this.
-  // The default value of 1000 effectively disables the feature
-  float m_max_level = 1000.f;
+  protected:
+    // Disables lookups of finer levels than this.
+    // The default value of 1000 effectively disables the feature
+    float m_max_level = 1000.f;
 
-  // If this pointer is non-null, it is expected to point to per-element
-  // m_max_level
-  float* m_max_level_gpu = nullptr;
+    // If this pointer is non-null, it is expected to point to per-element
+    // m_max_level
+    float *m_max_level_gpu = nullptr;
 };
