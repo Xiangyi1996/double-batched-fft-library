@@ -140,7 +140,7 @@ template <typename T> class DeviceMem {
     void copy_to_host(T *host_data, const size_t num_elements) const {
         if (num_elements > m_size) {
             throw std::runtime_error{
-                fmt::format("Trying to copy {} elements, but memory size is only {}.", num_elements, m_size)};
+                tinydpcppnn::format("Trying to copy {} elements, but memory size is only {}.", num_elements, m_size)};
         }
 
         dpct::get_default_queue().memcpy(host_data, data(), num_elements * sizeof(T));
@@ -150,7 +150,7 @@ template <typename T> class DeviceMem {
     void copy_to_host(std::vector<T> &data, const size_t num_elements) const {
         if (data.size() < num_elements) {
             throw std::runtime_error{
-                fmt::format("Trying to copy {} elements, but vector size is only {}.", num_elements, data.size())};
+                tinydpcppnn::format("Trying to copy {} elements, but vector size is only {}.", num_elements, data.size())};
         }
 
         copy_to_host(data.data(), num_elements);
@@ -163,7 +163,7 @@ template <typename T> class DeviceMem {
     void copy_to_host(std::vector<T> &data) const {
         if (data.size() < m_size) {
             throw std::runtime_error{
-                fmt::format("Trying to copy {} elements, but vector size is only {}", m_size, data.size())};
+                tinydpcppnn::format("Trying to copy {} elements, but vector size is only {}", m_size, data.size())};
         }
 
         copy_to_host(data.data(), m_size);
@@ -226,11 +226,11 @@ template <typename T> class DeviceMem {
 
     T &at(size_t idx) const {
         if (!m_managed) {
-            throw std::runtime_error{fmt::format("DeviceMem::at() not permitted if not managed.")};
+            throw std::runtime_error{tinydpcppnn::format("DeviceMem::at() not permitted if not managed.")};
         }
 
         if (idx > m_size) {
-            throw std::runtime_error{fmt::format("DeviceMem out of bounds: idx={} size={}", idx, m_size)};
+            throw std::runtime_error{tinydpcppnn::format("DeviceMem out of bounds: idx={} size={}", idx, m_size)};
         }
 
         return m_data[idx];
@@ -475,7 +475,7 @@ class DeviceMemArena {
         if (n_bytes <= m_size) return;
 
         if (dpct::get_current_device_id() != m_device_id)
-            throw std::runtime_error{fmt::format("Attempted to use a DeviceMemArena of device {} from the "
+            throw std::runtime_error{tinydpcppnn::format("Attempted to use a DeviceMemArena of device {} from the "
                                                  "wrong device {}.",
                                                  m_device_id, dpct::get_current_device_id())};
 
@@ -527,7 +527,7 @@ class DeviceMemArena {
         res = zeVirtualMemMap(m_context, reinterpret_cast<uint8_t *>(m_base_address) + m_size, n_bytes_to_allocate,
                               m_handles.back(), 0, ZE_MEMORY_ACCESS_ATTRIBUTE_READWRITE);
         if (res != ZE_RESULT_SUCCESS)
-            throw std::runtime_error{fmt::format("DeviceMemArena::enlarge: Could not map memory into "
+            throw std::runtime_error{tinydpcppnn::format("DeviceMemArena::enlarge: Could not map memory into "
                                                  "virtual address space. Retval={}",
                                                  res)};
 

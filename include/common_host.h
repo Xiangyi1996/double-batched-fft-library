@@ -32,17 +32,43 @@
 #include <common.h>
 #include <dpct/dpct.hpp>
 #include <sycl/sycl.hpp>
-// #include <tnn_api.h>
-
-#define FMT_HEADER_ONLY
-#include <fmt/format.h>
 
 #include <array>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
-// using namespace fmt::literals;
+namespace tinydpcppnn
+{
+    template <typename T>
+    void format_helper(std::ostringstream& os, std::string_view& str, const T& val) {
+            std::size_t bracket = str.find('{');
+            if (bracket != std::string::npos)
+            {
+                std::size_t bracket_close = str.find('}', bracket + 1);
+                if (bracket_close != std::string::npos) 
+                { 
+                    os << str.substr(0, bracket) << val;
+                    str = str.substr(bracket_close + 1);
+                }
+                else
+                    throw std::invalid_argument("No closing bracket\n");
+            }
+            else
+                throw std::invalid_argument("Not enough brackets for arguments\n");
+        };
+
+    template <typename... T>
+    std::string format(std::string_view str, T... vals)
+    {
+        std::ostringstream os;
+        (format_helper(os, str, vals),...);
+        os << str;
+        return os.str();
+    }
+}
+
 
 enum class LogSeverity {
     Info,
@@ -56,7 +82,7 @@ const std::function<void(LogSeverity, const std::string &)> &log_callback();
 void set_log_callback(const std::function<void(LogSeverity, const std::string &)> &callback);
 
 template <typename... Ts> void log(LogSeverity severity, const std::string &msg, Ts &&...args) {
-    log_callback()(severity, fmt::format(msg, std::forward<Ts>(args)...));
+    log_callback()(severity, tinydpcppnn::format(msg, std::forward<Ts>(args)...)); //removed fmt, find something else
 }
 
 template <typename... Ts> void log_info(const std::string &msg, Ts &&...args) {

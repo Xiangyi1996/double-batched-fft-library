@@ -3,6 +3,9 @@
 
 cmake_minimum_required(VERSION 3.23)
 
+#the whole thing only works with icpx due to using joint_matrix
+set(CMAKE_CXX_COMPILER "icpx") 
+
 project(tiny-dpcpp-nn VERSION 0.1.0 LANGUAGES CXX)
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
@@ -12,6 +15,9 @@ include(CMakeDependentOption)
 option(BUILD_TEST "Build tests in 'test' directory" ON)
 
 message(WARNING "cmake build system is still WIP.")
+
+
+add_subdirectory(source)
 
 enable_testing()
 if(BUILD_TEST)

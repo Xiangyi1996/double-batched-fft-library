@@ -788,7 +788,7 @@ template <typename T> void DeviceMem<T>::enlarge(const size_t size) {
 /// Sets the memory of the first num_elements to value
 template <typename T> void DeviceMem<T>::memset(const int value, const size_t num_elements, const size_t offset) {
     if (num_elements + offset > m_size) {
-        throw std::runtime_error{fmt::format("Could not set memory: Number of elements {}+{} larger "
+        throw std::runtime_error{tinydpcppnn::format("Could not set memory: Number of elements {}+{} larger "
                                              "than allocated memory {}.",
                                              num_elements, offset, m_size)};
     }
