@@ -32,9 +32,6 @@
 #include <dpct/dpct.hpp>
 #include <sycl/sycl.hpp>
 
-#include <DeviceMem.h>
-#include <multi_stream.h>
-
 #include <algorithm>
 #include <cctype>
 #include <iostream>

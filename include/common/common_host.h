@@ -29,7 +29,7 @@
 
 #pragma once
 
-#include <common.h>
+#include "common.h"
 #include <dpct/dpct.hpp>
 #include <sycl/sycl.hpp>
 

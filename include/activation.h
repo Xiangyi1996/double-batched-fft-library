@@ -1,6 +1,6 @@
 #pragma once
+#include "common.h" //Activation enum
 #include <CL/sycl.hpp>
-#include <common.h> //Activation enum
 
 using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;

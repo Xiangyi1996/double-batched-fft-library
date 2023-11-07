@@ -22,13 +22,11 @@ doctest_discover_tests(test-inference)
 
 add_executable(test-common common.cpp)
 add_sycl_to_target(TARGET test-common SOURCES common.cpp)
-target_link_libraries(test-common PRIVATE test-lib swiftnetmlp) #add libraries you need here
-target_include_directories(test-common PRIVATE "${PROJECT_SOURCE_DIR}/include/")
+target_link_libraries(test-common PRIVATE test-lib common) #add libraries you need here
 doctest_discover_tests(test-common)
 
 
 add_executable(test-network-with-encoding doctest_network_with_encodings.cpp)
 add_sycl_to_target(TARGET test-network-with-encoding SOURCES doctest_network_with_encodings.cpp)
 target_link_libraries(test-network-with-encoding PRIVATE test-lib swiftnetmlp ${LevelZero_LIBRARY}) #add libraries you need here
-target_include_directories(test-network-with-encoding PRIVATE "${PROJECT_SOURCE_DIR}/include/")
 doctest_discover_tests(test-network-with-encoding)
