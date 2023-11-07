@@ -55,7 +55,7 @@ torch::Tensor NetworkWithEncodingModule::forward_pass(torch::Tensor input_tensor
     sycl::queue q;
     forward =
         malloc_device<float>(batch_size * (m_input_width + m_output_width + m_width * m_n_hidden_layers), sycl_queue);
-    DeviceMem<float> network_output = DeviceMem<float>(m_output_width * batch_size, sycl_queue);
+    DeviceMem<bf16> network_output = DeviceMem<bf16>(m_output_width * batch_size, sycl_queue);
 
     GPUMatrix<float> input_matrix = GPUMatrix<float>(input_tensor.data_ptr<float>(), m_input_width, batch_size);
     network->forward_pass(input_matrix, use_inference, network_output, forward);

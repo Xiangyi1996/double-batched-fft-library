@@ -9,6 +9,7 @@
 // Base EncodingFactory class
 template <typename T> class EncodingFactory {
   public:
+    virtual ~EncodingFactory() {}
     virtual Encoding<T> *create(const std::unordered_map<std::string, std::string> &params) const = 0;
 };
 

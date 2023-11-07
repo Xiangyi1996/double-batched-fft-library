@@ -1,4 +1,5 @@
 from setuptools import setup
+
 import torch
 import intel_extension_for_pytorch
 from torch.xpu.cpp_extension import DPCPPExtension, DpcppBuildExtension
@@ -40,21 +41,20 @@ setup(
             [
                 "pybind_module.cpp",
                 "../source/tnn_api.cpp",
-                "../source/common.cpp",
-                "../source/common_host.cpp",
-                "../source/DeviceMem.cpp",
+                "../source/common/common.cpp",
+                "../source/common/common_host.cpp",
+                "../source/common/DeviceMem.cpp",
                 "../source/SwiftNetMLP.cpp",
                 "../source/network_with_encodings.cpp",
             ],
             include_dirs=[
-                "../include",
-                "../include/fmt/include",
-                "../include/Network",
-                "../include/Losses",
-                "../include/Optimizers",
+                "/nfs/site/home/yuankai/code/tiny-dpcpp-nn/include",
+                "/nfs/site/home/yuankai/code/tiny-dpcpp-nn/include/common",
+                "/nfs/site/home/yuankai/code/tiny-dpcpp-nn/include/Network",
+                "/nfs/site/home/yuankai/code/tiny-dpcpp-nn/include/Losses",
+                "/nfs/site/home/yuankai/code/tiny-dpcpp-nn/include/Optimizers",
             ],
         )
     ],
     cmdclass={"build_ext": CustomDpcppBuildExtension},
-    # cmdclass={"build_ext": DpcppBuildExtension},
 )

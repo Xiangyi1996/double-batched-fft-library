@@ -14,7 +14,7 @@ output_sizes = [1, 2, 8, 16, 64]
 activation_funcs = ["relu", "linear"]
 hidden_layer_counts = [1, 2, 3, 4, 5]
 
-BATCH_SIZE = 127
+BATCH_SIZE = 512
 DEVICE_NAME = "xpu"
 
 

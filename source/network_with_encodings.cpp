@@ -1,6 +1,6 @@
 #include "network_with_encodings.h"
 
-void NetworkWithEncoding::forward_pass(GPUMatrix<float> &input, int run_inference, DeviceMem<float> &network_output,
+void NetworkWithEncoding::forward_pass(GPUMatrix<float> &input, int run_inference, DeviceMem<bf16> &network_output,
                                        float *forward) {
     int batch_size = input.n();
 
@@ -11,7 +11,7 @@ void NetworkWithEncoding::forward_pass(GPUMatrix<float> &input, int run_inferenc
     int input_width = network->get_inputs_width();
     int n_hidden_layers = network->get_n_hidden_layers();
     int output_width = network->get_output_width();
-
+    int output_width_padded = network->get_padded_output_width();
     // Allocate and initialize various memory buffers
 
     std::cout << "FWD pass in network with ecndoings.cpp Batch size: " << batch_size << std::endl;
@@ -20,14 +20,21 @@ void NetworkWithEncoding::forward_pass(GPUMatrix<float> &input, int run_inferenc
     GPUMatrix<float> encoding_output = GPUMatrix<float>(m_encoding_output_width, batch_size);
 
     encoding->forward_impl(&m_q, input, &encoding_output);
-    //   std::cout << "Output encoding: " << std::endl;
-    //   encoding_output.print();
+    // std::cout << "Output encoding: " << std::endl;
+    // encoding_output.print();
     network_input.set_values(encoding_output.n_elements(), encoding_output.data(), m_q);
     if (run_inference) {
         network->inference(network_input, forward, batch_size, {});
     } else {
         network->forward_pass(network_input, forward, batch_size, {});
     }
+
+    network->get_queue()
+        .memcpy(network_output.data(), network->GetOutput(forward, batch_size), sizeof(bf16) * network_output.size())
+        .wait();
+
+    network->get_queue()
+        .wait(); // TODO: why is this necessary? It doesn't work without the wait, if we don't wait for output before
 }
 
 DeviceMem<bf16> *NetworkWithEncoding::backward_pass(DeviceMem<bf16> &input_backward, DeviceMem<bf16> &grad_output,

@@ -291,8 +291,8 @@ template <typename T> class DeviceMem {
     void initialize_xavier_unif(int input_width, int output_width, queue q);
 
     // Initialize memory with values according to Xavier normal initialization
-    void inititialize_xavier_normal(DeviceMem<T> &transposed, int input_width, int width, int output_width,
-                                    int n_hidden, queue q);
+    void initialize_xavier_normal(DeviceMem<T> &transposed, int input_width, int width, int output_width, int n_hidden,
+                                  queue q);
 
     // Initialize memory with values according to Xavier normal initialization
     void initialize_xavier_normal(int input_width, int output_width, queue q);
@@ -304,16 +304,19 @@ template <typename T> class DeviceMem {
     void initialize_constant(T constant, queue q);
 
     // Initialize memory with values according to He normal initialization
-    void intitialize_he_normal(DeviceMem<T> &transposed, int input_width, int width, int output_width, int n_hidden,
-                               queue q);
+    void initialize_he_normal(DeviceMem<T> &transposed, int input_width, int width, int output_width, int n_hidden,
+                              queue q);
 
     // Initialize memory with values according to He normal initialization
-    void intitialize_he_normal(int input_width, queue q);
+    void initialize_he_normal(int input_width, queue q);
 
     void initialize_arange(queue q, int input_width, int net_width, int out_width, int hidden_matrices);
     void initialize_arange(queue q);
 
     void allocate_memory(size_t n_bytes);
+    void zero_pad_input(int input_width, int input_width_padded, int width, queue q);
+    void zero_pad_output(int output_width, int input_width_padded, int width, int output_width_padded, int n_hidden,
+                         queue q);
 };
 
 /// TODO: this can be a sub struct of the Arena

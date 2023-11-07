@@ -35,7 +35,10 @@ using bf16 = sycl::ext::oneapi::bfloat16;
  * Constructor for the SwiftNetMLP class.
  *
  */
-template <typename T> DeviceMem<T>::DeviceMem() {}
+template <typename T> DeviceMem<T>::DeviceMem() {
+    static_assert(std::is_same_v<T, float> || std::is_same_v<T, bf16> || std::is_same_v<T, uint8_t>,
+                  "Invalid type for DeviceMem. Supported types: float, bf16, uint8_t");
+}
 
 /**
  * Constructor for the SwiftNetMLP class.
@@ -44,6 +47,8 @@ template <typename T> DeviceMem<T>::DeviceMem() {}
  * @param queue              SYCL queue associated with the object.
  */
 template <typename T> DeviceMem<T>::DeviceMem(int size, sycl::queue &q) {
+    static_assert(std::is_same_v<T, float> || std::is_same_v<T, bf16> || std::is_same_v<T, uint8_t>,
+                  "Invalid type for DeviceMem. Supported types: float, bf16, uint8_t. Implement in DeviceMem.cpp");
     if (m_size != 0 || size <= 0) {
         return;
     }
@@ -74,10 +79,6 @@ template <typename T> void DeviceMem<T>::allocate(int n_bytes, queue &q) {
     if (m_size != 0 || n_bytes <= 0) {
         return;
     }
-    // m_size = size;
-    // m_data = malloc_device<T>(size, q);
-
-    // if (n_bytes == 0) return;
 
     log_debug("DeviceMem: allocating {}.", bytes_to_string(n_bytes));
 
@@ -341,13 +342,6 @@ void DeviceMem<T>::initialize_uniform(double scale, DeviceMem<T> &transposed, in
             rnd = (T)distrib(gen);
             data[toPackedLayoutCoord(i * width + j, input_width, width)] = rnd;
             dataT[toPackedLayoutCoord(j * width + i, width, input_width)] = rnd;
-
-            //   std::cout << "data: "
-            //             << toPackedLayoutCoord(i * width + j, input_width, width)
-            //             << std::endl;
-            //   std::cout << "dataT: "
-            //             << toPackedLayoutCoord(j * width + i, width, input_width)
-            //             << std::endl;
         }
     }
     //   std::cout << "+++++++++" << std::endl;
@@ -567,8 +561,8 @@ template <typename T> void DeviceMem<T>::initialize_xavier_unif(int input_width,
  * @param q             The SYCL queue for memory operations.
  */
 template <typename T>
-void DeviceMem<T>::inititialize_xavier_normal(DeviceMem<T> &transposed, int input_width, int width, int output_width,
-                                              int n_hidden, queue q) {
+void DeviceMem<T>::initialize_xavier_normal(DeviceMem<T> &transposed, int input_width, int width, int output_width,
+                                            int n_hidden, queue q) {
     double dev = sqrt(2.0 / ((double)(input_width + output_width)));
     initialize_normal(dev, transposed, input_width, width, output_width, n_hidden, q);
 }
@@ -703,8 +697,8 @@ template <typename T> void DeviceMem<T>::initialize_constant(T constant, queue q
  * @param q             The SYCL queue for memory operations.
  */
 template <typename T>
-void DeviceMem<T>::intitialize_he_normal(DeviceMem<T> &transposed, int input_width, int width, int output_width,
-                                         int n_hidden, queue q) {
+void DeviceMem<T>::initialize_he_normal(DeviceMem<T> &transposed, int input_width, int width, int output_width,
+                                        int n_hidden, queue q) {
     double dev = sqrt(2.0 / width);
     initialize_normal(dev, transposed, input_width, width, output_width, n_hidden, q);
 }
@@ -719,9 +713,72 @@ void DeviceMem<T>::intitialize_he_normal(DeviceMem<T> &transposed, int input_wid
  * @param input_width   The width of the input.
  * @param q             The SYCL queue for memory operations.
  */
-template <typename T> void DeviceMem<T>::intitialize_he_normal(int input_width, queue q) {
+template <typename T> void DeviceMem<T>::initialize_he_normal(int input_width, queue q) {
     double dev = sqrt(2.0 / input_width);
     initialize_normal(dev, q);
+}
+
+template <typename T> void DeviceMem<T>::zero_pad_input(int input_width, int input_width_padded, int width, queue q) {
+    auto p = m_data;
+
+    q.parallel_for<>(range<1>(input_width_padded * width), [=](id<1> idx) {
+         int i = 0;
+         int j = 0;
+
+         i = idx / input_width_padded; // rows
+         j = idx % input_width_padded; // cols
+
+         if (i >= input_width) {
+             p[toPackedLayoutCoord(i * input_width_padded + j, input_width_padded, width)] = 0;
+             //  p[i * input_width_padded + j] = 0;
+         }
+     }).wait();
+}
+
+template <typename T>
+void DeviceMem<T>::zero_pad_output(int output_width, int input_width_padded, int width, int output_width_padded,
+                                   int n_hidden, queue q) {
+    auto p = m_data;
+
+    // q.parallel_for<>(range<1>(width * output_width_padded), [=](id<1> idx) {
+    //      int i = 0;
+    //      int j = 0;
+    //      int mat_offset = idx;
+
+    //      i = mat_offset / width; // rows
+    //      j = mat_offset % width; // cols
+
+    //      if (i >= output_width) {
+    //          p[i * width + j] = 0;
+    //          //  p[i * width + j] = toPackedLayoutCoord(i * width + j, output_width_padded, width);
+    //          //  p[toPackedLayoutCoord(i * width + j, output_width_padded, width)] = 0;
+    //      }
+    //  }).wait();
+    q.parallel_for<>(range<1>(input_width_padded * width + n_hidden * width * width + width * output_width_padded),
+                     [=](id<1> idx) {
+                         int i = 0;
+                         int j = 0;
+                         int mat_offset = 0;
+
+                         if (idx >= input_width_padded * width + n_hidden * width * width) {
+                             mat_offset = (idx - input_width_padded * width - n_hidden * width * width) %
+                                          (width * output_width_padded);
+                             i = mat_offset / width; // rows
+                             j = mat_offset % width; // cols
+
+                             if (j >= output_width) {
+                                 //  p[input_width_padded * width + n_hidden * width * width + i * output_width_padded +
+                                 //  j] = 0;
+                                 //    toPackedLayoutCoord(i * output_width_padded + j, width, output_width_padded)] =
+                                 //    0;
+                                 //  p[input_width_padded * width + n_hidden * width * width +
+                                 //    toPackedLayoutCoord(i * width + j, output_width_padded, width)] = 0;
+                                 p[input_width_padded * width + n_hidden * width * width +
+                                   toPackedLayoutCoord(i * width + j, output_width_padded, width)] = 0;
+                             }
+                         }
+                     })
+        .wait();
 }
 
 template <typename T> void DeviceMem<T>::allocate_memory(size_t n_bytes) {

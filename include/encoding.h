@@ -83,7 +83,7 @@ template <typename T> class Encoding {
     size_t n_params() const { return 0; };
 
     void set_params(T *params, T *inference_params, T *gradients) {
-        std::cout << "Set params got called" << std::endl;
+        // std::cout << "Set params got called" << std::endl;
         m_params = params;
         m_inference_params = inference_params;
         m_gradients = gradients;

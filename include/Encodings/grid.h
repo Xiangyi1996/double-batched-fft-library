@@ -35,10 +35,10 @@
 #ifndef TINYNN_ENCODINGS_GRID_H
 #define TINYNN_ENCODINGS_GRID_H
 
+#include "common_device.h"
 #include <DeviceMem.h>
 #include <Encodings/grid_interface.h>
 #include <common.h>
-#include "common_device.h"
 #include <encoding.h>
 
 #include <sycl/sycl.hpp>
@@ -1138,7 +1138,10 @@ class GridEncodingTemplated : public GridEncoding<T> {
         m_offset_table.data[m_n_levels] = offset;
         m_offset_table.size = m_n_levels + 1;
 
-        m_n_params = m_offset_table.data[m_n_levels] * N_FEATURES_PER_LEVEL;
+        this->m_n_params = m_offset_table.data[m_n_levels] * N_FEATURES_PER_LEVEL;
+        // std::cout << "this->m_n_params: " << this->m_n_params << ", "
+        //           << "m_offset_table.data[m_n_levels] : " << m_offset_table.data[m_n_levels]
+        //           << ", N_FEATURES_PER_LEVEL : " << N_FEATURES_PER_LEVEL << std::endl;
 
         m_n_output_dims = m_n_features;
 
@@ -1183,18 +1186,18 @@ class GridEncodingTemplated : public GridEncoding<T> {
                 const sycl::nd_range<3> ndrange{blocks * threads, threads};
 
                 q->parallel_for(ndrange, [=](nd_item<3> it) {
-                    const size_t dim = it.get_local_id(2);
-                    const size_t elem = it.get_local_id(1) + it.get_group(2) * it.get_local_range(1);
-                    if (dim >= n_dims || elem >= num_elements) return;
+                     const size_t dim = it.get_local_id(2);
+                     const size_t elem = it.get_local_id(1) + it.get_group(2) * it.get_local_range(1);
+                     if (dim >= n_dims || elem >= num_elements) return;
 
-                    out(elem)[n_output_dims + dim] = 0;
-                });
+                     out(elem)[n_output_dims + dim] = 0;
+                 }).wait();
 
             } else {
                 auto out = output->data() + num_elements * m_n_output_dims;
                 size_t size = num_elements * m_n_to_pad;
 
-                q->parallel_for(sycl::range<1>(size), [=](size_t i) { out[i] = 0; });
+                q->parallel_for(sycl::range<1>(size), [=](size_t i) { out[i] = 0; }).wait();
             }
         }
 
@@ -1220,8 +1223,8 @@ class GridEncodingTemplated : public GridEncoding<T> {
             forward->dy_dx = GPUMatrix<float, MatrixLayout::RowMajor>{N_POS_DIMS * m_n_features, input.n(), *q};
         }
         auto use_inference_params2 = use_inference_params ? this->inference_params() : this->params();
-        std::cout << "use_inference_params: " << use_inference_params << ", pointer: " << use_inference_params2
-                  << std::endl;
+        // std::cout << "use_inference_params: " << use_inference_params << ", pointer: " << use_inference_params2
+        //           << std::endl;
         q->submit([&](sycl::handler &cgh) {
             auto m_n_features_ct1 = m_n_features;
             auto m_offset_table_ct2 = m_offset_table;
@@ -1256,7 +1259,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
                                      encoded_positions_soa, forward_dy_dx_data_ct12, item_ct1);
                              });
         });
-
+        q->wait();
         if (output && output->layout() == MatrixLayout::AoS) {
             // Transpose result (was stored row major due to coalescing)
             const sycl::range<3> threads_transpose = {1, 8, m_n_levels * N_FEATURES_PER_LEVEL};
@@ -1271,12 +1274,13 @@ class GridEncodingTemplated : public GridEncoding<T> {
                                                       item_ct1);
                     });
             });
+            q->wait();
         }
 
         return forward;
     }
 
-    void backward_impl(sycl::queue * const q, const Context &ctx, const GPUMatrixDynamic<float> &input,
+    void backward_impl(sycl::queue *const q, const Context &ctx, const GPUMatrixDynamic<float> &input,
                        const GPUMatrixDynamic<T> &output, const GPUMatrixDynamic<T> &dL_doutput,
                        GPUMatrixDynamic<float> *dL_dinput = nullptr, bool use_inference_params = false,
                        GradientMode param_gradients_mode = GradientMode::Overwrite) override {
@@ -1318,14 +1322,14 @@ class GridEncodingTemplated : public GridEncoding<T> {
             DeviceMemArena::Allocation grid_gradient_tmp;
 
             if (!std::is_same<grad_t, T>::value) {
-                grid_gradient_tmp = allocate_workspace(q, m_n_params * sizeof(grad_t));
+                grid_gradient_tmp = allocate_workspace(q, this->m_n_params * sizeof(grad_t));
                 grid_gradient = (grad_t *)grid_gradient_tmp.data();
             } else {
                 grid_gradient = (grad_t *)this->gradients();
             }
 
             if (param_gradients_mode == GradientMode::Overwrite) {
-                q->memset(grid_gradient, 0, n_params() * sizeof(grad_t));
+                q->memset(grid_gradient, 0, this->n_params() * sizeof(grad_t));
             }
 
             static constexpr uint32_t N_THREADS_HASHGRID = 256;
@@ -1373,7 +1377,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
                 auto grad = this->gradients();
                 auto grad_tmp = grid_gradient;
 
-                q->parallel_for(sycl::range<1>(n_params()), [&](size_t i) { grad[i] = (T)grad_tmp[i]; });
+                q->parallel_for(sycl::range<1>(this->n_params()), [&](size_t i) { grad[i] = (T)grad_tmp[i]; });
             }
         }
 
@@ -1383,7 +1387,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
                       forward.dy_dx.data(), dL_dinput->view());
     }
 
-    void backward_backward_input_impl(sycl::queue * const q, const Context &ctx, const GPUMatrixDynamic<float> &input,
+    void backward_backward_input_impl(sycl::queue *const q, const Context &ctx, const GPUMatrixDynamic<float> &input,
                                       const GPUMatrixDynamic<float> &dL_ddLdinput,
                                       const GPUMatrixDynamic<T> &dL_doutput,
                                       GPUMatrixDynamic<T> *dL_ddLdoutput = nullptr,
@@ -1430,14 +1434,14 @@ class GridEncodingTemplated : public GridEncoding<T> {
             DeviceMemArena::Allocation grid_gradient_tmp;
 
             if (!std::is_same<grad_t, T>::value) {
-                grid_gradient_tmp = allocate_workspace(q, m_n_params * sizeof(grad_t));
+                grid_gradient_tmp = allocate_workspace(q, this->m_n_params * sizeof(grad_t));
                 grid_gradient = (grad_t *)grid_gradient_tmp.data();
             } else {
                 grid_gradient = (grad_t *)this->gradients();
             }
 
             if (param_gradients_mode == GradientMode::Overwrite) {
-                q->memset(grid_gradient, 0, n_params() * sizeof(grad_t));
+                q->memset(grid_gradient, 0, this->n_params() * sizeof(grad_t));
             }
 
             static constexpr uint32_t N_THREADS_HASHGRID = 256;
@@ -1479,7 +1483,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
             if constexpr (!std::is_same<grad_t, T>::value) {
                 auto grad = this->gradients();
                 auto grad_tmp = grid_gradient;
-                q->parallel_for(sycl::range<1>(n_params()), [&](size_t i) { grad[i] = (T)grad_tmp[i]; });
+                q->parallel_for(sycl::range<1>(this->n_params()), [&](size_t i) { grad[i] = (T)grad_tmp[i]; });
             }
         }
 
@@ -1558,13 +1562,13 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
     void initialize_params(float *params_full_precision, float scale = 1) override {
         // // Initialize the hashgrid from the GPU, because the number of parameters
-        // can be quite large. generate_random_uniform<float>(rnd, n_params(),
+        // can be quite large. generate_random_uniform<float>(rnd, this->n_params(),
         // params_full_precision, -1e-4f * scale, 1e-4f * scale);
 
         constexpr std::uint64_t seed = 777;
         oneapi::mkl::rng::philox4x32x10 engine(dpct::get_default_queue(), seed);
         oneapi::mkl::rng::uniform<float> distribution(-1e-4f * scale, 1e-4f * scale);
-        oneapi::mkl::rng::generate(distribution, engine, n_params(), params_full_precision).wait();
+        oneapi::mkl::rng::generate(distribution, engine, this->n_params(), params_full_precision).wait();
     }
 
     size_t level_n_params(uint32_t level) const override {
@@ -1608,7 +1612,6 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
         return result;
     }
-    size_t n_params() const { return m_n_params; }
 
   private:
     struct ForwardContext : public Context {
@@ -1630,7 +1633,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
     float m_per_level_scale;
 
-    uint32_t m_n_params;
+    // uint32_t this->m_n_params;
     bool m_stochastic_interpolation;
     InterpolationType m_interpolation_type;
     GridType m_grid_type;

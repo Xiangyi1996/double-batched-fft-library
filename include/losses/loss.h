@@ -10,7 +10,7 @@ template <typename T> class Loss {
     void evaluate(const sycl::queue &q, const float loss_scale, const DeviceMem<T> &predictions,
                   const DeviceMem<float> &targets, DeviceMem<float> &values, DeviceMem<T> &gradients) {
         SanityCheck(loss_scale, predictions, targets, values, gradients);
-        Kernel(q, prediction.size(), loss_scale, predictions.data(), targets.data(), values.data(), gradients.data());
+        Kernel(q, predictions.size(), loss_scale, predictions.data(), targets.data(), values.data(), gradients.data());
     }
 
   protected:

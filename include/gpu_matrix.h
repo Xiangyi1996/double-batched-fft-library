@@ -325,7 +325,7 @@ template <typename T, MatrixLayout _layout = MatrixLayout::ColumnMajor> class GP
     GPUMatrix<T, static_transposed_layout> transposed() const { return ((GPUMatrixDynamic<T> *)this)->transposed(); }
 
     // Function to print the matrix values
-    void print() const {
+    void print(int is_packed = 0) const {
         std::vector<T> data(this->cols() * this->rows());
         dpct::get_default_queue().memcpy(data.data(), this->data(), data.size() * sizeof(T)).wait();
 
@@ -333,7 +333,16 @@ template <typename T, MatrixLayout _layout = MatrixLayout::ColumnMajor> class GP
         for (uint32_t i = 0; i < this->rows(); ++i) {
             std::cout << "[ ";
             for (uint32_t j = 0; j < this->cols(); ++j) {
-                std::cout << std::setw(8) << std::setprecision(4) << data[j * this->stride() + i];
+                int idx;
+                if (_layout == MatrixLayout::ColumnMajor) {
+                    idx = j * this->stride() + i;
+                } else {
+                    idx = i * this->stride() + j;
+                }
+                if (is_packed) {
+                    idx = toPackedLayoutCoord(idx, this->rows(), this->cols());
+                }
+                std::cout << std::setw(8) << std::setprecision(4) << data[idx];
                 if (j < this->cols() - 1) {
                     std::cout << ", ";
                 }

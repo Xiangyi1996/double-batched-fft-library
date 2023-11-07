@@ -757,7 +757,9 @@ template <uint32_t N_DIMS, HashType HASH_TYPE> uint32_t grid_hash(const tnn::uve
         return coherent_prime_hash<N_DIMS>(pos_grid);
     case HashType::ReversedPrime:
         return reversed_prime_hash<N_DIMS>(pos_grid);
-        // case HashType::Rng: return rng_hash<N_DIMS>(pos_grid);
+    case HashType::Rng:
+        return 0;
+        // return rng_hash<N_DIMS>(pos_grid);
     }
 
     return 0;

@@ -1,0 +1,61 @@
+Contents of /nfs/site/home/yuankai/code/tiny-dpcpp-nn/dpcpp_bindings/../include:
+
+Contents of /nfs/site/home/yuankai/code/tiny-dpcpp-nn/dpcpp_bindings/../include:
+ - network_with_encodings.h
+ - Network.h
+ - optimizer.h
+ - gpu_matrix.h
+ - config.h
+ - activation.h
+ - json.hpp
+ - multi_stream.h
+ - encoding.h
+ - encoding_factory.h
+ - trainer.h
+ - tnn_api.h
+
+Contents of /nfs/site/home/yuankai/code/tiny-dpcpp-nn/dpcpp_bindings/../include/Optimizers:
+ - adam.h
+ - sgd.h
+
+Contents of /nfs/site/home/yuankai/code/tiny-dpcpp-nn/dpcpp_bindings/../include/common:
+ - common_device.h
+ - DeviceMem.h
+ - vec.h
+ - common.h
+ - common_host.h
+
+Contents of /nfs/site/home/yuankai/code/tiny-dpcpp-nn/dpcpp_bindings/../include/Network:
+ - SwiftNetMLP.h
+
+Contents of /nfs/site/home/yuankai/code/tiny-dpcpp-nn/dpcpp_bindings/../include/losses:
+ - l2.h
+ - loss.h
+ - l1.h
+ - cross_entropy.h
+ - relative_l1.h
+ - relative_l2.h
+
+Contents of /nfs/site/home/yuankai/code/tiny-dpcpp-nn/dpcpp_bindings/../include/Encodings:
+ - grid_interface.h
+ - oneblob.h
+ - empty.h.yaml
+ - triangle_wave.h.yaml
+ - identity.h.yaml
+ - composite.h.yaml
+ - spherical_harmonics.h.yaml
+ - identity.h
+ - frequency.h
+ - grid.h.yaml
+ - empty.h
+ - frequency.h.yaml
+ - spherical_harmonics.h.bak
+ - grid.h
+ - oneblob.h.yaml
+ - triangle_wave.h
+ - grid_interface.h.yaml
+ - spherical_harmonics.h
+ - composite.h
+
+Contents of /nfs/site/home/yuankai/code/tiny-dpcpp-nn/dpcpp_bindings/../include/json:
+ - json.hpp

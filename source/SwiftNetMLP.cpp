@@ -1,8 +1,12 @@
 #define TM 8
 #define TK 16
 #define TN 16
-
+// #define TM 8
+// #define TK 16
+// #define TN 8
+#define SKEW 0
 #define SG_SIZE 16
+// #define SG_SIZE 8
 
 // #define SMALL_BATCH_SIZES
 
@@ -1499,34 +1503,82 @@ template <int WIDTH>
 SwiftNetMLP<WIDTH>::SwiftNetMLP(queue q, int input_width, int output_width, int n_hidden_layers, Activation activation,
                                 Activation output_activation)
     : m_inputs_width{input_width}, m_net_width{WIDTH}, m_output_width{output_width}, m_n_hidden_layers{n_hidden_layers},
-      m_activation{activation}, m_output_activation{output_activation} {
+      m_activation{activation}, m_output_activation{output_activation}, m_inputs_width_padded{WIDTH},
+      m_output_width_padded{WIDTH} /*TODO: replace later with smallest, nearest common divisor*/ {
     // Store provided parameters
     m_q = q;
     m_n_hidden_matrices = m_n_hidden_layers - 1;
 
+    check_parameters();
+
+    // As the systolic matrix multiplication works in multiples of 8/16, we cannot have arbitrary input and output
+    // width. To get the correct width as defined by input_width and output_width, we pad later with zeros
+
     // Allocate memory for various matrices
-    m_weightsT_matrices.allocate2(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices +
-                                      m_net_width * m_output_width,
+    m_weightsT_matrices.allocate2(m_net_width * m_inputs_width_padded +
+                                      (m_net_width * m_net_width) * m_n_hidden_matrices +
+                                      m_net_width * m_output_width_padded,
                                   m_q);
 
-    m_weights_matrices.allocate2(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices +
-                                     m_net_width * m_output_width,
+    m_weights_matrices.allocate2(m_net_width * m_inputs_width_padded +
+                                     (m_net_width * m_net_width) * m_n_hidden_matrices +
+                                     m_net_width * m_output_width_padded,
                                  m_q);
-    m_weights_matrices_inferences.allocate2(
-        m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width,
-        m_q);
-    m_grads_matrices.allocate2(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices +
-                                   m_net_width * m_output_width,
+
+    m_weights_matrices_inferences.allocate2(m_net_width * m_inputs_width_padded +
+                                                (m_net_width * m_net_width) * m_n_hidden_matrices +
+                                                m_net_width * m_output_width_padded,
+                                            m_q);
+
+    m_grads_matrices.allocate2(m_net_width * m_inputs_width_padded + (m_net_width * m_net_width) * m_n_hidden_matrices +
+                                   m_net_width * m_output_width_padded,
                                m_q);
 
     // Initialize constants and allocations
 
-    assert(WIDTH >= m_output_width);
     // note that the memory on m_deltas (also called loss sometimes) is
     // "flexible". It doesn't allow m_output_width > WIDTH, as in the
     // last layer backward pass, the m_output_width is first written
 }
 
+template <int WIDTH> void SwiftNetMLP<WIDTH>::check_parameters() {
+    if (m_inputs_width <= 0) {
+        std::string errorMessage =
+            "Input width of " + std::to_string(m_inputs_width) + " is not supported. Value must be larger than 0.";
+        throw std::runtime_error(errorMessage);
+    }
+
+    if (m_output_width <= 0) {
+        std::string errorMessage =
+            "Output width of " + std::to_string(m_output_width) + " is not supported. Value must be larger than 0.";
+        throw std::runtime_error(errorMessage);
+    }
+
+    if (m_inputs_width > WIDTH) {
+        std::string errorMessage = "Input width of " + std::to_string(m_inputs_width) +
+                                   " is not supported. Value must be <= WIDTH (" + std::to_string(WIDTH) + ").";
+        throw std::runtime_error(errorMessage);
+    }
+
+    if (m_output_width > WIDTH) {
+        std::string errorMessage = "Input width of " + std::to_string(m_output_width) +
+                                   " is not supported. Value must be <= WIDTH (" + std::to_string(WIDTH) + ").";
+        throw std::runtime_error(errorMessage);
+    }
+
+    if (m_n_hidden_layers <= 0) {
+        std::string errorMessage = "N hidden layers is " + std::to_string(m_output_width) +
+                                   " but must be >= 1, i.e., 1 hidden layer and 1 output layer.";
+        throw std::runtime_error(errorMessage);
+    }
+
+    if (m_activation != Activation::ReLU) {
+        throw std::runtime_error("m_activation must be ReLU for now.");
+    }
+    if (m_output_activation != Activation::None) {
+        throw std::runtime_error("m_output_activation must be None for now.");
+    }
+}
 template <int WIDTH> SwiftNetMLP<WIDTH>::~SwiftNetMLP() {}
 /**
  * Get a pointer to the gradients matrices.
@@ -1555,26 +1607,31 @@ template <int WIDTH> DeviceMem<bf16> *SwiftNetMLP<WIDTH>::get_weightsT_matrices(
  */
 template <int WIDTH> void SwiftNetMLP<WIDTH>::initialize_params(int use_easy) {
     // Initialize weights matrices with uniform random values, you can choose a
-    // different initialization ( look in DeviceMem.cpp )
-    //   m_weights_matrices.initialize_uniform(
-    //   0.01, m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width,
-    //   m_n_hidden_matrices, m_q);
-    //   m_weights_matrices.initialize_uniform(
-    //       0.01, m_weightsT_matrices, m_inputs_width, m_net_width,
-    //       m_output_width, m_n_hidden_matrices, m_q);
+    // different initialization ( see in DeviceMem.cpp )
 
-    if (use_easy) {
-        //   m_weights_matrices.initialize_constant(-0.01, m_q);
-        // m_weights_matrices.initialize_constant(0.01, m_q);
-        m_weights_matrices.initialize_arange(m_q, m_inputs_width, m_net_width, m_output_width, m_n_hidden_matrices);
+    if (use_easy == 1) {
+        m_weights_matrices.initialize_arange(m_q, m_inputs_width_padded, m_net_width, m_output_width_padded,
+                                             m_n_hidden_matrices);
+    } else if (use_easy == 2) {
+        m_weights_matrices.initialize_constant(0.01, m_q);
+    } else if (use_easy == 3) {
+        m_weights_matrices.initialize_constant(-0.01, m_q);
     } else {
-        m_weights_matrices.intitialize_he_normal(m_inputs_width, m_q);
+        m_weights_matrices.initialize_he_normal(m_inputs_width_padded, m_q);
     }
 
-    m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width,
+    zero_pad_weight_matrix();
+
+    m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width_padded, m_net_width, m_output_width_padded,
                                        m_n_hidden_matrices, m_q);
 };
-// };
+
+template <int WIDTH> void SwiftNetMLP<WIDTH>::zero_pad_weight_matrix() {
+    m_weights_matrices.zero_pad_input(m_inputs_width, m_inputs_width_padded, m_net_width, m_q);
+
+    m_weights_matrices.zero_pad_output(m_output_width, m_inputs_width_padded, m_net_width, m_output_width_padded,
+                                       m_n_hidden_matrices, m_q);
+}
 
 /**
  * Save the neural network parameters to a file.
@@ -1633,7 +1690,7 @@ template <int WIDTH> void SwiftNetMLP<WIDTH>::load_from_file(std::string filenam
     file.close();
 
     // Make the weights matrices transposed using the transposed weights matrices
-    m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width, m_net_width, m_output_width,
+    m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width_padded, m_net_width, m_output_width,
                                        m_n_hidden_matrices, m_q);
     return;
 }
@@ -1663,14 +1720,21 @@ std::vector<sycl::event> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16> 
     // Static assertion and assertion checks
     static_assert(WIDTH % 64 == 0, "Width must be a multiple of 64.");
 
+    if ((batch_size % 16) != 0) {
+        throw std::invalid_argument("Batch size is not divisible by 16.");
+    }
+
+    if (batch_size < 512) {
+        throw std::invalid_argument("Batch size must be >= 512, but is " + std::to_string(batch_size));
+    }
     // this is necessary for backward pass
     // Get a pointer to the weights matrices data
     bf16 *const Forwardbf16 = reinterpret_cast<bf16 *>(forward);
 
-    if (m_inputs_width != WIDTH) // Should only be triggered on first layer
-        throw std::invalid_argument("m_inputs_width has to be the same as WIDTH");
-    if (m_output_width != WIDTH) // Should only be triggered on first layer
-        throw std::invalid_argument("m_output_width has to be the same as WIDTH");
+    // if (m_inputs_width != WIDTH) // Should only be triggered on first layer
+    //     throw std::invalid_argument("m_inputs_width has to be the same as WIDTH");
+    // if (m_output_width != WIDTH) // Should only be triggered on first layer
+    //     throw std::invalid_argument("m_output_width has to be the same as WIDTH");
 
     // Perform forward pass based on activation function
     switch (m_activation) {
@@ -1742,9 +1806,9 @@ std::vector<sycl::event> SwiftNetMLP<WIDTH>::inference(const DeviceMem<bf16> &in
     static_assert(WIDTH % 64 == 0, "Width must be multiple of 64.");
     assert(batch_size % 64 == 0);
 
-    if (m_inputs_width != WIDTH || m_output_width != WIDTH) {
-        throw std::invalid_argument("inputs_width != WIDTH or output_width!= WIDTH is not supported");
-    }
+    // if (m_inputs_width != WIDTH || m_output_width != WIDTH) {
+    //     throw std::invalid_argument("inputs_width != WIDTH or output_width!= WIDTH is not supported");
+    // }
 
     bf16 *const Forwardbf16 = reinterpret_cast<bf16 *>(forward);
 
@@ -1871,14 +1935,14 @@ template <int WIDTH> void SwiftNetMLP<WIDTH>::set_params(float *params) {
     int s = m_weights_matrices.size();
 
     m_q.parallel_for<>(range<1>(s), [=](id<1> idx) { p[idx] = bf16(params[idx]); }).wait();
-    m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width, WIDTH, m_output_width, m_n_hidden_matrices,
-                                       m_q);
+    m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width_padded, WIDTH, m_output_width,
+                                       m_n_hidden_matrices, m_q);
 }
 
 template <int WIDTH> void SwiftNetMLP<WIDTH>::set_params(std::vector<bf16> &params) {
     m_weights_matrices.copy_from_host(params, m_q);
-    m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width, WIDTH, m_output_width, m_n_hidden_matrices,
-                                       m_q);
+    m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width_padded, WIDTH, m_output_width,
+                                       m_n_hidden_matrices, m_q);
 }
 
 template <int WIDTH> std::vector<bf16> SwiftNetMLP<WIDTH>::get_weights_matrices_as_vector() {

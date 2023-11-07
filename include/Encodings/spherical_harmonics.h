@@ -59,7 +59,7 @@ template <typename T> class SphericalHarmonicsEncoding : public Encoding<T> {
 
                     // output.advance_cols(encoded_idx);
 
-#pragma unroll
+                    // #pragma unroll
                     for (uint32_t j = 0; j < local_m_n_to_pad; ++j) {
                         output_acc[batch_idx * local_padded_output_width + (local_m_n_output_dims + j)] = (T)1.0f;
                     }

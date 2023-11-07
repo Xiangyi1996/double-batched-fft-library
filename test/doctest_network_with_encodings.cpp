@@ -12,14 +12,14 @@ using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;
 using bf16 = sycl::ext::oneapi::bfloat16;
 
-#define INPUT_WIDTH 3
-#define OUTPUT_WIDTH 20
-#define HIDDEN_LAYERS 4
+#define INPUT_WIDTH 64
+#define OUTPUT_WIDTH_PADDED 64
+#define HIDDEN_LAYERS 1
 #define NET_WIDTH 64
 void test_network_with_encoding() {
     // SWIFTNET
-    const int batch_size = 128;
-    const int output_width = OUTPUT_WIDTH;
+    const int batch_size = 512;
+    const int output_width = 2;
     const int m_n_hidden_layers = HIDDEN_LAYERS;
 
     GPUMatrix<float> input(INPUT_WIDTH, batch_size);
@@ -35,24 +35,33 @@ void test_network_with_encoding() {
     //       {"n_dims_to_encode", std::to_string(INPUT_WIDTH)},
     //       {"degree", std::to_string(4)}};
     //   std::string encoding_name = "SphericalHarmonics";
-    NetworkWithEncoding network = NetworkWithEncoding(INPUT_WIDTH, OUTPUT_WIDTH, m_n_hidden_layers, Activation::ReLU,
+    NetworkWithEncoding network = NetworkWithEncoding(INPUT_WIDTH, output_width, m_n_hidden_layers, Activation::ReLU,
                                                       Activation::None, encoding_name, encoding);
-    network.initialize_params(1);
-
-    float *forward = malloc_device<float>(batch_size * (INPUT_WIDTH + OUTPUT_WIDTH + NET_WIDTH * m_n_hidden_layers),
-                                          network.get_queue());
+    network.initialize_params(2);
     sycl::queue q;
-    DeviceMem<float> network_output = DeviceMem<float>(OUTPUT_WIDTH * batch_size, q);
+
+    float *forward =
+        malloc_device<float>(batch_size * (INPUT_WIDTH + OUTPUT_WIDTH_PADDED + NET_WIDTH * m_n_hidden_layers), q);
+    DeviceMem<bf16> network_output = DeviceMem<bf16>(OUTPUT_WIDTH_PADDED * batch_size, q);
 
     network.forward_pass(input, 0, network_output, forward);
 
-    network.get_queue().wait();
+    std::vector<bf16> fwd(batch_size * (INPUT_WIDTH + OUTPUT_WIDTH_PADDED + NET_WIDTH * m_n_hidden_layers));
+    q.memcpy(fwd.data(), reinterpret_cast<bf16 const *const>(forward), sizeof(bf16) * fwd.size()).wait();
 
-    std::vector<float> out(batch_size * (OUTPUT_WIDTH));
-    network_output.copy_to_host(out, network.get_queue());
+    // std::vector<bf16> out(batch_size * (OUTPUT_WIDTH_PADDED));
 
-    for (int j = 0; j < batch_size * OUTPUT_WIDTH; j++) {
-        std::cout << j << ": " << out[j] << std::endl;
+    // network_output.copy_to_host(out, q);
+    // q.wait();
+    // for (int j = 0; j < out.size(); j++) {
+    //     std::cout << "out, " << j << ": " << out[j] << std::endl;
+    // }
+
+    for (int j = 0; j < fwd.size(); j++) {
+        if (j % (512 * 64) == 0) {
+            std::cout << "__________________________" << std::endl;
+        }
+        std::cout << "fwd, " << j << ": " << fwd[j] << std::endl;
     }
 
     network.free_memory();
