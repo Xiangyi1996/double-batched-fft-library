@@ -62,4 +62,9 @@ TEST_CASE("tinydpcppnn::format 1 arg 1 incomplete bracket") {
     CHECK_THROWS_AS(tinydpcppnn::format(input, 1), std::invalid_argument);
 }
 
-TEST_CASE("isequalstring 1") {}
+TEST_CASE("isequalstring 1") { CHECK(isequalstring("TEST", "TEST")); }
+TEST_CASE("isequalstring 2") { CHECK(isequalstring("TesT", "TEST")); }
+TEST_CASE("isequalstring 3") { CHECK(!isequalstring("TESTE", "TEST")); }
+TEST_CASE("isequalstring 4") { CHECK(!isequalstring("TEST", "TESTE")); }
+TEST_CASE("isequalstring 5") { CHECK(!isequalstring("", "TESTE")); }
+TEST_CASE("isequalstring 6") { CHECK(isequalstring("tEsT", "TESt")); }
