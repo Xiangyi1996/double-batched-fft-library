@@ -436,7 +436,7 @@ Replacements:
   - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
     Offset:          27478
     Length:          63
-    ReplacementText: '1, m_n_levels, div_round_up(num_elements, N_THREADS_HASHGRID)'
+    ReplacementText: '1, m_n_levels, tinydpcppnn::math::div_round_up(num_elements, N_THREADS_HASHGRID)'
     ConstantFlag:    ''
     ConstantOffset:  0
     InitStr:         ''
@@ -634,7 +634,7 @@ Replacements:
   - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
     Offset:          31082
     Length:          110
-    ReplacementText: '1, m_n_levels, div_round_up(num_elements * N_FEATURES_PER_LEVEL / N_FEATURES_PER_THREAD, N_THREADS_HASHGRID)'
+    ReplacementText: '1, m_n_levels, tinydpcppnn::math::div_round_up(num_elements * N_FEATURES_PER_LEVEL / N_FEATURES_PER_THREAD, N_THREADS_HASHGRID)'
     ConstantFlag:    ''
     ConstantOffset:  0
     InitStr:         ''
@@ -778,7 +778,7 @@ Replacements:
   - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
     Offset:          34348
     Length:          110
-    ReplacementText: '1, m_n_levels, div_round_up(num_elements * N_FEATURES_PER_LEVEL / N_FEATURES_PER_THREAD, N_THREADS_HASHGRID)'
+    ReplacementText: '1, m_n_levels, tinydpcppnn::math::div_round_up(num_elements * N_FEATURES_PER_LEVEL / N_FEATURES_PER_THREAD, N_THREADS_HASHGRID)'
     ConstantFlag:    ''
     ConstantOffset:  0
     InitStr:         ''
@@ -823,7 +823,7 @@ Replacements:
   - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/grid.h'
     Offset:          35797
     Length:          110
-    ReplacementText: '1, m_n_levels, div_round_up(num_elements * N_FEATURES_PER_LEVEL / N_FEATURES_PER_THREAD, N_THREADS_HASHGRID)'
+    ReplacementText: '1, m_n_levels, tinydpcppnn::math::div_round_up(num_elements * N_FEATURES_PER_LEVEL / N_FEATURES_PER_THREAD, N_THREADS_HASHGRID)'
     ConstantFlag:    ''
     ConstantOffset:  0
     InitStr:         ''

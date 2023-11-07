@@ -73,11 +73,6 @@ enum class MatrixLayout {
     AoS = 1,
 };
 
-static constexpr MatrixLayout RM = MatrixLayout::RowMajor;
-static constexpr MatrixLayout SoA = MatrixLayout::SoA;
-static constexpr MatrixLayout CM = MatrixLayout::ColumnMajor;
-static constexpr MatrixLayout AoS = MatrixLayout::AoS;
-
 enum class ReductionType {
     Concatenation,
     Sum,
@@ -93,28 +88,17 @@ struct Context {
     Context &operator=(Context &&) = delete;
 };
 
-// from common.h
+/// some common math functions
+namespace tinydpcppnn {
+namespace math {
 template <typename T> T div_round_up(T val, T divisor) { return (val + divisor - 1) / divisor; }
 
 template <typename T> T next_multiple(T val, T divisor) { return div_round_up(val, divisor) * divisor; }
 
-template <typename T> constexpr uint32_t n_blocks_linear(T n_elements, uint32_t n_threads = N_THREADS_LINEAR) {
-    return (uint32_t)div_round_up(n_elements, (T)n_threads);
-}
-
 template <typename T> T previous_multiple(T val, T divisor) { return (val / divisor) * divisor; }
 
-template <typename T> constexpr bool is_pot(T val) { return (val & (val - 1)) == 0; }
-
-inline constexpr uint32_t next_pot(uint32_t v) {
-    --v;
-    v |= v >> 1;
-    v |= v >> 2;
-    v |= v >> 4;
-    v |= v >> 8;
-    v |= v >> 16;
-    return v + 1;
-}
+} // namespace math
+} // namespace tinydpcppnn
 
 template <typename T> struct PitchedPtr {
     PitchedPtr() : ptr{nullptr}, stride_in_bytes{sizeof(T)} {}

@@ -206,21 +206,6 @@ inline std::string bytes_to_string(size_t bytes) {
     return oss.str();
 }
 
-inline bool is_pot(uint32_t num, uint32_t *log2 = nullptr) {
-    if (log2) *log2 = 0;
-    if (num > 0) {
-        while (num % 2 == 0) {
-            num /= 2;
-            if (log2) ++*log2;
-        }
-        if (num == 1) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
 inline uint32_t powi(uint32_t base, uint32_t exponent) {
     uint32_t result = 1;
     for (uint32_t i = 0; i < exponent; ++i) {
@@ -269,6 +254,10 @@ template <typename T> class Lazy {
 };
 
 #if defined(SYCL_LANGUAGE_VERSION) || (defined(__clang__) && defined(SYCL_LANGUAGE_VERSION))
+
+template <typename T> constexpr uint32_t n_blocks_linear(T n_elements, uint32_t n_threads = N_THREADS_LINEAR) {
+    return (uint32_t)tinydpcppnn::math::div_round_up(n_elements, (T)n_threads);
+}
 
 template <typename K, typename T, typename... Types>
 inline void linear_kernel(K kernel, uint32_t shmem_size, dpct::queue_ptr stream, T n_elements, Types... args) {
@@ -328,9 +317,9 @@ inline void parallel_for_gpu_aos(uint32_t shmem_size, dpct::queue_ptr stream, si
         return;
     }
 
-    const sycl::range<3> threads = {1, div_round_up(N_THREADS_LINEAR, n_dims), n_dims};
+    const sycl::range<3> threads = {1, tinydpcppnn::math::div_round_up(N_THREADS_LINEAR, n_dims), n_dims};
     const size_t n_threads = threads[2] * threads[1];
-    const sycl::range<3> blocks = {1, 1, (uint32_t)div_round_up(n_elements * n_dims, n_threads)};
+    const sycl::range<3> blocks = {1, 1, (uint32_t)tinydpcppnn::math::div_round_up(n_elements * n_dims, n_threads)};
 
     /*
     DPCT1049:1: The work-group size passed to the SYCL kernel may exceed the

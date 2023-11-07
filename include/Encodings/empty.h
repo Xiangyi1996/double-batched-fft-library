@@ -69,7 +69,7 @@ template <typename T> class EmptyEncoding : public Encoding<T> {
             return std::make_unique<Context>();
         }
 
-        if (output->layout() == AoS) {
+        if (output->layout() == MatrixLayout::AoS) {
             parallel_for_gpu_aos(stream, num_elements, m_n_to_pad,
                                  [out = output->pitched_ptr()](size_t elem, size_t dim) { out(elem)[dim] = (T)1.0f; });
         } else {
@@ -103,7 +103,7 @@ template <typename T> class EmptyEncoding : public Encoding<T> {
 
     uint32_t required_output_alignment() const override { return 1; }
 
-    MatrixLayout preferred_output_layout() const override { return AoS; }
+    MatrixLayout preferred_output_layout() const override { return MatrixLayout::AoS; }
 
     json hyperparams() const override {
         return {

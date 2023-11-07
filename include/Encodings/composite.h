@@ -179,7 +179,7 @@ template <typename T> class CompositeEncoding : public Encoding<T> {
             for (size_t i = 0; i < m_nested.size() - 1; ++i) {
                 uint32_t desired_alignment = m_nested[i + 1]->required_output_alignment();
                 uint32_t padded_output_width_required =
-                    next_multiple(dims_encoded_so_far + m_nested[i]->output_width(), desired_alignment) -
+                    tinydpcppnn::math::(dims_encoded_so_far + m_nested[i]->output_width(), desired_alignment) -
                     dims_encoded_so_far;
 
                 m_nested[i]->set_padded_output_width(padded_output_width_required);
@@ -358,7 +358,7 @@ template <typename T> class CompositeEncoding : public Encoding<T> {
     MatrixLayout preferred_output_layout() const override {
         // Output layout of first nested encoding (tends to be the most significant,
         // i.e. hash encoding)
-        return m_nested.empty() ? AoS : m_nested.front()->preferred_output_layout();
+        return m_nested.empty() ? MatrixLayout::AoS : m_nested.front()->preferred_output_layout();
     }
 
     size_t n_nested() const override { return m_nested.size(); }

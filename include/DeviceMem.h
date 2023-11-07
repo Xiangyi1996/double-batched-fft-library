@@ -354,7 +354,7 @@ class DeviceMemArena {
             res = zeVirtualMemQueryPageSize(m_context, m_device, total_memory, &page_size);
             if (res != ZE_RESULT_SUCCESS) throw std::runtime_error{"DeviceMemArena: Could not query page-size."};
 
-            m_max_size = previous_multiple(total_memory, page_size);
+            m_max_size = tinydpcppnn::math::previous_multiple(total_memory, page_size);
 
             // Align memory at least by a cache line.
             m_alignment = q.get_device().get_info<sycl::info::device::global_mem_cache_line_size>();
@@ -438,7 +438,7 @@ class DeviceMemArena {
 
         // Align allocations with the nearest cache line (at least the granularity
         // of the memory allocations)
-        n_bytes = next_multiple(n_bytes, m_alignment);
+        n_bytes = tinydpcppnn::math::next_multiple(n_bytes, m_alignment);
 
         Interval *best_candidate = &m_free_intervals.back();
         for (auto &f : m_free_intervals)
@@ -494,7 +494,7 @@ class DeviceMemArena {
             if (res != ZE_RESULT_SUCCESS)
                 throw std::runtime_error{"DeviceMemArena::enlarge: Could not query page-size."};
 
-            m_size = next_multiple(tmp, page_size);
+            m_size = tinydpcppnn::math::next_multiple(tmp, page_size);
             m_fallback_memory = std::make_shared<DeviceMem<uint8_t>>(m_fallback_memory->copy(m_size));
 
             q.wait();
@@ -509,7 +509,7 @@ class DeviceMemArena {
         res = zeVirtualMemQueryPageSize(m_context, m_device, n_bytes_to_allocate, &page_size);
         if (res != ZE_RESULT_SUCCESS) throw std::runtime_error{"DeviceMemArena::enlarge: Could not query page-size."};
 
-        n_bytes_to_allocate = next_multiple(n_bytes_to_allocate, page_size);
+        n_bytes_to_allocate = tinydpcppnn::math::next_multiple(n_bytes_to_allocate, page_size);
 
         // Perform the actual physical allocation.
         ze_physical_mem_desc_t pmemDesc = {

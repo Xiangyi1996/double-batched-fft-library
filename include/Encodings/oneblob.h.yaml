@@ -355,7 +355,7 @@ Replacements:
   - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/oneblob.h'
     Offset:          7650
     Length:          66
-    ReplacementText: '1, div_round_up(min_n_threads, m_n_output_dims), m_n_output_dims'
+    ReplacementText: '1, tinydpcppnn::math::div_round_up(min_n_threads, m_n_output_dims), m_n_output_dims'
     ConstantFlag:    ''
     ConstantOffset:  0
     InitStr:         ''
@@ -391,7 +391,7 @@ Replacements:
   - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/oneblob.h'
     Offset:          7796
     Length:          60
-    ReplacementText: '1, 1, div_round_up(input.n() * m_n_output_dims, n_threads)'
+    ReplacementText: '1, 1, tinydpcppnn::math::div_round_up(input.n() * m_n_output_dims, n_threads)'
     ConstantFlag:    ''
     ConstantOffset:  0
     InitStr:         ''
@@ -445,7 +445,7 @@ Replacements:
   - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/oneblob.h'
     Offset:          8308
     Length:          72
-    ReplacementText: '1, div_round_up(min_n_threads, m_n_dims_to_encode), m_n_dims_to_encode'
+    ReplacementText: '1, tinydpcppnn::math::div_round_up(min_n_threads, m_n_dims_to_encode), m_n_dims_to_encode'
     ConstantFlag:    ''
     ConstantOffset:  0
     InitStr:         ''
@@ -481,7 +481,7 @@ Replacements:
   - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/oneblob.h'
     Offset:          8460
     Length:          63
-    ReplacementText: '1, 1, div_round_up(input.n() * m_n_dims_to_encode, n_threads)'
+    ReplacementText: '1, 1, tinydpcppnn::math::div_round_up(input.n() * m_n_dims_to_encode, n_threads)'
     ConstantFlag:    ''
     ConstantOffset:  0
     InitStr:         ''
@@ -544,7 +544,7 @@ Replacements:
   - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/oneblob.h'
     Offset:          9429
     Length:          72
-    ReplacementText: '1, div_round_up(min_n_threads, m_n_dims_to_encode), m_n_dims_to_encode'
+    ReplacementText: '1, tinydpcppnn::math::div_round_up(min_n_threads, m_n_dims_to_encode), m_n_dims_to_encode'
     ConstantFlag:    ''
     ConstantOffset:  0
     InitStr:         ''
@@ -580,7 +580,7 @@ Replacements:
   - FilePath:        '/home/pascalb/codes/tiny-cuda-nn/include/tiny-cuda-nn/encodings/oneblob.h'
     Offset:          9579
     Length:          63
-    ReplacementText: '1, 1, div_round_up(input.n() * m_n_dims_to_encode, n_threads)'
+    ReplacementText: '1, 1, tinydpcppnn::math::div_round_up(input.n() * m_n_dims_to_encode, n_threads)'
     ConstantFlag:    ''
     ConstantOffset:  0
     InitStr:         ''

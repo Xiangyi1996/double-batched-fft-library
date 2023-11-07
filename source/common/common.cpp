@@ -1,4 +1,6 @@
 #include "common.h"
+#include <algorithm> //std::equal
+#include <cctype>    //std::tolower
 
 /**
  * Convert an index to a packed layout coordinate for interleaved even and odd
@@ -60,13 +62,9 @@ int fromPackedLayoutCoord(int idx, int rows, int cols) {
  * @return      True if the strings are equal (ignoring case), false otherwise.
  */
 bool isequalstring(const std::string &str1, const std::string &str2) {
-    if (str1.length() != str2.length()) {
-        return false;
-    }
-    for (int i = 0; i < str1.length(); i++) {
-        if (std::tolower(str1[i]) != std::tolower(str2[i])) {
-            return false;
-        }
-    }
-    return true;
+
+    return str1.size() == str2.size() &&
+           std::equal(str1.begin(), str1.end(), str2.begin(), str2.end(), [&](char a, char b) {
+               return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+           });
 }

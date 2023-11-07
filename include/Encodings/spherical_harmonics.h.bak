@@ -194,7 +194,7 @@ public:
 	}
 
 	MatrixLayout preferred_output_layout() const override {
-		return SoA;
+		return MatrixLayout::SoA;
 	}
 
 	json hyperparams() const override {

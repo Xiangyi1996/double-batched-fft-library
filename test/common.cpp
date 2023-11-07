@@ -61,3 +61,5 @@ TEST_CASE("tinydpcppnn::format 1 arg 1 incomplete bracket") {
     std::string input{"This is a teststring which should not { work fine"};
     CHECK_THROWS_AS(tinydpcppnn::format(input, 1), std::invalid_argument);
 }
+
+TEST_CASE("isequalstring 1") {}

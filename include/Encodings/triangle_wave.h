@@ -166,7 +166,7 @@ template <typename T> class TriangleWaveEncoding : public Encoding<T> {
 
     uint32_t required_output_alignment() const override { return 1; }
 
-    MatrixLayout preferred_output_layout() const override { return AoS; }
+    MatrixLayout preferred_output_layout() const override { return MatrixLayout::AoS; }
 
     json hyperparams() const override {
         return {

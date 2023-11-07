@@ -1092,7 +1092,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
         : m_n_features{n_features}, m_log2_hashmap_size{log2_hashmap_size}, m_base_resolution{base_resolution},
           m_per_level_scale{per_level_scale}, m_stochastic_interpolation{stochastic_interpolation},
           m_interpolation_type{interpolation_type}, m_grid_type{grid_type} {
-        m_n_levels = div_round_up(m_n_features, N_FEATURES_PER_LEVEL);
+        m_n_levels = tinydpcppnn::math::div_round_up(m_n_features, N_FEATURES_PER_LEVEL);
         uint32_t offset = 0;
 
         if (m_n_levels > MAX_N_LEVELS) {
@@ -1112,7 +1112,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
                 std::pow((float)resolution, N_POS_DIMS) > (float)max_params ? max_params : powi(resolution, N_POS_DIMS);
 
             // Make sure memory accesses will be aligned
-            params_in_level = next_multiple(params_in_level, 8u);
+            params_in_level = tinydpcppnn::math::next_multiple(params_in_level, 8u);
 
             if (grid_type == GridType::Dense) {
             } // No-op
@@ -1162,7 +1162,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
         // Take care of padding on the auxiliary stream
         if (output && m_n_to_pad > 0) {
-            if (output->layout() == AoS) {
+            if (output->layout() == MatrixLayout::AoS) {
                 // Original:
                 // parallel_for_gpu_aos(stream, num_elements, m_n_to_pad,
                 // [n_output_dims=m_n_output_dims, out=output->pitched_ptr()] (size_t
@@ -1176,9 +1176,10 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
                 if (n_dims <= 0 || num_elements <= 0) return forward;
 
-                const size_t n_threads = n_dims * div_round_up(N_THREADS_LINEAR, n_dims);
-                const sycl::range<3> threads = {1, div_round_up(N_THREADS_LINEAR, n_dims), n_dims};
-                const sycl::range<3> blocks = {1, 1, div_round_up((size_t)(num_elements * n_dims), n_threads)};
+                const size_t n_threads = n_dims * tinydpcppnn::math::div_round_up(N_THREADS_LINEAR, n_dims);
+                const sycl::range<3> threads = {1, tinydpcppnn::math::div_round_up(N_THREADS_LINEAR, n_dims), n_dims};
+                const sycl::range<3> blocks = {
+                    1, 1, tinydpcppnn::math::div_round_up((size_t)(num_elements * n_dims), n_threads)};
                 const sycl::nd_range<3> ndrange{blocks * threads, threads};
 
                 stream->parallel_for(ndrange, [=](nd_item<3> it) {
@@ -1203,19 +1204,20 @@ class GridEncodingTemplated : public GridEncoding<T> {
         // elements) until it is time to process the next level.
 
         static constexpr uint32_t N_THREADS_HASHGRID = 512;
-        const sycl::range<3> blocks_hashgrid = {1, m_n_levels, div_round_up(num_elements, N_THREADS_HASHGRID)};
+        const sycl::range<3> blocks_hashgrid = {1, m_n_levels,
+                                                tinydpcppnn::math::div_round_up(num_elements, N_THREADS_HASHGRID)};
 
         T *encoded_positions_soa = output ? output->data() : nullptr;
 
         DeviceMemArena::Allocation workspace;
-        if (output && output->layout() == AoS) {
+        if (output && output->layout() == MatrixLayout::AoS) {
             workspace = allocate_workspace(stream, num_elements * m_n_features * sizeof(T));
 
             encoded_positions_soa = (T *)workspace.data();
         }
 
         if (prepare_input_gradients) {
-            forward->dy_dx = GPUMatrix<float, RM>{N_POS_DIMS * m_n_features, input.n(), *stream};
+            forward->dy_dx = GPUMatrix<float, MatrixLayout::RowMajor>{N_POS_DIMS * m_n_features, input.n(), *stream};
         }
         auto use_inference_params2 = use_inference_params ? this->inference_params() : this->params();
         std::cout << "use_inference_params: " << use_inference_params << ", pointer: " << use_inference_params2
@@ -1255,10 +1257,11 @@ class GridEncodingTemplated : public GridEncoding<T> {
                              });
         });
 
-        if (output && output->layout() == AoS) {
+        if (output && output->layout() == MatrixLayout::AoS) {
             // Transpose result (was stored row major due to coalescing)
             const sycl::range<3> threads_transpose = {1, 8, m_n_levels * N_FEATURES_PER_LEVEL};
-            const uint32_t blocks_transpose = div_round_up(num_elements, (uint32_t)threads_transpose[1]);
+            const uint32_t blocks_transpose =
+                tinydpcppnn::math::div_round_up(num_elements, (uint32_t)threads_transpose[1]);
             stream->submit([&](sycl::handler &cgh) {
                 auto output_pitched_ptr_ct2 = output->pitched_ptr();
                 cgh.parallel_for(
@@ -1285,13 +1288,14 @@ class GridEncodingTemplated : public GridEncoding<T> {
         const T *dL_dy_rm = dL_doutput.data();
 
         DeviceMemArena::Allocation workspace;
-        if (dL_doutput.layout() == CM) {
+        if (dL_doutput.layout() == MatrixLayout::ColumnMajor) {
             workspace = allocate_workspace(stream, num_elements * m_n_features * sizeof(T));
 
             // Transpose dL_dy. Use the buffer previously occupied by the encoded
             // positions
             const sycl::range<3> threads_transpose = {1, 8, m_n_levels * N_FEATURES_PER_LEVEL};
-            const uint32_t blocks_transpose = div_round_up(num_elements, (uint32_t)threads_transpose[1]);
+            const uint32_t blocks_transpose =
+                tinydpcppnn::math::div_round_up(num_elements, (uint32_t)threads_transpose[1]);
             stream->submit([&](sycl::handler &cgh) {
                 auto workspace_data_ct1 = (T *)workspace.data();
                 auto dL_doutput_pitched_ptr_ct2 = dL_doutput.pitched_ptr();
@@ -1329,7 +1333,8 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
             const sycl::range<3> blocks_hashgrid = {
                 1, m_n_levels,
-                div_round_up(num_elements * N_FEATURES_PER_LEVEL / N_FEATURES_PER_THREAD, N_THREADS_HASHGRID)};
+                tinydpcppnn::math::div_round_up(num_elements * N_FEATURES_PER_LEVEL / N_FEATURES_PER_THREAD,
+                                                N_THREADS_HASHGRID)};
 
             stream->submit([&](sycl::handler &cgh) {
                 auto m_n_features_ct1 = m_n_features;
@@ -1395,13 +1400,14 @@ class GridEncodingTemplated : public GridEncoding<T> {
         const T *dL_dy_rm = dL_doutput.data();
 
         DeviceMemArena::Allocation workspace;
-        if (dL_doutput.layout() == CM) {
+        if (dL_doutput.layout() == MatrixLayout::ColumnMajor) {
             workspace = allocate_workspace(stream, num_elements * m_n_features * sizeof(T));
 
             // Transpose dL_dy. Use the buffer previously occupied by the encoded
             // positions
             const sycl::range<3> threads_transpose = {1, 8, m_n_levels * N_FEATURES_PER_LEVEL};
-            const uint32_t blocks_transpose = div_round_up(num_elements, (uint32_t)threads_transpose[1]);
+            const uint32_t blocks_transpose =
+                tinydpcppnn::math::div_round_up(num_elements, (uint32_t)threads_transpose[1]);
             stream->submit([&](sycl::handler &cgh) {
                 auto workspace_data_ct1 = (T *)workspace.data();
                 auto dL_doutput_pitched_ptr_ct2 = dL_doutput.pitched_ptr();
@@ -1439,7 +1445,8 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
             const sycl::range<3> blocks_hashgrid = {
                 1, m_n_levels,
-                div_round_up(num_elements * N_FEATURES_PER_LEVEL / N_FEATURES_PER_THREAD, N_THREADS_HASHGRID)};
+                tinydpcppnn::math::div_round_up(num_elements * N_FEATURES_PER_LEVEL / N_FEATURES_PER_THREAD,
+                                                N_THREADS_HASHGRID)};
 
             // from dL_d(dL_dx) to dL_dgrid
             stream->submit([&](sycl::handler &cgh) {
@@ -1492,7 +1499,8 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
             const sycl::range<3> blocks_hashgrid = {
                 1, m_n_levels,
-                div_round_up(num_elements * N_FEATURES_PER_LEVEL / N_FEATURES_PER_THREAD, N_THREADS_HASHGRID)};
+                tinydpcppnn::math::div_round_up(num_elements * N_FEATURES_PER_LEVEL / N_FEATURES_PER_THREAD,
+                                                N_THREADS_HASHGRID)};
 
             // from dL_d(dL_dx) to dL_dx
             stream->submit([&](sycl::handler &cgh) {
@@ -1542,7 +1550,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
     uint32_t required_output_alignment() const override { return N_FEATURES_PER_LEVEL; }
 
-    MatrixLayout preferred_output_layout() const override { return SoA; }
+    MatrixLayout preferred_output_layout() const override { return MatrixLayout::SoA; }
 
     void set_params_impl(T *params, T *inference_params,
                          T *gradients) // TODO: override
@@ -1604,8 +1612,8 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
   private:
     struct ForwardContext : public Context {
-        GPUMatrix<float, RM> positions;
-        GPUMatrix<float, RM> dy_dx;
+        GPUMatrix<float, MatrixLayout::RowMajor> positions;
+        GPUMatrix<float, MatrixLayout::RowMajor> dy_dx;
     };
 
     uint32_t m_n_features;

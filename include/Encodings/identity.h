@@ -4,6 +4,7 @@
 #include <DeviceMem.h>
 #include <common.h>
 #include <common_device.h>
+#include "common_host.h"
 #include <encoding.h>
 #include <gpu_matrix.h>
 #include <stdint.h>
@@ -68,8 +69,8 @@ template <typename T> class IdentityEncoding : public Encoding<T> {
             //   auto loc_m_stride = input.stride();
             // TODO: Check with NVCC, we cant forward MatrixView as is
             // MatrixView<T> view() const {
-            // return {data(), layout() == CM ? 1u : stride(), layout() == CM ?
-            // stride() : 1u};
+            // return {data(), layout() == MatrixLayout::ColumnMajor ? 1u : stride(), layout() ==
+            // MatrixLayout::ColumnMajor ? stride() : 1u};
             // }
             //   std::cout << "loc_m_stride: " << loc_m_stride
             //             << ", loc_m_n_to_pad: " << loc_m_n_to_pad
@@ -153,8 +154,8 @@ template <typename T> class IdentityEncoding : public Encoding<T> {
             auto loc_m_stride = input.stride(); // manually, because we dont have MatrixView on device
             // TODO: Check with NVCC, we cant forward MatrixView as is
             // MatrixView<T> view() const {
-            // return {data(), layout() == CM ? 1u : stride(), layout() == CM ?
-            // stride() : 1u};
+            // return {data(), layout() == MatrixLayout::ColumnMajor ? 1u : stride(), layout() ==
+            // MatrixLayout::ColumnMajor ? stride() : 1u};
             // }
 
             // Create a command group to issue commands to the queue
@@ -201,7 +202,7 @@ template <typename T> class IdentityEncoding : public Encoding<T> {
 
     uint32_t required_output_alignment() const override { return 1; }
 
-    MatrixLayout preferred_output_layout() const override { return AoS; }
+    MatrixLayout preferred_output_layout() const override { return MatrixLayout::AoS; }
 
     void initialize_params(float *params_full_precision, float scale = 1) override {
         std::cout << "Identity has no params" << std::endl;

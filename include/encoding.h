@@ -69,7 +69,7 @@ template <typename T> class Encoding {
     // TODO: Do we require lcm / gcm as well?
     void set_alignment(uint32_t alignment) {
         // this->set_padded_output_width(
-        //     next_multiple(this->output_width(),
+        //     tinydpcppnn::math::next_multiple(this->output_width(),
         //                   lcm(alignment, this->required_output_alignment())));
         this->set_padded_output_width(this->output_width());
     }

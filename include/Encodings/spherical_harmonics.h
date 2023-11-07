@@ -105,7 +105,7 @@ template <typename T> class SphericalHarmonicsEncoding : public Encoding<T> {
 
     uint32_t required_output_alignment() const override { return 1; }
 
-    MatrixLayout preferred_output_layout() const override { return SoA; }
+    MatrixLayout preferred_output_layout() const override { return MatrixLayout::SoA; }
 
     void initialize_params(float *params_full_precision, float scale = 1) override {
         std::cout << "Spherical harmonics has no params" << std::endl;

@@ -221,11 +221,13 @@ template <typename T> class OneBlobEncoding : public Encoding<T> {
 
         const uint32_t num_bins_log2 = (uint32_t)std::log2(m_n_bins);
 
-        if (output->layout() == AoS) {
+        if (output->layout() == MatrixLayout::AoS) {
             const uint32_t min_n_threads = N_THREADS_LINEAR;
-            const sycl::range<3> threads = {1, div_round_up(min_n_threads, m_n_output_dims), m_n_output_dims};
+            const sycl::range<3> threads = {1, tinydpcppnn::math::div_round_up(min_n_threads, m_n_output_dims),
+                                            m_n_output_dims};
             const uint32_t n_threads = threads[2] * threads[1];
-            const sycl::range<3> blocks = {1, 1, div_round_up(input.n() * m_n_output_dims, n_threads)};
+            const sycl::range<3> blocks = {1, 1,
+                                           tinydpcppnn::math::div_round_up(input.n() * m_n_output_dims, n_threads)};
 
             /*
             DPCT1049:36: The work-group size passed to the SYCL
@@ -251,9 +253,11 @@ template <typename T> class OneBlobEncoding : public Encoding<T> {
                                      size_t elem, size_t dim) { out(elem)[n_output_dims + dim] = (T)1.0f; });
         } else {
             const uint32_t min_n_threads = N_THREADS_LINEAR;
-            const sycl::range<3> threads = {1, div_round_up(min_n_threads, m_n_dims_to_encode), m_n_dims_to_encode};
+            const sycl::range<3> threads = {1, tinydpcppnn::math::div_round_up(min_n_threads, m_n_dims_to_encode),
+                                            m_n_dims_to_encode};
             const uint32_t n_threads = threads[2] * threads[1];
-            const sycl::range<3> blocks = {1, 1, div_round_up(input.n() * m_n_dims_to_encode, n_threads)};
+            const sycl::range<3> blocks = {1, 1,
+                                           tinydpcppnn::math::div_round_up(input.n() * m_n_dims_to_encode, n_threads)};
 
             /*
             DPCT1049:37: The work-group size passed to the SYCL
@@ -292,9 +296,11 @@ template <typename T> class OneBlobEncoding : public Encoding<T> {
         const uint32_t num_bins_log2 = (uint32_t)std::log2(m_n_bins);
 
         const uint32_t min_n_threads = N_THREADS_LINEAR;
-        const sycl::range<3> threads = {1, div_round_up(min_n_threads, m_n_dims_to_encode), m_n_dims_to_encode};
+        const sycl::range<3> threads = {1, tinydpcppnn::math::div_round_up(min_n_threads, m_n_dims_to_encode),
+                                        m_n_dims_to_encode};
         const uint32_t n_threads = threads[2] * threads[1];
-        const sycl::range<3> blocks = {1, 1, div_round_up(input.n() * m_n_dims_to_encode, n_threads)};
+        const sycl::range<3> blocks = {1, 1,
+                                       tinydpcppnn::math::div_round_up(input.n() * m_n_dims_to_encode, n_threads)};
 
         /*
         DPCT1049:38: The work-group size passed to the SYCL kernel may
@@ -331,7 +337,7 @@ template <typename T> class OneBlobEncoding : public Encoding<T> {
 
     uint32_t required_output_alignment() const override { return 1; }
 
-    MatrixLayout preferred_output_layout() const override { return AoS; }
+    MatrixLayout preferred_output_layout() const override { return MatrixLayout::AoS; }
 
     json hyperparams() const override {
         return {
