@@ -101,7 +101,6 @@ template <typename T> class Encoding {
     // Data members
     float *m_forward;
     int m_shmem_size;
-    size_t m_alignment;
 
     bf16 *m_act_mem;
     float *m_act_mem_temp;

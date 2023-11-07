@@ -1,687 +1,710 @@
 #define TM 8
 #define TK 16
-#define TN 8
-#define SKEW 0
+#define TN 16
 
-#define SG_SIZE 8
-#define WG_SIZE 8 * SG_SIZE
+#define SG_SIZE 16
 
-#define BATCH_CHUNK 16
-#define SHMEM_SIZE 1024
+// #define SMALL_BATCH_SIZES
 
 #include "SwiftNetMLP.h"
-
 #include "common.h"
+#include "common_device.h"
 #include "mkl.h"
 #include "mkl_omp_offload.h"
 #include "oneapi/mkl.hpp"
 #include "trainer.h"
+#include <CL/sycl.hpp>
 
 using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;
 using bf16 = sycl::ext::oneapi::bfloat16;
+using namespace tinydpcppnn::builtin;
 
-void get_float_as_integers_own(float value, int &integer_val, int &fractional_val) {
-    // careful with the code. Leading zeros not shown in fractional_val. This is
-    // only to debug whether it's zero or non-zero. only for 4 decimals after
-    // comma
+// fused operation which does forward_pass+error computation + backward pass
+template <int WIDTH, Activation activation, Activation output_activation>
+std::vector<sycl::event> mlp_swift_fused(queue &q, bf16 const *const __restrict__ weights_ptr,
+                                         bf16 const *const __restrict__ weightsT_ptr,
+                                         bf16 const *const __restrict__ inputs_ptr,  // input to forward pass
+                                         bf16 const *const __restrict__ targets_ptr, // targets for error computation
+                                         bf16 *const __restrict__ output_ptr, // gradients output after backward pass
+                                         bf16 *const __restrict__ intermediate_output_forward,
+                                         bf16 *const __restrict__ intermediate_output_backward,
+                                         const int n_hidden_layers, const int M, const std::vector<sycl::event> &deps) {
+    // reuse of B, this is in subgroups, ONLY works for 64 nor
+    // note that large grf mode requires this to be set to 32
+    const int SGS_IN_WG = 64;
+    // dimensions are M = batch_size, N = WIDTH = K = 64;
+    static_assert(TK == SG_SIZE);
+    static_assert(TN == TK);
+    if constexpr (WIDTH != 64) throw std::invalid_argument("Current implementation only works for a WIDTH of 64");
+    assert(M % TM == 0); // make sure there is no remainder and no out of bounds accesses
+    // Note that TN = TK = SG_SIZE
 
-    // Extract the integer part
-    int integerPart = static_cast<int>(value);
+    // One Block Row has TM rows an N columns.
+    auto e = q.submit([&](handler &cgh) {
+        cgh.depends_on(deps);
+        local_accessor<bf16, 1> B(range<1>(WIDTH * WIDTH),
+                                  cgh); // weights matrix. 64*64*2 byte = 8 kb. Thus, can have up to 16 WGs per Xe Core.
+        local_accessor<bf16, 1> Atmp(range<1>(TM * WIDTH * SGS_IN_WG),
+                                     cgh); // buffer for loading joint matrices. 8*64*64*2byte = 64kb. TODO: check if
+                                           // this is too much. If so, split in half
+        // number of SGS is given by batch_size / (TM), since batch_size is the number of rows in the output
 
-    // Extract the fractional part as an integer
-    int fractionalPart =
-        //   static_cast<int>(std::fabs((value - static_cast<float>(integerPart))
-        //   *
-        static_cast<int>(((value - static_cast<float>(integerPart)) * 1000000)); // Adjust the multiplier as needed
-    integer_val = integerPart;
-    fractional_val = fractionalPart;
-}
-void get_float_as_integers_own(float value, int &integer_val, int &fractional_val, int &leading_zeros) {
-    // careful with the code. Leading zeros not shown in fractional_val. This is
-    // only to debug whether it's zero or non-zero. only for 4 decimals after
-    // comma
+        cgh.parallel_for(
+            nd_range<1>(std::max(M / TM * SG_SIZE, SGS_IN_WG * SG_SIZE),
+                        SGS_IN_WG * SG_SIZE), // assuming here that the number of block rows is divisable by SGS_IN_WG
+            [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
+                const int wg_id = item.get_group().get_group_id();
+                auto sg = item.get_sub_group();
+                const uint16_t loc_id = sg.get_local_id()[0]; // is in 0-15
+                const uint16_t sg_id = sg.get_group_id()[0];  // is in 0-63
+#ifdef SMALL_BATCH_SIZES
+                const bool sg_has_no_blockrow = (wg_id * TM * SGS_IN_WG + sg_id * TM) >= M;
+#endif
 
-    // Extract the integer part
-    int integerPart = static_cast<int>(value);
+                /// Start with forward pass
 
-    // Extract the fractional part as an integer
-    int fractionalPart =
-        //   static_cast<int>(std::fabs((value - static_cast<float>(integerPart))
-        //   *
-        static_cast<int>(((value - static_cast<float>(integerPart)) * 1000000)); // Adjust the multiplier as needed
-    integer_val = integerPart;
-    fractional_val = fractionalPart;
-    //   // Print the integer and fractional parts as integers
-    //   std::cout << "Integer part: " << integerPart << std::endl;
-    //   std::cout << "Fractional part: " << fractionalPart << std::endl;
+                const uint16_t sg_offset_B =
+                    sg_id * WIDTH *
+                    (WIDTH / SGS_IN_WG); // we assume SGS_IN_WG divides K //is in the rang 0-64*64=0-4096
+                const uint16_t sg_offset_A = sg_id * WIDTH * TM; // offset in WG is in the range 0-64*64*8=0-32K
+                const int total_offset_A = wg_id * SGS_IN_WG * WIDTH * TM + sg_offset_A; // offset in current block
+                __builtin_IB_lsc_prefetch_global_uint4(
+                    (const __attribute__((opencl_global)) uint32_t *)(inputs_ptr + total_offset_A) + loc_id, 0,
+                    LSC_LDCC_L1C_L3UC);
+                __builtin_IB_lsc_prefetch_global_uint4(
+                    (const __attribute__((opencl_global)) uint32_t *)(inputs_ptr + total_offset_A) + loc_id +
+                        4 * SG_SIZE,
+                    0, LSC_LDCC_L1C_L3UC);
+                __builtin_IB_lsc_prefetch_global_uint4(
+                    (const __attribute__((opencl_global)) uint32_t *)(inputs_ptr + total_offset_A) + loc_id +
+                        8 * SG_SIZE,
+                    0, LSC_LDCC_L1C_L3UC);
+                __builtin_IB_lsc_prefetch_global_uint4(
+                    (const __attribute__((opencl_global)) uint32_t *)(inputs_ptr + total_offset_A) + loc_id +
+                        16 * SG_SIZE,
+                    0, LSC_LDCC_L1C_L3UC);
 
-    // Count leading zeros in the fractional part
-    leading_zeros = 0;
-}
-template <typename T> void printVector(const std::vector<T> &vec) {
-    std::cout << "Vector contents: ";
-    for (const T &element : vec) {
-        std::cout << element << " ";
-    }
-    std::cout << std::endl;
-}
+                // Load B into slm
+                /// ATTENTION: this version only works for K = SGS_IN_WG and NBLOCKCOLS_PER_SG = 4
+                ((int32_t *)(&B[sg_offset_B]))[loc_id] = ((int32_t *)(weights_ptr + sg_offset_B))[loc_id];
+                ((int32_t *)(&B[sg_offset_B]))[loc_id + SG_SIZE] =
+                    ((int32_t *)(weights_ptr + sg_offset_B))[loc_id + SG_SIZE];
 
-/**
- * Execute the action made by a work-group to calculate the next layer.
- *
- * @param item          The SYCL nd_item representing the work item.
- * @param activation    The type of activation to be applied.
- * @param a             Pointer to activation memory.
- * @param a             Pointer to temporary activation memory.
- * @param weights_layer Pointer to weights for the layer.
- * @param out_inter     Pointer to output intermediate memory.
- * @param out           Pointer to final output memory.
- * @param forward_act   Optional pointer to forward activation memory.
- * @tparam WIDTH        Width of the layer.
- * @tparam N_ITERS      Number of iterations.
- * @tparam BACKWARD     Flag indicating if backward activation is applied.
- */
-template <int WIDTH, int N_ITERS, bool BACKWARD = false>
-void matmul_act_layer(nd_item<1> item, Activation activation,
-                      multi_ptr<bf16, access::address_space::local_space, (access::decorated)2> a,
-                      multi_ptr<float, access::address_space::local_space, (access::decorated)2> at,
-                      bf16 *weights_layer, float *out_inter, float *forward_act = nullptr, int print = 0) {
-    // Get sub-group and local IDs
+// load input
+/// Alternative of loading A through SLM to avoid inefficient access to HBM
+#ifdef SMALL_BATCH_SIZES
+                if (!sg_has_no_blockrow)
+#endif
+                {
+                    sycl::vec<int32_t, TM> tmp16avalues0 =
+                        sg.load<8>(global_ptr<int32_t>((int32_t *)(inputs_ptr + total_offset_A)));
+                    sycl::vec<int32_t, TM> tmp16avalues1 =
+                        sg.load<8>(global_ptr<int32_t>((int32_t *)(inputs_ptr + total_offset_A + 4 * WIDTH)));
 
-    auto sg = item.get_sub_group();
-    int id = item.get_local_id() % SG_SIZE;
-    int sgId = sg.get_group_id();
+                    sg.store<8>(local_ptr<int32_t>((int32_t *)&Atmp[sg_offset_A]), tmp16avalues0);
+                    sg.store<8>(local_ptr<int32_t>((int32_t *)(&Atmp[sg_offset_A + 4 * WIDTH])), tmp16avalues1);
+                    // we do not need SLM barrier since each SG writes and reads only its own data.
+                    // load A matrix from slm to joint_matrices. This is done to avoid inefficient bf16 HBM access
 
-    // Device pointers to memory
-    device_ptr<bf16> w(weights_layer);
-    device_ptr<float> o(out_inter);
-    device_ptr<float> f(forward_act);
+                    // ATTENTION: current inputs are positive and this is not really tested
+                    if constexpr (activation == Activation::ReLU) {
+                        // update tmp32avalues with bit shenanigans to avoid one pass through slm
+                        // Basically just checks the sign bits of the two bf16 values stored in one int32_t
+                        int32_t bitmask = 0b11111111111111110000000000000000;
+                        for (uint8_t iter = 0; iter < TM; iter++) {
+                            if ((tmp16avalues0[iter] >> 31) & 1) tmp16avalues0[iter] &= ~bitmask;
+                            if ((tmp16avalues0[iter] >> 15) & 1) tmp16avalues0[iter] &= bitmask;
 
-    // Define matrices and load weights
-    joint_matrix<sub_group, bf16, use::a, TM, TK, layout::row_major> act_matrix;
-    joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed>
-        weight_matrix0;
-    joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed>
-        weight_matrix1;
-    joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed>
-        weight_matrix2;
-    joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed>
-        weight_matrix3;
-    joint_matrix<sub_group, float, use::accumulator, TM, TN> result_matrix;
+                            if ((tmp16avalues1[iter] >> 31) & 1) tmp16avalues1[iter] &= ~bitmask;
+                            if ((tmp16avalues1[iter] >> 15) & 1) tmp16avalues1[iter] &= bitmask;
+                        }
+                    }
+                    // else {} //nothing to be done, implement other activations here
 
-    joint_matrix_load(sg, weight_matrix0, w + TN * 2 * sgId + TK / 2 * 0 * WIDTH * 2, WIDTH * 2);
-    joint_matrix_load(sg, weight_matrix1, w + TN * 2 * sgId + TK / 2 * 1 * WIDTH * 2, WIDTH * 2);
-    joint_matrix_load(sg, weight_matrix2, w + TN * 2 * sgId + TK / 2 * 2 * WIDTH * 2, WIDTH * 2);
-    joint_matrix_load(sg, weight_matrix3, w + TN * 2 * sgId + TK / 2 * 3 * WIDTH * 2, WIDTH * 2);
-//   for (int m_idx = 0; m_idx < 4; m_idx++) {
-//     for (int w_idx = TN * 2 * sgId + TK / 2 * m_idx * WIDTH * 2;
-//          w_idx < TN * 2 * sgId + TK / 2 * m_idx * WIDTH * 2 + WIDTH * 2;
-//          w_idx++) {
-//       int b_first;
-//       int b_second;
-//       int b_zeroes;
-//       get_float_as_integers_own(w[w_idx], b_first, b_second, b_zeroes);
-//       int wg_id = item.get_group().get_group_id();
-//       int sg_id = item.get_sub_group().get_group_id();
-//       int local_id = item.get_local_id();
-//       static const CONSTANT char FMT[] =
-//           "Weight: W_idx: %d, m_idx: %d,  group id: %d, sub_group "
-//           "id: %d, local id: "
-//           "%d, overall id: %d, val: %d.%d \n ";
-//       if (wg_id == 0 && id == 0 && print) {
-//         sycl::ext::oneapi::experimental::printf(
-//             FMT, w_idx, m_idx, int(wg_id), int(sg_id), int(local_id),
-//             int(wg_id * WG_SIZE + local_id), b_first, b_second);
-//       }
-//     }
-//   }
-#pragma unroll
-    for (int l = 0; l < N_ITERS; l++) {
-        joint_matrix_fill(sg, result_matrix, 0.0f);
-        // for (int part = 0; part < 4; part++) {
-        //   for (int w_idx = TK * part + TM * l * (WIDTH + SKEW);
-        //        w_idx < TK * part + TM * l * (WIDTH + SKEW) + WIDTH + SKEW;
-        //        w_idx++) {
-        //     int b_first;
-        //     int b_second;
-        //     int b_zeroes;
-        //     get_float_as_integers_own(a[w_idx], b_first, b_second, b_zeroes);
-        //     int wg_id = item.get_group().get_group_id();
-        //     int sg_id = item.get_sub_group().get_group_id();
-        //     int local_id = item.get_local_id();
-        //     static const CONSTANT char FMT[] = "a%d: W_idx: %d, val: %d.%d \n ";
-        //     if (wg_id == 0 && id == 0 && print) {
-        //       sycl::ext::oneapi::experimental::printf(FMT, part, w_idx, b_first,
-        //                                               b_second);
-        //     }
-        //   }
-        // }
-        // Load activation matrix and perform matrix multiplication and accumulation
-        joint_matrix_load(sg, act_matrix, a + TK * 0 + TM * l * (WIDTH + SKEW), WIDTH + SKEW);
-
-        result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix0, result_matrix);
-        joint_matrix_load(sg, act_matrix, a + TK * 1 + TM * l * (WIDTH + SKEW), WIDTH + SKEW);
-        result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix1, result_matrix);
-        joint_matrix_load(sg, act_matrix, a + TK * 2 + TM * l * (WIDTH + SKEW), WIDTH + SKEW);
-        result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix2, result_matrix);
-        joint_matrix_load(sg, act_matrix, a + TK * 3 + TM * l * (WIDTH + SKEW), WIDTH + SKEW);
-        result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix3, result_matrix);
-
-        joint_matrix_store(sg, result_matrix, at + TN * sgId + TM * l * (WIDTH + SKEW), WIDTH + SKEW,
-                           layout::row_major);
-
-        // for (int w_idx = TN * sgId + TM * l * (WIDTH + SKEW);
-        //      w_idx < TN * sgId + TM * l * (WIDTH + SKEW) + WIDTH + SKEW; w_idx++)
-        //      {
-        //   int b_first;
-        //   int b_second;
-        //   int b_zeroes;
-        //   get_float_as_integers_own(at[w_idx], b_first, b_second, b_zeroes);
-        //   int wg_id = item.get_group().get_group_id();
-        //   int sg_id = item.get_sub_group().get_group_id();
-        //   int local_id = item.get_local_id();
-        //   static const CONSTANT char FMT[] =
-        //       "At: W_idx: %d,  group id: %d, sub_group "
-        //       "id: %d, local id: "
-        //       "%d, overall id: %d, val: %d.%d \n ";
-        //   if (wg_id == 0 && id == 0 && print) {
-        //     sycl::ext::oneapi::experimental::printf(
-        //         FMT, w_idx, int(wg_id), int(sg_id), int(local_id),
-        //         int(wg_id * WG_SIZE + local_id), b_first, b_second);
-        //   }
-        // }
-    }
-
-#pragma unroll
-    for (int i = 0; i < N_ITERS; i++) {
-        if (BACKWARD) {
-            int stride = (WIDTH + SKEW);
-            int offset = TN * sgId * (WIDTH + SKEW) + TM * i + id;
-            // Apply backward activation matrix if required
-            matrix_activation_backward<float, float, bf16, SG_SIZE>(
-                activation, at, f, a, TN * sgId + (WIDTH + SKEW) * TM * i + id, (WIDTH + SKEW));
-        } else {
-            //   Apply forward activation matrix
-            matrix_activation<float, bf16, SG_SIZE>(activation, at, a, TN * sgId + (WIDTH + SKEW) * TM * i + id,
-                                                    (WIDTH + SKEW));
-        }
-    }
-
-    if (out_inter) {
-#pragma unroll
-        for (int i = 0; i < N_ITERS; i++) {
-            for (int k = 0; k < TM; k++) {
-                // Copy results to the output intermediate matrix
-                if (BACKWARD) {
-                    out_inter[TN * sgId + WIDTH * TM * i + k * WIDTH + id] =
-                        a[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id];
-
-                    //   int b_first;
-                    //   int b_second;
-                    //   int b_zeroes;
-                    //   get_float_as_integers_own(
-                    //       a[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) +
-                    //       id], b_first, b_second, b_zeroes);
-                    //   int wg_id = item.get_group().get_group_id();
-                    //   int sg_id = item.get_sub_group().get_group_id();
-                    //   int local_id = item.get_local_id();
-                    //   static const CONSTANT char FMT[] =
-                    //       "out:   group id: %d, sub_group "
-                    //       "id: %d, local id: "
-                    //       "%d, overall id: %d, val: %d.%d \n ";
-                    //   if (wg_id == 0 && id == 0 && print) {
-                    //     sycl::ext::oneapi::experimental::printf(
-                    //         FMT, int(wg_id), int(sg_id), int(local_id),
-                    //         int(wg_id * WG_SIZE + local_id), b_first, b_second);
-                    //   }
-                } else {
-                    out_inter[TN * sgId + WIDTH * TM * i + k * WIDTH + id] =
-                        a[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id];
+                    sg.store<8>(global_ptr<int32_t>((int32_t *)(intermediate_output_forward + total_offset_A)),
+                                tmp16avalues0);
+                    sg.store<8>(
+                        global_ptr<int32_t>((int32_t *)(intermediate_output_forward + total_offset_A + 4 * WIDTH)),
+                        tmp16avalues1);
                 }
-            }
-        }
+
+                joint_matrix<sub_group, bf16, use::a, TM, TK, layout::row_major> A_block0, A_block1, A_block2, A_block3;
+#ifdef SMALL_BATCH_SIZES
+                if (!sg_has_no_blockrow)
+#endif
+                {
+                    joint_matrix_load(sg, A_block0, local_ptr<bf16>(&Atmp[sg_offset_A + 0 * SG_SIZE]), WIDTH);
+                    joint_matrix_load(sg, A_block1, local_ptr<bf16>(&Atmp[sg_offset_A + 1 * SG_SIZE]), WIDTH);
+                    joint_matrix_load(sg, A_block2, local_ptr<bf16>(&Atmp[sg_offset_A + 2 * SG_SIZE]), WIDTH);
+                    joint_matrix_load(sg, A_block3, local_ptr<bf16>(&Atmp[sg_offset_A + 3 * SG_SIZE]), WIDTH);
+                }
+
+                // We have n_hidden_layers. Thus n_hidden_layers - 1 gemms between
+                // the layers (layer 0 -> GEMM -> layer1 -> GEMM -> layer2 -> etc.)
+                // Since we also do the GEMM from input to hidden layer 0,
+                // we perform n_hidden_layers GEMMS.
+                joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed>
+                    B_block;
+                joint_matrix<sub_group, float, use::accumulator, TM, TN> C_block0, C_block1, C_block2, C_block3;
+
+                for (uint8_t layer = 0; layer < n_hidden_layers; layer++) {
+
+// reset result matrix
+#ifdef SMALL_BATCH_SIZES
+                    if (!sg_has_no_blockrow)
+#endif
+                    {
+                        joint_matrix_fill(sg, C_block0, 0.0f);
+                        joint_matrix_fill(sg, C_block1, 0.0f);
+                        joint_matrix_fill(sg, C_block2, 0.0f);
+                        joint_matrix_fill(sg, C_block3, 0.0f);
+                    }
+
+                    item.barrier(sycl::access::fence_space::local_space); // wait for B to be loaded
+
+// block axpy scheme
+#ifdef SMALL_BATCH_SIZES
+                    if (!sg_has_no_blockrow)
+#endif
+                    {
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 0 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block0 = joint_matrix_mad(sg, A_block0, B_block, C_block0);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 1 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block1 = joint_matrix_mad(sg, A_block0, B_block, C_block1);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 2 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block2 = joint_matrix_mad(sg, A_block0, B_block, C_block2);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 3 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block3 = joint_matrix_mad(sg, A_block0, B_block, C_block3);
+
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 0 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block0 = joint_matrix_mad(sg, A_block1, B_block, C_block0);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 1 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block1 = joint_matrix_mad(sg, A_block1, B_block, C_block1);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 3 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block2 = joint_matrix_mad(sg, A_block1, B_block, C_block2);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 0 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block3 = joint_matrix_mad(sg, A_block1, B_block, C_block3);
+
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 0 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block0 = joint_matrix_mad(sg, A_block2, B_block, C_block0);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 1 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block1 = joint_matrix_mad(sg, A_block2, B_block, C_block1);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 2 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block2 = joint_matrix_mad(sg, A_block2, B_block, C_block2);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 3 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block3 = joint_matrix_mad(sg, A_block2, B_block, C_block3);
+
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 0 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block0 = joint_matrix_mad(sg, A_block3, B_block, C_block0);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 1 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block1 = joint_matrix_mad(sg, A_block3, B_block, C_block1);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 2 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block2 = joint_matrix_mad(sg, A_block3, B_block, C_block2);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 3 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block3 = joint_matrix_mad(sg, A_block3, B_block, C_block3);
+                    }
+
+                    // Load next B into slm
+                    /// ATTENTION: this version only works for K = SGS_IN_WG and NBLOCKCOLS_PER_SG = 4
+                    item.barrier(sycl::access::fence_space::local_space);
+                    sg.store<2>(local_ptr<int32_t>((int32_t *)(&B[sg_offset_B])),
+                                sg.load<2>(global_ptr<int32_t>(
+                                    (int32_t *)(weights_ptr + (layer + 1) * WIDTH * WIDTH + sg_offset_B))));
+
+// This can be done in the future with joint_matrix_copy and a joint_maitrx_apply.
+#ifdef SMALL_BATCH_SIZES
+                    if (!sg_has_no_blockrow)
+#endif
+                    {
+                        auto Ci_data0 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block0);
+                        auto Ai_data0 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block0);
+                        auto Ci_data1 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block1);
+                        auto Ai_data1 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block1);
+                        auto Ci_data2 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block2);
+                        auto Ai_data2 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block2);
+                        auto Ci_data3 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block3);
+                        auto Ai_data3 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block3);
+                        // if constexpr (activation == Activation::ReLU)
+                        //{
+                        for (int rowiter = 0; rowiter < Ci_data0.length(); rowiter++) // should be TM in length
+                        {
+                            Ai_data0[rowiter] =
+                                fmax((bf16)0, (bf16)Ci_data0[rowiter]); // tmpCi < (bf16)0 ? (bf16)0 : tmpCi;
+                            Ai_data1[rowiter] = fmax((bf16)0, (bf16)Ci_data1[rowiter]);
+                            Ai_data2[rowiter] = fmax((bf16)0, (bf16)Ci_data2[rowiter]);
+                            Ai_data3[rowiter] = fmax((bf16)0, (bf16)Ci_data3[rowiter]);
+                        }
+                        //}
+                        // else if constexpr (activation == Activation::None)
+                        // {
+                        //     for (int rowiter = 0; rowiter < Ci_data0.length(); rowiter++) //should be TM in length
+                        //     {
+                        //         Ai_data0[rowiter] = (bf16)Ci_data0[rowiter];
+                        //         Ai_data1[rowiter] = (bf16)Ci_data1[rowiter];
+                        //         Ai_data2[rowiter] = (bf16)Ci_data2[rowiter];
+                        //         Ai_data3[rowiter] = (bf16)Ci_data3[rowiter];
+                        //     }
+                        // }
+                        // //else none
+
+                        sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                            sg, A_block0, local_ptr<bf16>(&Atmp[sg_offset_A + 0 * SG_SIZE]), WIDTH);
+                        sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                            sg, A_block1, local_ptr<bf16>(&Atmp[sg_offset_A + 1 * SG_SIZE]), WIDTH);
+                        sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                            sg, A_block2, local_ptr<bf16>(&Atmp[sg_offset_A + 2 * SG_SIZE]), WIDTH);
+                        sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                            sg, A_block3, local_ptr<bf16>(&Atmp[sg_offset_A + 3 * SG_SIZE]), WIDTH);
+                        /// Alternative of loading A through SLM to avoid inefficient access to HBM
+                        // we do not need SLM barrier since each SG writes and reads only its own data.
+
+                        // for (uint8_t iter = 0; iter < TM; iter++) {
+                        //     *((int32_t*)(intermediate_output_forward+loc_offset_A+iter*WIDTH)+loc_id) =
+                        //     *(((int32_t*)&Atmp[sg_offset_A+iter*WIDTH])+loc_id);
+                        //     *((int32_t*)(intermediate_output_forward+loc_offset_A+iter*WIDTH)+loc_id + SG_SIZE) =
+                        //     *(((int32_t*)&Atmp[sg_offset_A+iter*WIDTH])+loc_id+SG_SIZE);
+                        // }
+                        const int loc_offset_A = (layer + 1) * M * WIDTH + total_offset_A;
+                        sg.store<8>(global_ptr<int32_t>((int32_t *)(intermediate_output_forward + loc_offset_A)),
+                                    sg.load<8>(local_ptr<int32_t>((int32_t *)(&Atmp[sg_offset_A]))));
+                        sg.store<8>(
+                            global_ptr<int32_t>((int32_t *)(intermediate_output_forward + loc_offset_A + 4 * WIDTH)),
+                            sg.load<8>(local_ptr<int32_t>((int32_t *)(&Atmp[sg_offset_A + 4 * WIDTH]))));
+                    }
+                }
+
+// generate output, i.e. last GEMM, differs since it uses output_activation
+// reset result matrix
+#ifdef SMALL_BATCH_SIZES
+                if (!sg_has_no_blockrow)
+#endif
+                {
+                    joint_matrix_fill(sg, C_block0, 0.0f);
+                    joint_matrix_fill(sg, C_block1, 0.0f);
+                    joint_matrix_fill(sg, C_block2, 0.0f);
+                    joint_matrix_fill(sg, C_block3, 0.0f);
+                }
+
+                item.barrier(sycl::access::fence_space::local_space); // wait for B to be loaded
+
+// block axpy scheme
+#ifdef SMALL_BATCH_SIZES
+                if (!sg_has_no_blockrow)
+#endif
+                {
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 0 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block0 = joint_matrix_mad(sg, A_block0, B_block, C_block0);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 1 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block1 = joint_matrix_mad(sg, A_block0, B_block, C_block1);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 2 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block2 = joint_matrix_mad(sg, A_block0, B_block, C_block2);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 3 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block3 = joint_matrix_mad(sg, A_block0, B_block, C_block3);
+
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 0 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block0 = joint_matrix_mad(sg, A_block1, B_block, C_block0);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 1 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block1 = joint_matrix_mad(sg, A_block1, B_block, C_block1);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 2 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block2 = joint_matrix_mad(sg, A_block1, B_block, C_block2);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 3 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block3 = joint_matrix_mad(sg, A_block1, B_block, C_block3);
+
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 0 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block0 = joint_matrix_mad(sg, A_block2, B_block, C_block0);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 1 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block1 = joint_matrix_mad(sg, A_block2, B_block, C_block1);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 2 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block2 = joint_matrix_mad(sg, A_block2, B_block, C_block2);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 3 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block3 = joint_matrix_mad(sg, A_block2, B_block, C_block3);
+
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 0 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block0 = joint_matrix_mad(sg, A_block3, B_block, C_block0);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 1 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block1 = joint_matrix_mad(sg, A_block3, B_block, C_block1);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 2 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block2 = joint_matrix_mad(sg, A_block3, B_block, C_block2);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 3 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block3 = joint_matrix_mad(sg, A_block3, B_block, C_block3);
+
+                    /// TODO: Output activation in what follows. Here == None
+                    // This can be done in the future with joint_matrix_copy and a joint_maitrx_apply.
+                    // This can be done in the future with joint_matrix_copy and a joint_maitrx_apply.
+                    auto Ci_data0 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block0);
+                    auto Ai_data0 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block0);
+                    auto Ci_data1 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block1);
+                    auto Ai_data1 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block1);
+                    auto Ci_data2 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block2);
+                    auto Ai_data2 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block2);
+                    auto Ci_data3 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block3);
+                    auto Ai_data3 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block3);
+                    // if constexpr (/*output_activation == Activation::ReLU*/false) //output activation is always none
+                    // for this test. We do not have a template parameter for this
+                    // {
+                    //     for (int rowiter = 0; rowiter < Ci_data0.length(); rowiter++) //should be TM in length
+                    //     {
+                    //         Ai_data0[rowiter] = fmax((bf16)0, (bf16)Ci_data0[rowiter]);//tmpCi < (bf16)0 ? (bf16)0 :
+                    //         tmpCi; Ai_data1[rowiter] = fmax((bf16)0, (bf16)Ci_data1[rowiter]); Ai_data2[rowiter] =
+                    //         fmax((bf16)0, (bf16)Ci_data2[rowiter]); Ai_data3[rowiter] = fmax((bf16)0,
+                    //         (bf16)Ci_data3[rowiter]);
+                    //     }
+                    // }
+                    // else if constexpr (/*output_activation == Activation::None*/true) //for this tests, alway
+                    // activation true
+                    // {
+                    for (uint8_t rowiter = 0; rowiter < Ci_data0.length(); rowiter++) // should be TM in length
+                    {
+                        Ai_data0[rowiter] = (bf16)Ci_data0[rowiter];
+                        Ai_data1[rowiter] = (bf16)Ci_data1[rowiter];
+                        Ai_data2[rowiter] = (bf16)Ci_data2[rowiter];
+                        Ai_data3[rowiter] = (bf16)Ci_data3[rowiter];
+                    }
+                    //}
+
+                    const int loc_offset_A = (n_hidden_layers + 1) * M * WIDTH + total_offset_A;
+                    // load A matrix from slm to joint_matrices. This is done to avoid inefficient bf16 HBM access
+                    sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                        sg, A_block0, local_ptr<bf16>(&Atmp[sg_offset_A + 0 * SG_SIZE]), WIDTH);
+                    sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                        sg, A_block1, local_ptr<bf16>(&Atmp[sg_offset_A + 1 * SG_SIZE]), WIDTH);
+                    sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                        sg, A_block2, local_ptr<bf16>(&Atmp[sg_offset_A + 2 * SG_SIZE]), WIDTH);
+                    sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                        sg, A_block3, local_ptr<bf16>(&Atmp[sg_offset_A + 3 * SG_SIZE]), WIDTH);
+                    /// Alternative of loading A through SLM to avoid inefficient access to HBM
+                    // we do not need SLM barrier since each SG writes and reads only its own data.
+                    //  for (uint8_t iter = 0; iter < TM; iter++) {
+                    //      *((int32_t*)(intermediate_output_forward+loc_offset_A+iter*WIDTH)+loc_id) =
+                    //      *(((int32_t*)&Atmp[sg_offset_A+iter*WIDTH])+loc_id);
+                    //      *((int32_t*)(intermediate_output_forward+loc_offset_A+iter*WIDTH)+loc_id + SG_SIZE) =
+                    //      *(((int32_t*)&Atmp[sg_offset_A+iter*WIDTH])+loc_id+SG_SIZE);
+                    //  }
+                    sg.store<8>(global_ptr<int32_t>((int32_t *)(intermediate_output_forward + loc_offset_A)),
+                                sg.load<8>(local_ptr<int32_t>((int32_t *)(&Atmp[sg_offset_A]))));
+                    sg.store<8>(
+                        global_ptr<int32_t>((int32_t *)(intermediate_output_forward + loc_offset_A + 4 * WIDTH)),
+                        sg.load<8>(local_ptr<int32_t>((int32_t *)(&Atmp[sg_offset_A + 4 * WIDTH]))));
+                }
+
+            /// Compute L2 loss and gradients as input for backward pass
+#ifdef SMALL_BATCH_SIZES
+                if (!sg_has_no_blockrow)
+#endif
+                {
+                    const float inv_N_total_elements = 2.0f / (M * WIDTH);
+                    for (int elemiter = 0; elemiter < TM * WIDTH / 2; elemiter += SG_SIZE) { // row
+                        const int32_t tmp_target =
+                            sg.load((int32_t *)(targets_ptr + total_offset_A) + elemiter); // hbm access. May be slow
+                        int32_t tmp_source = sg.load((int32_t *)&Atmp[sg_offset_A + 2 * elemiter]);
+                        ((bf16 *)&tmp_source)[0] -= ((bf16 *)&tmp_target)[0];
+                        ((bf16 *)&tmp_source)[1] -= ((bf16 *)&tmp_target)[1];
+                        ((bf16 *)&tmp_source)[0] *= inv_N_total_elements;
+                        ((bf16 *)&tmp_source)[1] *= inv_N_total_elements;
+                        sg.store(((int32_t *)&Atmp[sg_offset_A + 2 * elemiter]), tmp_source);
+                    }
+                    // //for testing purposed, we just take the target as input
+                    // for (int elemiter = 0; elemiter < TM*K/2; elemiter+=SG_SIZE) { //row
+                    //     int32_t tmp_target = ((int32_t*)(targets_ptr+total_offset_A))[elemiter + loc_id]; //hbm
+                    //     access. May be slow Atmp[sg_offset_A + 2*elemiter + 2*loc_id] = ((bf16*)&tmp_target)[0];
+                    //     Atmp[sg_offset_A + 2*elemiter + 2*loc_id+1] = ((bf16*)&tmp_target)[1];
+                    // }
+                }
+                // A tmp now holds the grads. We can start the backward pass.
+
+                /// ATTENTION: this version only works for K = SGS_IN_WG and NBLOCKCOLS_PER_SG = 4
+                item.barrier(sycl::access::fence_space::local_space);
+                // ((int32_t *)(&B[sg_offset_B]))[loc_id] = ((int32_t*)(weightsT_ptr+n_hidden_layers*WIDTH*WIDTH +
+                // sg_offset_B))[loc_id];
+                // ((int32_t *)(&B[sg_offset_B]))[loc_id+SG_SIZE] = ((int32_t*)(weightsT_ptr+n_hidden_layers*WIDTH*WIDTH
+                // + sg_offset_B))[loc_id+SG_SIZE];
+                sg.store<2>(local_ptr<int32_t>((int32_t *)(&B[sg_offset_B])),
+                            sg.load<2>(global_ptr<int32_t>(
+                                (int32_t *)(weightsT_ptr + n_hidden_layers * WIDTH * WIDTH + sg_offset_B))));
+
+#ifdef SMALL_BATCH_SIZES
+                if (!sg_has_no_blockrow)
+#endif
+                {
+                    // we do not need SLM barrier since each SG writes and reads only its own data.
+                    // load A matrix from slm to joint_matrices. This is done to avoid inefficient bf16 HBM access
+                    joint_matrix_load(sg, A_block0, local_ptr<bf16>(&Atmp[sg_offset_A + 0 * SG_SIZE]), WIDTH);
+                    joint_matrix_load(sg, A_block1, local_ptr<bf16>(&Atmp[sg_offset_A + 1 * SG_SIZE]), WIDTH);
+                    joint_matrix_load(sg, A_block2, local_ptr<bf16>(&Atmp[sg_offset_A + 2 * SG_SIZE]), WIDTH);
+                    joint_matrix_load(sg, A_block3, local_ptr<bf16>(&Atmp[sg_offset_A + 3 * SG_SIZE]), WIDTH);
+
+                    // activate the A_blocks with output activation based on forward
+                    sycl::vec<int32_t, TM> tmp16avalues0, tmp16avalues1;
+                    // if constexpr (output_activation == Activation::ReLU) //is this necessary or garbage since forward
+                    // is ReLU activated as well (i.e. >= 0) and never triggers < 0 case.
+                    // {
+                    //     //reuse Atmp for loading of the data through SLM.
+                    //     for (int iter = 0; iter < TM; iter++) {
+                    //         *(((int32_t*)&Atmp[sg_offset_A+iter*WIDTH])+loc_id) =
+                    //             *((int32_t*)(intermediate_output_forward + (n_hidden_layers+1)*M*WIDTH +
+                    //             total_offset_A+iter*WIDTH)+loc_id);
+                    //         *(((int32_t*)&Atmp[sg_offset_A+iter*WIDTH])+loc_id + SG_SIZE) =
+                    //             *((int32_t*)(intermediate_output_forward + (n_hidden_layers+1)*M*WIDTH +
+                    //             total_offset_A+iter*WIDTH)+loc_id+SG_SIZE);
+                    //     }
+
+                    //     auto Ai_data0 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block0);
+                    //     auto Ai_data1 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block1);
+                    //     auto Ai_data2 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block2);
+                    //     auto Ai_data3 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block3);
+                    //     for (int rowiter = 0; rowiter < Ai_data0.length(); rowiter++)
+                    //     {
+                    //         Ai_data0[rowiter] = fmax((bf16)0, Atmp[sg_offset_A + rowiter*WIDTH + 0*TK + loc_id]);
+                    //         Ai_data1[rowiter] = fmax((bf16)0, Atmp[sg_offset_A + rowiter*WIDTH + 1*TK + loc_id]);
+                    //         Ai_data2[rowiter] = fmax((bf16)0, Atmp[sg_offset_A + rowiter*WIDTH + 2*TK + loc_id]);
+                    //         Ai_data3[rowiter] = fmax((bf16)0, Atmp[sg_offset_A + rowiter*WIDTH + 3*TK + loc_id]);
+                    //     }
+
+                    //     //when done, store activated A matrices back to slm
+                    //     sycl::ext::intel::experimental::matrix::joint_matrix_store(sg, A_block0,
+                    //     Atmp.get_pointer()+sg_offset_A + 0*SG_SIZE, WIDTH);
+                    //     sycl::ext::intel::experimental::matrix::joint_matrix_store(sg, A_block1,
+                    //     Atmp.get_pointer()+sg_offset_A + 1*SG_SIZE, WIDTH);
+                    //     sycl::ext::intel::experimental::matrix::joint_matrix_store(sg, A_block2,
+                    //     Atmp.get_pointer()+sg_offset_A + 2*SG_SIZE, WIDTH);
+                    //     sycl::ext::intel::experimental::matrix::joint_matrix_store(sg, A_block3,
+                    //     Atmp.get_pointer()+sg_offset_A + 3*SG_SIZE, WIDTH);
+
+                    //     //and load again in registers
+                    //     for (int iter = 0; iter < TM; iter++) {
+                    //         tmp16avalues0[iter] = *(((int32_t*)&Atmp[sg_offset_A+iter*WIDTH])+loc_id);
+                    //         tmp16avalues1[iter] = *(((int32_t*)&Atmp[sg_offset_A+iter*WIDTH])+loc_id + SG_SIZE);
+                    //     }
+                    // }
+                    // else if constexpr (output_activation == Activation::None) {
+                    // for (uint8_t iter = 0; iter < TM; iter++) {
+                    //     tmp16avalues0[iter] = *(((int32_t*)&Atmp[sg_offset_A+iter*WIDTH])+loc_id);
+                    //     tmp16avalues1[iter] = *(((int32_t*)&Atmp[sg_offset_A+iter*WIDTH])+loc_id + SG_SIZE);
+                    // }
+                    tmp16avalues0 = sg.load<8>(local_ptr<int32_t>((int32_t *)(&Atmp[sg_offset_A])));
+                    tmp16avalues1 = sg.load<8>(local_ptr<int32_t>((int32_t *)(&Atmp[sg_offset_A + 4 * WIDTH])));
+                    //} else //nothing to be done
+
+                    // Store this activated input at the end of interm_output for reuse in the update (GEMMS below)
+                    const int loc_offset_A = n_hidden_layers * M * WIDTH + total_offset_A;
+
+                    /// store the activated a values of the input to intermediate output
+                    for (uint8_t iter = 0; iter < TM; iter++) {
+                        *((int32_t *)(intermediate_output_backward + loc_offset_A + iter * WIDTH) + loc_id) =
+                            tmp16avalues0[iter];
+                        *((int32_t *)(intermediate_output_backward + loc_offset_A + iter * WIDTH) + loc_id + SG_SIZE) =
+                            tmp16avalues1[iter];
+                    }
+                }
+
+                // We have n_hidden_layers. Thus n_hidden_layers - 1 gemms between
+                // the layers (layer 0 -> GEMM -> layer1 -> GEMM -> layer2 -> etc.)
+                // Since we also do the GEMM from input to hidden layer 0,
+                // we perform n_hidden_layers GEMMS.
+                for (uint8_t layer = n_hidden_layers; layer > 0; layer--) // we are also doing output->last hidden layer
+                {
+
+// reset result matrix
+#ifdef SMALL_BATCH_SIZES
+                    if (!sg_has_no_blockrow)
+#endif
+                    {
+                        joint_matrix_fill(sg, C_block0, 0.0f);
+                        joint_matrix_fill(sg, C_block1, 0.0f);
+                        joint_matrix_fill(sg, C_block2, 0.0f);
+                        joint_matrix_fill(sg, C_block3, 0.0f);
+                    }
+
+                    item.barrier(sycl::access::fence_space::local_space); // wait for B to be done storing
+
+// block axpy scheme
+#ifdef SMALL_BATCH_SIZES
+                    if (!sg_has_no_blockrow)
+#endif
+                    {
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 0 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block0 = joint_matrix_mad(sg, A_block0, B_block, C_block0);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 1 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block1 = joint_matrix_mad(sg, A_block0, B_block, C_block1);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 2 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block2 = joint_matrix_mad(sg, A_block0, B_block, C_block2);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 3 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block3 = joint_matrix_mad(sg, A_block0, B_block, C_block3);
+
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 0 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block0 = joint_matrix_mad(sg, A_block1, B_block, C_block0);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 1 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block1 = joint_matrix_mad(sg, A_block1, B_block, C_block1);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 2 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block2 = joint_matrix_mad(sg, A_block1, B_block, C_block2);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 3 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block3 = joint_matrix_mad(sg, A_block1, B_block, C_block3);
+
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 0 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block0 = joint_matrix_mad(sg, A_block2, B_block, C_block0);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 1 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block1 = joint_matrix_mad(sg, A_block2, B_block, C_block1);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 2 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block2 = joint_matrix_mad(sg, A_block2, B_block, C_block2);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 3 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block3 = joint_matrix_mad(sg, A_block2, B_block, C_block3);
+
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 0 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block0 = joint_matrix_mad(sg, A_block3, B_block, C_block0);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 1 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block1 = joint_matrix_mad(sg, A_block3, B_block, C_block1);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 2 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block2 = joint_matrix_mad(sg, A_block3, B_block, C_block2);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 3 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block3 = joint_matrix_mad(sg, A_block3, B_block, C_block3);
+                    }
+
+                    // load B for next iteration into SLM
+                    if (layer > 1) {
+                        item.barrier(sycl::access::fence_space::local_space);
+                        // ((int32_t *)(&B[sg_offset_B]))[loc_id] = ((int32_t*)(weightsT_ptr+(layer-1)*WIDTH*WIDTH +
+                        // sg_offset_B))[loc_id];
+                        // ((int32_t *)(&B[sg_offset_B]))[loc_id+SG_SIZE] =
+                        // ((int32_t*)(weightsT_ptr+(layer-1)*WIDTH*WIDTH + sg_offset_B))[loc_id+SG_SIZE];
+                        sg.store<2>(local_ptr<int32_t>((int32_t *)(&B[sg_offset_B])),
+                                    sg.load<2>(global_ptr<int32_t>(
+                                        (int32_t *)(weightsT_ptr + (layer - 1) * WIDTH * WIDTH + sg_offset_B))));
+                    }
+
+// This can be done in the future with joint_matrix_copy and a joint_maitrx_apply.
+#ifdef SMALL_BATCH_SIZES
+                    if (!sg_has_no_blockrow)
+#endif
+                    {
+                        auto Ci_data0 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block0);
+                        auto Ai_data0 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block0);
+                        auto Ci_data1 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block1);
+                        auto Ai_data1 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block1);
+                        auto Ci_data2 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block2);
+                        auto Ai_data2 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block2);
+                        auto Ci_data3 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block3);
+                        auto Ai_data3 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block3);
+                        /// ATTENTION: forward is already activated in the forward pass.
+                        // In general, we are always using same input and output activation for
+                        // forward pass and backward pass (Is this true?). Do not need to activate again.
+                        //  if constexpr (false) //forward is ReLU activated, thus always >= 0. The condition is never
+                        //  activated
+                        //  {
+                        //      // sycl::vec<int32_t,16> tmp32avalues =  sg.load<16>(multi_ptr<const int32_t,
+                        //      access::address_space::global_space>(reinterpret_cast<const int32_t*>(
+                        //      //     forward+(n_hidden_matrices+2)*M*K + total_offset_A)));
+                        //      // sg.store<16>(multi_ptr<int32_t,
+                        //      access::address_space::local_space>(reinterpret_cast<int32_t*>(Atmp.get_pointer().get()
+                        //      + sg_offset_A)),
+                        //      //     tmp32avalues);
+
+                        //     ///HERE, implement all the activations
+
+                        // }
+                        // else if constexpr (activation == Activation::ReLU || activation == Activation::None)
+                        // //nothing to be done since forw is ReLU activated an thus >=0
+                        // {
+                        for (uint8_t rowiter = 0; rowiter < Ci_data0.length(); rowiter++) // should be TM in length
+                        {
+                            Ai_data0[rowiter] = (bf16)Ci_data0[rowiter];
+                            Ai_data1[rowiter] = (bf16)Ci_data1[rowiter];
+                            Ai_data2[rowiter] = (bf16)Ci_data2[rowiter];
+                            Ai_data3[rowiter] = (bf16)Ci_data3[rowiter];
+                        }
+                        //}
+                        // else nothing to be done
+
+                        // store A
+                        sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                            sg, A_block0, local_ptr<bf16>(&Atmp[sg_offset_A + 0 * SG_SIZE]), WIDTH);
+                        sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                            sg, A_block1, local_ptr<bf16>(&Atmp[sg_offset_A + 1 * SG_SIZE]), WIDTH);
+                        sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                            sg, A_block2, local_ptr<bf16>(&Atmp[sg_offset_A + 2 * SG_SIZE]), WIDTH);
+                        sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                            sg, A_block3, local_ptr<bf16>(&Atmp[sg_offset_A + 3 * SG_SIZE]), WIDTH);
+                        /// Alternative of loading A through SLM to avoid inefficient access to HBM
+                        // we do not need SLM barrier since each SG writes and reads only its own data.
+                        const int loc_offset_A = (layer - 1) * M * WIDTH + total_offset_A;
+                        for (uint8_t iter = 0; iter < TM; iter++) {
+                            *((int32_t *)(intermediate_output_backward + loc_offset_A + iter * WIDTH) + loc_id) =
+                                *(((int32_t *)&Atmp[sg_offset_A + iter * WIDTH]) + loc_id);
+
+                            *((int32_t *)(intermediate_output_backward + loc_offset_A + iter * WIDTH) + loc_id +
+                              SG_SIZE) = *(((int32_t *)&Atmp[sg_offset_A + iter * WIDTH]) + loc_id + SG_SIZE);
+                        }
+                        // sg.store<8>(global_ptr<int32_t>((int32_t*)(intermediate_output_backward+loc_offset_A)),
+                        // sg.load<8>(local_ptr<int32_t>((int32_t*)(&Atmp[sg_offset_A]))));
+                        // sg.store<8>(global_ptr<int32_t>((int32_t*)(intermediate_output_backward+loc_offset_A+4*WIDTH)),
+                        // sg.load<8>(local_ptr<int32_t>((int32_t*)(&Atmp[sg_offset_A+4*WIDTH]))));
+                    }
+                }
+            });
+    });
+
+    /// TODO: merge this with the above systolic code
+    /// TODO: check offsets.
+    // NOTE: MKL gemm_batch is slower.
+    std::vector<sycl::event> events(n_hidden_layers + 1);
+    for (int iter = 0; iter < n_hidden_layers + 1; iter++) {
+        // Perform GEMM operation
+        events[iter] = oneapi::mkl::blas::row_major::gemm(
+            q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M, 1.0f,
+            reinterpret_cast<const oneapi::mkl::bfloat16 *>(intermediate_output_forward) + iter * M * WIDTH, WIDTH,
+            reinterpret_cast<oneapi::mkl::bfloat16 *>(intermediate_output_backward) + iter * M * WIDTH, WIDTH, 1.0f,
+            reinterpret_cast<oneapi::mkl::bfloat16 *>(output_ptr) + iter * WIDTH * WIDTH, WIDTH, {e});
     }
-}
 
-/**
- * Loads input data into the activation memory using a static pattern for work
- * groups.
- *
- * @param item      The SYCL nd_item representing the work item.
- * @param a   Pointer to the activation memory.
- * @param input     Pointer to the input data.
- * @tparam WIDTH    Width of the data.
- * @tparam N_ITERS  Number of iterations.
- */
-template <int WIDTH, int N_ITERS>
-void workgroup_prefetch(nd_item<1> item, multi_ptr<bf16, access::address_space::local_space, (access::decorated)2> a,
-                        const bf16 *input, int print = 0) {
-    // Get local ID and sub-group information
-    int id = item.get_local_id() % SG_SIZE;
-    auto sg = item.get_sub_group();
-    int sgId = sg.get_group_id();
-    int wg_id = item.get_group().get_group_id();
-
-    int sg_id = item.get_sub_group().get_group_id();
-    int local_id = item.get_local_id();
-#pragma unroll
-    for (int i = 0; i < N_ITERS; i++) {
-        for (int k = 0; k < TM; k++) {
-            // Copy input data to activation memory
-            a[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id] =
-                input[TN * sgId + WIDTH * TM * i + k * WIDTH + id];
-            item.barrier(sycl::access::fence_space::local_space);
-
-            //   if (print) {
-            //     int b_first;
-            //     int b_second;
-            //     int b_zeroes;
-            //     get_float_as_integers_own(
-            //         a[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) +
-            //         id], b_first, b_second, b_zeroes);
-
-            //     //   static const CONSTANT char FMT[] = "Prefetch A: %d, val: %d.%d
-            //     \n
-            //     //   "; sycl::ext::oneapi::experimental::printf(
-            //     //       FMT, TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH +
-            //     SKEW) +
-            //     //       id, b_first, b_second);
-            //     static const CONSTANT char FMT[] = "%d,\n ";
-            //     sycl::ext::oneapi::experimental::printf(
-            //         FMT, TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) +
-            //         id);
-            //   }
-        }
-    }
-}
-/**
- * Loads input data into the activation memory using a static pattern for work
- * groups.
- *
- * @param item      The SYCL nd_item representing the work item.
- * @param a   Pointer to the activation memory.
- * @param input     Pointer to the input data.
- * @tparam WIDTH    Width of the data.
- * @tparam N_ITERS  Number of iterations.
- */
-template <int WIDTH, int N_ITERS>
-void workgroup_prefetch(nd_item<1> item, multi_ptr<bf16, access::address_space::local_space, (access::decorated)2> a,
-                        const float *forward, int print = 0) {
-    // Get local ID and sub-group information
-    int id = item.get_local_id() % SG_SIZE;
-    auto sg = item.get_sub_group();
-    int sgId = sg.get_group_id();
-    int wg_id = item.get_group().get_group_id();
-
-    int sg_id = item.get_sub_group().get_group_id();
-    int local_id = item.get_local_id();
-#pragma unroll
-    for (int i = 0; i < N_ITERS; i++) {
-        for (int k = 0; k < TM; k++) {
-            // Copy input data to activation memory
-            a[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id] =
-                forward[TN * sgId + WIDTH * TM * i + k * WIDTH + id];
-            item.barrier(sycl::access::fence_space::local_space);
-        }
-    }
-}
-/*
- * Writes data from shared memory to the output thread block using a static
- * pattern for work groups.
- *
- * @param item               The SYCL nd_item representing the work item.
- * @param a                  Pointer to the shared memory containing activation
- * data.
- * @param output_threadblock Pointer to the output thread block.
- * @tparam WIDTH             Width of the data.
- * @tparam N_ITERS           Number of iterations.
- */
-template <int WIDTH, int N_ITERS>
-void workgroup_write_output_static(nd_item<1> item,
-                                   multi_ptr<bf16, access::address_space::local_space, (access::decorated)2> a,
-                                   float *output_threadblock) {
-    // Get local ID and sub-group information
-    int id = item.get_local_id() % SG_SIZE;
-    auto sg = item.get_sub_group();
-    int sgId = sg.get_group_id();
-
-#pragma unroll
-    for (int i = 0; i < N_ITERS; i++) {
-        for (int k = 0; k < TM; k++) {
-            output_threadblock[TN * sgId + WIDTH * TM * i + k * WIDTH + id] =
-                a[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id];
-        }
-    }
-}
-
-/**
- * Performs forward dynamic input layer computation within a work group.
- *
- * @param item                  The SYCL nd_item representing the work item.
- * @param activation            The type of activation to be applied.
- * @param a                     Pointer to the shared memory containing
- * activation data.
- * @param at                    Pointer to the sfohared memory containing
- * temporary activation data.
- * @param input                 Pointer to the input data.
- * @param weights_layer         Pointer to weights for the layer.
- * @param out_intermediate_layer Pointer to output intermediate memory for the
- * layer.
- * @param input_width           Width of the input data.
- * @tparam WIDTH                Width of the layer.
- * @tparam N_ITERS              Number of iterations.
- */
-template <int WIDTH, int N_ITERS>
-void workgroup_matmul_act_dynamic(nd_item<1> item, Activation activation,
-                                  multi_ptr<bf16, access::address_space::local_space, (access::decorated)2> a,
-                                  multi_ptr<float, access::address_space::local_space, (access::decorated)2> at,
-                                  bf16 *input, bf16 *weights_layer, float *out_intermediate_layer,
-                                  const int input_width, const int batch_size) {
-    auto sg = item.get_sub_group();
-    int id = item.get_local_id() % SG_SIZE;
-    int sgId = sg.get_group_id();
-
-    // Device pointers to memory
-    device_ptr<bf16> in(input);
-    device_ptr<bf16> w(weights_layer);
-    device_ptr<float> o(out_intermediate_layer);
-
-    // Define matrices and load weights
-    joint_matrix<sub_group, bf16, use::a, TM, TK, layout::row_major> act_matrix;
-    joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed> weight_matrix;
-
-    joint_matrix<sub_group, float, use::accumulator, TM, TN> result_matrix;
-
-    const int n_operations = input_width / TK;
-
-    for (int l = 0; l < N_ITERS; l++) {
-        joint_matrix_fill(sg, result_matrix, 0.0f);
-        for (int i = 0; i < n_operations; i++) {
-            joint_matrix_load(sg, act_matrix, in + TK * i * batch_size + TK * l,
-                              //   joint_matrix_load(sg, act_matrix, in + TK * i + TM
-                              //   * l * input_width,
-                              input_width);
-            joint_matrix_load(sg, weight_matrix, w + TN * 2 * sgId + TK / 2 * i * input_width * 2, input_width * 2);
-
-            result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix, result_matrix);
-
-            joint_matrix_store(sg, result_matrix, at + TN * sgId + TM * l * (WIDTH + SKEW), (WIDTH + SKEW),
-                               layout::row_major);
-        }
-
-        matrix_activation<float, bf16, SG_SIZE>(activation, at, a, TN * sgId + (WIDTH + SKEW) * TM * l + id,
-                                                (WIDTH + SKEW));
-    }
-    for (int i = 0; i < N_ITERS; i++) {
-        for (int k = 0; k < TM; k++) {
-            o[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id] =
-                (bf16)at[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) + id];
-
-            // int b_first;
-            // int b_second;
-            // int b_zeroes;
-            // get_float_as_integers_own(
-            //     at[TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) +
-            //     id], b_first, b_second, b_zeroes);
-            // int wg_id = item.get_group().get_group_id();
-            // int sg_id = item.get_sub_group().get_group_id();
-            // int local_id = item.get_local_id();
-            // int id = item.get_local_id() % SG_SIZE;
-
-            // static const CONSTANT char FMT[] = "Fwd1, at: %d,   val: %d.%d \n ";
-            // sycl::ext::oneapi::experimental::printf(
-            //     FMT, TN * sgId + (WIDTH + SKEW) * TM * i + k * (WIDTH + SKEW) +
-            //     id, b_first, b_second);
-        }
-    }
-}
-/**
- * Performs forward computation for the last layer within a work group.
- *
- * @param item              The SYCL nd_item representing the work item.
- * @param activation        The type of activation to be applied.
- * @param a                 Pointer to activation memory.
- * @param weights_layer     Pointer to weights for the layer.
- * @param out               Pointer to the output memory.
- * @tparam WIDTH            Width of the layer.
- * @tparam N_ITERS          Number of iterations.
- */
-template <int WIDTH, int N_ITERS>
-void workgroup_last_layer(nd_item<1> item, multi_ptr<bf16, access::address_space::local_space, (access::decorated)2> a,
-                          bf16 *weights_layer, float *out) {
-    auto sg = item.get_sub_group();
-    int sgId = sg.get_group_id();
-    device_ptr<bf16> w(weights_layer);
-    device_ptr<float> o(out);
-
-    joint_matrix<sub_group, bf16, use::a, TM, TK, layout::row_major> act_matrix;
-
-    joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed>
-        weight_matrix0;
-    joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed>
-        weight_matrix1;
-    joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed>
-        weight_matrix2;
-    joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed>
-        weight_matrix3;
-    joint_matrix<sub_group, float, use::accumulator, TM, TN> result_matrix;
-
-    joint_matrix_load(sg, weight_matrix0, w + TN * 2 * sgId + TK / 2 * 0 * WIDTH * 2, WIDTH * 2);
-    joint_matrix_load(sg, weight_matrix1, w + TN * 2 * sgId + TK / 2 * 1 * WIDTH * 2, WIDTH * 2);
-    joint_matrix_load(sg, weight_matrix2, w + TN * 2 * sgId + TK / 2 * 2 * WIDTH * 2, WIDTH * 2);
-    joint_matrix_load(sg, weight_matrix3, w + TN * 2 * sgId + TK / 2 * 3 * WIDTH * 2, WIDTH * 2);
-#pragma unroll
-
-    for (int l = 0; l < N_ITERS; l++) {
-        joint_matrix_fill(sg, result_matrix, 0.0f);
-
-        joint_matrix_load(sg, act_matrix, a + TK * 0 + TM * l * (WIDTH + SKEW), (WIDTH + SKEW));
-        result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix0, result_matrix);
-        joint_matrix_load(sg, act_matrix, a + TK * 1 + TM * l * (WIDTH + SKEW), (WIDTH + SKEW));
-        result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix1, result_matrix);
-        joint_matrix_load(sg, act_matrix, a + TK * 2 + TM * l * (WIDTH + SKEW), (WIDTH + SKEW));
-        result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix2, result_matrix);
-        joint_matrix_load(sg, act_matrix, a + TK * 3 + TM * l * (WIDTH + SKEW), (WIDTH + SKEW));
-        result_matrix = joint_matrix_mad(sg, act_matrix, weight_matrix3, result_matrix);
-
-        joint_matrix_store(sg, result_matrix, o + TN * sgId + TM * l * (WIDTH + SKEW), (WIDTH + SKEW),
-                           layout::row_major);
-    }
-}
-
-/**
- * Kernel function for the forward pass of the Swift MLP model.
- *
- * @param item                  The SYCL nd_item representing the work item.
- * @param output_activation     The type of activation to be applied for output
- * layer.
- * @param input                 Pointer to input data.
- * @param weights_layer         Pointer to weights for the layer.
- * @param out_intermediate_layer Pointer to intermediate output memory.
- * @param act_mem               Pointer to activation memory.
- * @param act_mem_temp          Pointer to temporary activation memory.
- * @param out                   Pointer to output memory.
- * @param input_width           Width of the input data.
- * @param output_width          Width of the output data.
- * @param n_hidden_matmuls      Number of hidden matrix multiplications.
- * @param batch_size            Batch size of the data.
- * @tparam WIDTH                Width of the layers.
- * @tparam N_ITERS              Number of iterations.
- * @tparam activation           Type of activation for hidden layers.
- */
-template <int WIDTH, int N_ITERS, Activation activation, bool INFERENCE = false>
-void kernel_swift_mlp(nd_item<1> item, const Activation output_activation, bf16 *input, bf16 *weights_layer,
-                      float *out_intermediate_layer, local_accessor<bf16> act_mem, local_accessor<float> act_mem_temp,
-                      float *out, const uint32_t input_width, const uint32_t output_width,
-                      const uint32_t n_hidden_matmuls, int batch_size) {
-    auto a = act_mem.get_pointer();
-    auto at = act_mem_temp.get_pointer();
-    //   for (int w_idx = 0; w_idx < 4096 + 4096; w_idx++) {
-    //     int b_first;
-    //     int b_second;
-    //     int b_zeroes;
-    //     get_float_as_integers_own(out_intermediate_layer[w_idx], b_first,
-    //     b_second,
-    //                               b_zeroes);
-    //     int wg_id = item.get_group().get_group_id();
-    //     int sg_id = item.get_sub_group().get_group_id();
-    //     int local_id = item.get_local_id();
-    //     int id = item.get_local_id() % SG_SIZE;
-
-    //     static const CONSTANT char FMT[] =
-    //         "Fwd in kernel,  w_idx: %d,   val: %d.%d \n";
-    //     if ((wg_id == 0) && local_id == 0) {
-    //       sycl::ext::oneapi::experimental::printf(FMT, w_idx, b_first,
-    //       b_second);
-    //     }
-    //   }
-    // Handle first layer because it has different input
-
-    auto wg = item.get_group();
-    const int wg_idx = wg.get_group_id();
-    const int elem_idx = BATCH_CHUNK * wg_idx;
-    //   const int hidden_weight_lenght = WIDTH * WIDTH;
-    //   for (int w_idx = 0; w_idx < 1024; w_idx++) {
-    //     int b_first;
-    //     int b_second;
-    //     int b_zeroes;
-    //     get_float_as_integers_own(at[w_idx], b_first, b_second, b_zeroes);
-    //     int wg_id = item.get_group().get_group_id();
-    //     int sg_id = item.get_sub_group().get_group_id();
-    //     int local_id = item.get_local_id();
-    //     static const CONSTANT char FMT[] =
-    //         "at 0,  w_idx: %d,  group id: %d, sub_group "
-    //         "id: %d, local id: "
-    //         "%d, overall id: %d, val: %d.%d \n ";
-    //     if ((wg_id == 0)) {
-    //       sycl::ext::oneapi::experimental::printf(
-    //           FMT, w_idx, int(wg_id), int(sg_id), int(local_id),
-    //           int(wg_id * WG_SIZE + local_id), b_first, b_second);
-    //     }
-    //   }
-    if (input_width == WIDTH) {
-        workgroup_prefetch<WIDTH, N_ITERS>(item, a, input + elem_idx * WIDTH);
-        matmul_act_layer<WIDTH, N_ITERS, false>(item, activation, a, at, weights_layer,
-                                                !INFERENCE ? (out_intermediate_layer + elem_idx * WIDTH) : nullptr,
-                                                nullptr, 0);
-        //   } else if (input_width >= 16) {
-        //     // if < 16, then handled in forward pass via gemm
-        //     workgroup_matmul_act_dynamic<WIDTH, N_ITERS>(
-        //         item, activation, a, at, input + elem_idx * WIDTH, weights_layer,
-        //         !INFERENCE ? (out_intermediate_layer + elem_idx * WIDTH) :
-        //         nullptr, input_width, batch_size);
-    } else {
-        // load fwd into act_mem
-        workgroup_prefetch<WIDTH, N_ITERS>(item, a, out_intermediate_layer + elem_idx * WIDTH);
-    }
-    //   for (int w_idx = 0; w_idx < (SHMEM_SIZE + BATCH_CHUNK * SKEW) * WIDTH /
-    //   64;
-    //        w_idx++) {
-    //     int b_first;
-    //     int b_second;
-    //     int b_zeroes;
-    //     get_float_as_integers_own(a[w_idx], b_first, b_second, b_zeroes);
-    //     int wg_id = item.get_group().get_group_id();
-    //     int sg_id = item.get_sub_group().get_group_id();
-    //     int local_id = item.get_local_id();
-    //     static const CONSTANT char FMT[] =
-    //         "After prefetch fwd, a: W_idx: %d, val: %d.%d \n ";
-    //     if (wg_id == 0 && ((local_id % SG_SIZE) == 0)) {
-    //       sycl::ext::oneapi::experimental::printf(FMT, w_idx, b_first,
-    //       b_second);
-    //     }
-    //   }
-    //   for (int w_idx = 0; w_idx < 4096 + 4096; w_idx++) {
-    //     int b_first;
-    //     int b_second;
-    //     int b_zeroes;
-    //     get_float_as_integers_own(out_intermediate_layer[w_idx], b_first,
-    //     b_second,
-    //                               b_zeroes);
-    //     int wg_id = item.get_group().get_group_id();
-    //     int sg_id = item.get_sub_group().get_group_id();
-    //     int local_id = item.get_local_id();
-    //     int id = item.get_local_id() % SG_SIZE;
-
-    //     static const CONSTANT char FMT[] =
-    //         "Fwd in kernel,  w_idx: %d,   val: %d.%d \n";
-    //     if ((wg_id == 0) && local_id == 0) {
-    //       sycl::ext::oneapi::experimental::printf(FMT, w_idx, b_first,
-    //       b_second);
-    //     }
-    //   }
-    // for (int w_idx = 0; w_idx < 1024; w_idx++) {
-    //   int b_first;
-    //   int b_second;
-    //   int b_zeroes;
-    //   get_float_as_integers_own(at[w_idx], b_first, b_second, b_zeroes);
-    //   int wg_id = item.get_group().get_group_id();
-    //   int sg_id = item.get_sub_group().get_group_id();
-    //   int local_id = item.get_local_id();
-    //   static const CONSTANT char FMT[] =
-    //       "at2,  w_idx: %d,  group id: %d, sub_group "
-    //       "id: %d, local id: "
-    //       "%d, overall id: %d, val: %d.%d \n ";
-    //   if ((wg_id == 0)) {
-    //     sycl::ext::oneapi::experimental::printf(
-    //         FMT, w_idx, int(wg_id), int(sg_id), int(local_id),
-    //         int(wg_id * WG_SIZE + local_id), b_first, b_second);
-    //   }
-    // }
-    //   Handle hidden layers all together
-    //   std::cout << "n_hidden_matmuls: " << n_hidden_matmuls << std::endl;
-
-    for (int k = 0; k < n_hidden_matmuls; k++) {
-        matmul_act_layer<WIDTH, N_ITERS, false>(
-            item, activation, a, at, weights_layer + input_width * WIDTH + k * WIDTH * WIDTH,
-            !INFERENCE ? (out_intermediate_layer + elem_idx * WIDTH +
-                          ((k + 1) * WIDTH) * batch_size) // k+1 because first layer is
-                                                          // already handled before
-                       : nullptr,
-            nullptr, 0);
-    }
-
-    //   for (int w_idx = 0; w_idx < 4096 + 4096; w_idx++) {
-    //     int b_first;
-    //     int b_second;
-    //     int b_zeroes;
-    //     int id = item.get_local_id() % SG_SIZE;
-
-    //     get_float_as_integers_own(out_intermediate_layer[w_idx], b_first,
-    //     b_second,
-    //                               b_zeroes);
-    //     int wg_id = item.get_group().get_group_id();
-    //     int sg_id = item.get_sub_group().get_group_id();
-    //     int local_id = item.get_local_id();
-    //     static const CONSTANT char FMT[] = "Fwd2,  w_idx: %d,   val: %d.%d \n";
-    //     if ((wg_id == 0) && id == 0) {
-    //       sycl::ext::oneapi::experimental::printf(FMT, w_idx, b_first,
-    //       b_second);
-    //     }
-    //   }
-    // Handle output layer
-    if (output_width > 16) {
-        if (INFERENCE) {
-            workgroup_write_output_static<WIDTH, N_ITERS>(item, a,
-                                                          out_intermediate_layer + elem_idx * WIDTH +
-                                                              (n_hidden_matmuls * WIDTH + input_width) * batch_size);
-        }
-    } else if (out) {
-        // static const CONSTANT char FMT[] =
-        //     "first_weight_length: %d hidden_weight_lenght: %d, "
-        //     "n_hidden_matmuls:%d, write to: %d\n";
-        // if (wg_idx == 0) {
-        //   sycl::ext::oneapi::experimental::printf(FMT, int(first_weight_length),
-        //                                           int(hidden_weight_lenght),
-        //                                           int(n_hidden_matmuls));
-        // }
-        // workgroup_last_layer<WIDTH, N_ITERS>(
-        //     item, a,
-        //     weights_layer + first_weight_length +
-        //         hidden_weight_lenght * n_hidden_matmuls,
-        //     out + elem_idx * WIDTH);
-    }
+    return events;
 }
 
 /**
@@ -703,89 +726,415 @@ void kernel_swift_mlp(nd_item<1> item, const Activation output_activation, bf16 
  * @tparam WIDTH             Width of the layers.
  * @tparam activation        Type of activation for hidden layers.
  */
+// Version in which each subgroup computes full block rows in the output
+// Writes full B into slm.
+// Option to have a variable number of block rows per sg.
+// initial version tries to keep A in registers and use element-wise casting
+// between the joint matrices.
 template <int WIDTH, Activation activation, bool INFERENCE>
-void mlp_swift_forward(queue q, Activation output_activation, const DeviceMem<bf16> &weights,
-                       const DeviceMem<bf16> &inputs, float *intermediate_output, DeviceMem<float> &output,
-                       const int n_hidden_layers, const int input_width, const int output_width, int batch_size) {
-    const int N_ITERS = BATCH_CHUNK / TM;
+std::vector<sycl::event> mlp_swift_forward(queue &q, bf16 const *const __restrict__ weights_ptr,
+                                           bf16 const *const __restrict__ inputs_ptr,
+                                           bf16 *const __restrict__ intermediate_output, const int n_hidden_layers,
+                                           const int batch_size, const std::vector<sycl::event> &deps) {
+    // Indicates how many joint_matrix rows (i.e. time TM actual rows) are done by one
+    // sub-group. ONLY works for = 1 right now.
+    // reuse of B, this is in subgroups, ONLY works for 64 nor
+    // note that large grf mode requires this to be set to 32
+    constexpr int SGS_IN_WG = 64;
+    // dimensions are M = batch_size, N = WIDTH = K = 64;
+    const int M = batch_size;
+    constexpr int N = WIDTH;
+    constexpr int K = WIDTH;
+    static_assert(TK == SG_SIZE);
+    static_assert(TN == TK);
+    if constexpr (WIDTH != 64) throw std::invalid_argument("Current implementation only works for a WIDTH of 64");
+    assert(M % TM == 0); // make sure there is no remainder and no out of bounds accesses
+    // Note that TN = TK = SG_SIZE
+    constexpr int NBLOCKCOLS_PER_SG = N / SG_SIZE;
 
-    q.submit([&](handler &cgh) {
-         local_accessor<bf16> act_mem =
-             local_accessor<bf16>(range<1>(SHMEM_SIZE + BATCH_CHUNK * SKEW) * WIDTH / 64, cgh);
-         local_accessor<float> act_mem_temp =
-             local_accessor<float>(range<1>(SHMEM_SIZE + BATCH_CHUNK * SKEW) * WIDTH / 64, cgh);
+    // One Block Row has TM rows an N columns.
+    auto e = q.submit([&](handler &cgh) {
+        cgh.depends_on(deps);
+        local_accessor<bf16, 1> B(range<1>(K * N),
+                                  cgh); // weights matrix. 64*64*2 byte = 8 kb. Thus, can have up to 16 WGs per Xe Core.
+        local_accessor<bf16, 1> Atmp(range<1>(TM * K * SGS_IN_WG),
+                                     cgh); // buffer for loading joint matrices. 8*64*64*2byte = 64kb. TODO: check if
+                                           // this is too much. If so, split in half
+        // number of SGS is given by batch_size / TM, since batch_size is the number of rows in the output
 
-         cgh.parallel_for(nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE),
-                          [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
-                              kernel_swift_mlp<WIDTH, N_ITERS, activation, INFERENCE>(
-                                  item, output_activation, inputs.data(), weights.data(), intermediate_output, act_mem,
-                                  act_mem_temp, output.data(), input_width, output_width, n_hidden_layers - 1,
-                                  batch_size);
-                          });
-     }).wait();
-}
+        cgh.parallel_for(
+            nd_range<1>(std::max(M / TM * SG_SIZE, SGS_IN_WG * SG_SIZE),
+                        SGS_IN_WG * SG_SIZE), // assuming here that the number of block rows is divisable by SGS_IN_WG
+            [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
+                // we assume we start with the input.
+                // we assume input_width = WIDTH = output_width
+                // Initialize: Load input into A
+                // Iterate
+                // 1: Load B= weights in SLM
+                // 2: Do multiplication of a stripe of A with all of B to get a stripe of C (stripe == all the block
+                // rows of one SG) 3: Apply the activation function on C while writing back to A 3a: write to
+                // intermediate_output, if necessary.
 
-/**
- * Kernel function for backpropagation in the SwiftNet model.
- *
- * @param item             The SYCL nd_item representing the work item.
- * @param deltas           Pointer to the losses deltas from where the
- * backpropagation starts.
- * @param a                Pointer to loss gradients for backpropagation.
- * @param at               Pointer to temporary loss gradients memory.
- * @param grads            Pointer to gradients for weight updates.
- * @param weights          Pointer to weights of the model.
- * @param forward          Pointer to forward pass intermediate outputs.
- * @param out_inter        Pointer to intermediate output memory.
- * @param n_hidden_matmuls Number of hidden matrix multiplications.
- * @param batch_size       Batch size of the data.
- * @tparam WIDTH           Width of the layers.
- * @tparam N_ITERS         Number of iterations.
- * @tparam ACTIVATION      Type of activation for hidden layers.
- */
-template <int WIDTH, int N_ITERS, Activation ACTIVATION>
-void kernel_swiftnet_backward(nd_item<1> item, bf16 *deltas, local_accessor<bf16> deltas_layers,
-                              local_accessor<float> delta_temp, bf16 *grads, bf16 *weights, float *forward,
-                              float *out_inter, uint32_t n_hidden_matmuls, int batch_size, int m_inputs_width) {
-    auto a = deltas_layers.get_pointer();
-    auto at = delta_temp.get_pointer();
-    auto sg = item.get_sub_group();
+                // After loop, check if we are in the INFERENCE case. In that case, write the last result to
+                // intermediate output.
+                //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+                const int wg_id = item.get_group().get_group_id();
+                auto sg = item.get_sub_group();
+                const int loc_id = sg.get_local_id()[0];
+                const int sg_id = sg.get_group_id()[0];
+#ifdef SMALL_BATCH_SIZES
+                const bool sg_has_no_blockrow = (wg_id * TM * SGS_IN_WG + sg_id * TM) >= M;
+#endif
 
-    int groupId = item.get_group(0);
-    int sgId = sg.get_group_id();
-    int input_length = batch_size * m_inputs_width;
-    workgroup_prefetch<WIDTH, N_ITERS>(item, a, deltas + groupId * BATCH_CHUNK * WIDTH, 0);
-    //   for (int w_idx = 0; w_idx < (SHMEM_SIZE + BATCH_CHUNK * SKEW) * WIDTH /
-    //   64;
-    //        w_idx++) {
-    //     int b_first;
-    //     int b_second;
-    //     int b_zeroes;
-    //     get_float_as_integers_own(a[w_idx], b_first, b_second, b_zeroes);
-    //     int wg_id = item.get_group().get_group_id();
-    //     int sg_id = item.get_sub_group().get_group_id();
-    //     int local_id = item.get_local_id();
-    //     static const CONSTANT char FMT[] =
-    //         "After prefetch  bwd a: W_idx: %d, val: %d.%d \n ";
-    //     if (wg_id == 0 && ((local_id % SG_SIZE) == 0)) {
-    //       sycl::ext::oneapi::experimental::printf(FMT, w_idx, b_first,
-    //       b_second);
-    //     }
-    //   }
-    // Iterate through hidden layers for backpropagation
-    for (int k = 0; k < n_hidden_matmuls; k++) {
-        int middle_length = (n_hidden_matmuls - k - 1) * WIDTH * batch_size;
-        // doesn't work for n_hidden_matmuls == 0, but we never
-        // enter mlp_swift_backward in that case (it's a for loop
-        // over n_hidden_matmuls)
-        matmul_act_layer<WIDTH, N_ITERS, true>(
-            item, ACTIVATION, a, at, weights + WIDTH * WIDTH * (n_hidden_matmuls - k),
-            out_inter + groupId * BATCH_CHUNK * WIDTH + middle_length,
-            // forward + WIDTH * batch_size +
-            //     WIDTH * batch_size * (n_hidden_matmuls - k - 1) +
-            //     groupId * BATCH_CHUNK * WIDTH,
-            forward + input_length + middle_length + groupId * BATCH_CHUNK * WIDTH, 1);
-    }
+                bf16 const *weights_ptr_loc = weights_ptr;
+
+                const int sg_offset_B = sg_id * N * K / SGS_IN_WG; // we assume this is divisible
+                const int sg_offset_A = sg_id * K * TM;
+                const int total_offset_A = wg_id * SGS_IN_WG * K * TM + sg_offset_A;
+
+                // Load B into slm
+                /// ATTENTION: this version only works for K = SGS_IN_WG and NBLOCKCOLS_PER_SG = 4
+                ((int32_t *)(&B[sg_offset_B]))[loc_id] = ((int32_t *)(weights_ptr_loc + sg_offset_B))[loc_id];
+                ((int32_t *)(&B[sg_offset_B]))[loc_id + SG_SIZE] =
+                    ((int32_t *)(weights_ptr_loc + sg_offset_B))[loc_id + SG_SIZE];
+                weights_ptr_loc += K * N;
+
+// load input in slm
+/// Alternative of loading A through SLM to avoid inefficient access to HBM
+#ifdef SMALL_BATCH_SIZES
+                if (!sg_has_no_blockrow)
+#endif
+                {
+                    sycl::vec<int32_t, TM> tmp16avalues0, tmp16avalues1;
+                    for (int iter = 0; iter < TM; iter++) {
+                        tmp16avalues0[iter] = *((int32_t *)(inputs_ptr + total_offset_A) + loc_id + iter * K / 2);
+                        tmp16avalues1[iter] =
+                            *((int32_t *)(inputs_ptr + total_offset_A) + loc_id + iter * K / 2 + SG_SIZE);
+                    }
+
+                    for (int iter = 0; iter < TM; iter++) {
+                        *(((int32_t *)&Atmp[sg_offset_A]) + loc_id + iter * K / 2) = tmp16avalues0[iter];
+                        *(((int32_t *)&Atmp[sg_offset_A]) + loc_id + iter * K / 2 + SG_SIZE) = tmp16avalues1[iter];
+                    }
+                    // we do not need SLM barrier since each SG writes and reads only its own data.
+                    // load A matrix from slm to joint_matrices. This is done to avoid inefficient bf16 HBM access
+
+                    // ATTENTION: current inputs are positive and this is not really tested
+                    if constexpr (!INFERENCE) // write input into intermediate_output, required for the backward_pass in
+                                              // training
+                    {
+                        if constexpr (activation == Activation::ReLU) {
+                            // update tmp32avalues with bit shenanigans to avoid one pass through slm
+                            int32_t bitmask = 0b11111111111111110000000000000000;
+                            for (int iter = 0; iter < TM; iter++) {
+                                if ((tmp16avalues0[iter] >> 31) & 1) tmp16avalues0[iter] &= ~bitmask;
+                                if ((tmp16avalues0[iter] >> 15) & 1) tmp16avalues0[iter] &= bitmask;
+
+                                if ((tmp16avalues1[iter] >> 31) & 1) tmp16avalues1[iter] &= ~bitmask;
+                                if ((tmp16avalues1[iter] >> 15) & 1) tmp16avalues1[iter] &= bitmask;
+                            }
+                        }
+                        // else {} //nothing to be done
+
+                        for (int iter = 0; iter < TM; iter++) {
+                            *((int32_t *)(intermediate_output + total_offset_A) + loc_id + iter * K / 2) =
+                                tmp16avalues0[iter];
+                            *((int32_t *)(intermediate_output + total_offset_A) + loc_id + iter * K / 2 + SG_SIZE) =
+                                tmp16avalues1[iter];
+                        }
+                    }
+                }
+
+                joint_matrix<sub_group, bf16, use::a, TM, TK, layout::row_major> A_block0, A_block1, A_block2, A_block3;
+#ifdef SMALL_BATCH_SIZES
+                if (!sg_has_no_blockrow)
+#endif
+                {
+                    joint_matrix_load(sg, A_block0, local_ptr<bf16>(&Atmp[sg_offset_A + 0 * SG_SIZE]), K);
+                    joint_matrix_load(sg, A_block1, local_ptr<bf16>(&Atmp[sg_offset_A + 1 * SG_SIZE]), K);
+                    joint_matrix_load(sg, A_block2, local_ptr<bf16>(&Atmp[sg_offset_A + 2 * SG_SIZE]), K);
+                    joint_matrix_load(sg, A_block3, local_ptr<bf16>(&Atmp[sg_offset_A + 3 * SG_SIZE]), K);
+                }
+
+                // We have n_hidden_layers. Thus n_hidden_layers - 1 gemms between
+                // the layers (layer 0 -> GEMM -> layer1 -> GEMM -> layer2 -> etc.)
+                // Since we also do the GEMM from input to hidden layer 0,
+                // we perform n_hidden_layers GEMMS.
+                joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed>
+                    B_block;
+                joint_matrix<sub_group, float, use::accumulator, TM, TN> C_block0, C_block1, C_block2, C_block3;
+
+                for (int layer = 0; layer < n_hidden_layers; layer++) {
+// reset result matrix
+#ifdef SMALL_BATCH_SIZES
+                    if (!sg_has_no_blockrow)
+#endif
+                    {
+                        joint_matrix_fill(sg, C_block0, 0.0f);
+                        joint_matrix_fill(sg, C_block1, 0.0f);
+                        joint_matrix_fill(sg, C_block2, 0.0f);
+                        joint_matrix_fill(sg, C_block3, 0.0f);
+                    }
+
+                    item.barrier(sycl::access::fence_space::local_space);
+
+// block axpy scheme
+#ifdef SMALL_BATCH_SIZES
+                    if (!sg_has_no_blockrow)
+#endif
+                    {
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 0 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block0 = joint_matrix_mad(sg, A_block0, B_block, C_block0);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 1 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block1 = joint_matrix_mad(sg, A_block0, B_block, C_block1);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 2 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block2 = joint_matrix_mad(sg, A_block0, B_block, C_block2);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 3 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block3 = joint_matrix_mad(sg, A_block0, B_block, C_block3);
+
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 0 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block0 = joint_matrix_mad(sg, A_block1, B_block, C_block0);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 1 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block1 = joint_matrix_mad(sg, A_block1, B_block, C_block1);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 2 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block2 = joint_matrix_mad(sg, A_block1, B_block, C_block2);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 3 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block3 = joint_matrix_mad(sg, A_block1, B_block, C_block3);
+
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 0 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block0 = joint_matrix_mad(sg, A_block2, B_block, C_block0);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 1 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block1 = joint_matrix_mad(sg, A_block2, B_block, C_block1);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 2 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block2 = joint_matrix_mad(sg, A_block2, B_block, C_block2);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 3 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block3 = joint_matrix_mad(sg, A_block2, B_block, C_block3);
+
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 0 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block0 = joint_matrix_mad(sg, A_block3, B_block, C_block0);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 1 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block1 = joint_matrix_mad(sg, A_block3, B_block, C_block1);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 2 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block2 = joint_matrix_mad(sg, A_block3, B_block, C_block2);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 3 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block3 = joint_matrix_mad(sg, A_block3, B_block, C_block3);
+                    }
+
+                    // Load next B into slm
+
+                    /// ATTENTION: this version only works for K = SGS_IN_WG and NBLOCKCOLS_PER_SG = 4
+                    item.barrier(sycl::access::fence_space::local_space); // make sure all the reads are done before we
+                                                                          // write into slm again
+                    ((int32_t *)(&B[sg_offset_B]))[loc_id] = ((int32_t *)(weights_ptr_loc + sg_offset_B))[loc_id];
+                    ((int32_t *)(&B[sg_offset_B]))[loc_id + SG_SIZE] =
+                        ((int32_t *)(weights_ptr_loc + sg_offset_B))[loc_id + SG_SIZE];
+                    weights_ptr_loc += K * N;
+
+// This can be done in the future with joint_matrix_copy and a joint_maitrx_apply.
+#ifdef SMALL_BATCH_SIZES
+                    if (!sg_has_no_blockrow)
+#endif
+                    {
+                        auto Ci_data0 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block0);
+                        auto Ai_data0 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block0);
+                        auto Ci_data1 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block1);
+                        auto Ai_data1 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block1);
+                        auto Ci_data2 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block2);
+                        auto Ai_data2 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block2);
+                        auto Ci_data3 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block3);
+                        auto Ai_data3 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block3);
+                        if constexpr (activation == Activation::ReLU) {
+                            for (int rowiter = 0; rowiter < Ci_data0.length(); rowiter++) // should be TM in length
+                            {
+                                Ai_data0[rowiter] =
+                                    fmax((bf16)0, (bf16)Ci_data0[rowiter]); // tmpCi < (bf16)0 ? (bf16)0 : tmpCi;
+                                Ai_data1[rowiter] = fmax((bf16)0, (bf16)Ci_data1[rowiter]);
+                                Ai_data2[rowiter] = fmax((bf16)0, (bf16)Ci_data2[rowiter]);
+                                Ai_data3[rowiter] = fmax((bf16)0, (bf16)Ci_data3[rowiter]);
+                            }
+                        } else if constexpr (activation == Activation::None) {
+                            for (int rowiter = 0; rowiter < Ci_data0.length(); rowiter++) // should be TM in length
+                            {
+                                Ai_data0[rowiter] = (bf16)Ci_data0[rowiter];
+                                Ai_data1[rowiter] = (bf16)Ci_data1[rowiter];
+                                Ai_data2[rowiter] = (bf16)Ci_data2[rowiter];
+                                Ai_data3[rowiter] = (bf16)Ci_data3[rowiter];
+                            }
+                        }
+                        // else none
+
+                        /// Store intermediate result in case of forward_pass
+                        // Don't ask me what is going on with these indices and why inference write
+                        // to a different position for the output than forward_pass.
+                        if constexpr (!INFERENCE) {
+                            const int loc_offset_A = (layer + 1) * M * K + total_offset_A;
+                            sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                                sg, A_block0, local_ptr<bf16>(&Atmp[sg_offset_A + 0 * SG_SIZE]), K);
+                            sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                                sg, A_block1, local_ptr<bf16>(&Atmp[sg_offset_A + 1 * SG_SIZE]), K);
+                            sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                                sg, A_block2, local_ptr<bf16>(&Atmp[sg_offset_A + 2 * SG_SIZE]), K);
+                            sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                                sg, A_block3, local_ptr<bf16>(&Atmp[sg_offset_A + 3 * SG_SIZE]), K);
+                            /// Alternative of loading A through SLM to avoid inefficient access to HBM
+                            // we do not need SLM barrier since each SG writes and reads only its own data.
+                            for (int iter = 0; iter < TM; iter++) {
+                                *((int32_t *)(intermediate_output + loc_offset_A + iter * K) + loc_id) =
+                                    *(((int32_t *)&Atmp[sg_offset_A + iter * K]) + loc_id);
+                                *((int32_t *)(intermediate_output + loc_offset_A + iter * K) + loc_id + SG_SIZE) =
+                                    *(((int32_t *)&Atmp[sg_offset_A + iter * K]) + loc_id + SG_SIZE);
+                            }
+                        }
+                    }
+                }
+
+// generate output, i.e. last GEMM
+
+// reset result matrix
+#ifdef SMALL_BATCH_SIZES
+                if (!sg_has_no_blockrow)
+#endif
+                {
+                    joint_matrix_fill(sg, C_block0, 0.0f);
+                    joint_matrix_fill(sg, C_block1, 0.0f);
+                    joint_matrix_fill(sg, C_block2, 0.0f);
+                    joint_matrix_fill(sg, C_block3, 0.0f);
+                }
+
+                item.barrier(sycl::access::fence_space::local_space); // wait for B to be loaded
+
+// block axpy scheme
+#ifdef SMALL_BATCH_SIZES
+                if (!sg_has_no_blockrow)
+#endif
+                {
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 0 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block0 = joint_matrix_mad(sg, A_block0, B_block, C_block0);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 1 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block1 = joint_matrix_mad(sg, A_block0, B_block, C_block1);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 2 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block2 = joint_matrix_mad(sg, A_block0, B_block, C_block2);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 3 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block3 = joint_matrix_mad(sg, A_block0, B_block, C_block3);
+
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 0 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block0 = joint_matrix_mad(sg, A_block1, B_block, C_block0);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 1 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block1 = joint_matrix_mad(sg, A_block1, B_block, C_block1);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 2 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block2 = joint_matrix_mad(sg, A_block1, B_block, C_block2);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 3 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block3 = joint_matrix_mad(sg, A_block1, B_block, C_block3);
+
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 0 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block0 = joint_matrix_mad(sg, A_block2, B_block, C_block0);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 1 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block1 = joint_matrix_mad(sg, A_block2, B_block, C_block1);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 2 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block2 = joint_matrix_mad(sg, A_block2, B_block, C_block2);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 3 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block3 = joint_matrix_mad(sg, A_block2, B_block, C_block3);
+
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 0 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block0 = joint_matrix_mad(sg, A_block3, B_block, C_block0);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 1 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block1 = joint_matrix_mad(sg, A_block3, B_block, C_block1);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 2 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block2 = joint_matrix_mad(sg, A_block3, B_block, C_block2);
+                    joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 3 * 2 * TN]),
+                                      2 * WIDTH); // 2*TN since weights are in VNNI format
+                    C_block3 = joint_matrix_mad(sg, A_block3, B_block, C_block3);
+
+                    /// TODO: Output activation in what follows. Here == None
+                    // This can be done in the future with joint_matrix_copy and a joint_maitrx_apply.
+                    // This can be done in the future with joint_matrix_copy and a joint_maitrx_apply.
+                    auto Ci_data0 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block0);
+                    auto Ai_data0 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block0);
+                    auto Ci_data1 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block1);
+                    auto Ai_data1 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block1);
+                    auto Ci_data2 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block2);
+                    auto Ai_data2 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block2);
+                    auto Ci_data3 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block3);
+                    auto Ai_data3 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block3);
+                    if constexpr (/*output_activation == Activation::ReLU*/ false) // output activation is always none
+                                                                                   // for this test. We do not have a
+                                                                                   // template parameter for this
+                    {
+                        for (int rowiter = 0; rowiter < Ci_data0.length(); rowiter++) // should be TM in length
+                        {
+                            Ai_data0[rowiter] =
+                                fmax((bf16)0, (bf16)Ci_data0[rowiter]); // tmpCi < (bf16)0 ? (bf16)0 : tmpCi;
+                            Ai_data1[rowiter] = fmax((bf16)0, (bf16)Ci_data1[rowiter]);
+                            Ai_data2[rowiter] = fmax((bf16)0, (bf16)Ci_data2[rowiter]);
+                            Ai_data3[rowiter] = fmax((bf16)0, (bf16)Ci_data3[rowiter]);
+                        }
+                    } else if constexpr (/*output_activation == Activation::None*/ true) // for this tests, alway
+                                                                                         // activation true
+                    {
+                        for (int rowiter = 0; rowiter < Ci_data0.length(); rowiter++) // should be TM in length
+                        {
+                            Ai_data0[rowiter] = (bf16)Ci_data0[rowiter];
+                            Ai_data1[rowiter] = (bf16)Ci_data1[rowiter];
+                            Ai_data2[rowiter] = (bf16)Ci_data2[rowiter];
+                            Ai_data3[rowiter] = (bf16)Ci_data3[rowiter];
+                        }
+                    }
+
+                    const int loc_offset_A = (n_hidden_layers + 1) * M * K + total_offset_A;
+                    // load A matrix from slm to joint_matrices. This is done to avoid inefficient bf16 HBM access
+                    sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                        sg, A_block0, local_ptr<bf16>(&Atmp[sg_offset_A + 0 * SG_SIZE]), K);
+                    sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                        sg, A_block1, local_ptr<bf16>(&Atmp[sg_offset_A + 1 * SG_SIZE]), K);
+                    sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                        sg, A_block2, local_ptr<bf16>(&Atmp[sg_offset_A + 2 * SG_SIZE]), K);
+                    sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                        sg, A_block3, local_ptr<bf16>(&Atmp[sg_offset_A + 3 * SG_SIZE]), K);
+                    /// Alternative of loading A through SLM to avoid inefficient access to HBM
+                    // we do not need SLM barrier since each SG writes and reads only its own data.
+
+                    for (int iter = 0; iter < TM; iter++) {
+                        *((int32_t *)(intermediate_output + loc_offset_A + iter * K) + loc_id) =
+                            *(((int32_t *)&Atmp[sg_offset_A + iter * K]) + loc_id);
+                        *((int32_t *)(intermediate_output + loc_offset_A + iter * K) + loc_id + SG_SIZE) =
+                            *(((int32_t *)&Atmp[sg_offset_A + iter * K]) + loc_id + SG_SIZE);
+                    }
+                }
+            });
+    });
+
+    return {e};
 }
 
 /**
@@ -798,52 +1147,341 @@ void kernel_swiftnet_backward(nd_item<1> item, bf16 *deltas, local_accessor<bf16
  * @param out_inter         Pointer to intermediate outputs.
  * @param delta_temp        Pointer to temporary delta memory.
  * @param forward           Pointer to forward pass intermediate outputs.
- * @param A_dgemm           Pointer to matrix A for DGEMM.
- * @param B_dgemm           Pointer to matrix B for DGEMM.
- * @param C_dgemm           Pointer to matrix C for DGEMM.
- * @param n_hidden_matmuls Number of hidden matrix multiplications.
+ * @param n_hidden_matrices Number of hidden matrix multiplications.
  * @param batch_size        Batch size of the data.
  * @tparam WIDTH            Width of the matrices.
  * @tparam ACTIVATION       Type of activation for hidden layers.
  */
-template <int WIDTH, Activation ACTIVATION>
-void mlp_swiftnet_backward(queue q, DeviceMem<bf16> &weights_transposed, DeviceMem<bf16> &deltas,
-                           DeviceMem<bf16> &grads_matrices, float *out_inter, float *forward, float *A_dgemm,
-                           float *B_dgemm, float *C_dgemm, const uint32_t n_hidden_matmuls, int batch_size,
-                           int m_inputs_width) {
+template <int WIDTH, Activation activation, Activation output_activation = Activation::None>
+std::vector<sycl::event>
+mlp_swiftnet_backward(queue &q, bf16 const *const __restrict__ weights_ptr, bf16 const *const __restrict__ inputs_ptr,
+                      bf16 *const __restrict__ output_ptr, bf16 *const __restrict__ intermediate_output,
+                      bf16 const *const __restrict__ forward, const int n_hidden_matrices, const int batch_size,
+                      const std::vector<sycl::event> &deps) {
     // here, weights are already transposed and packed
     // in deltas, the last layer has already been calculated
+    constexpr int NBLOCKROWS_PER_SG = 1; // ONLY works for = 1 right now.
+    constexpr int SGS_IN_WG = 64;        // reuse of B, this is in subgroups
+    // dimensions are M = batch_size, N = WIDTH = K = 64;
+    /// ATTENTION: currently only works for batch sizes which are powers of 2
+    // and which are larger than 512 (TM*SGS_IN_WG)
+    const int M = batch_size;
+    constexpr int N = WIDTH;
+    constexpr int K = WIDTH;
+    constexpr int NBLOCKCOLS_PER_SG = N / SG_SIZE; // Note that TN = TK = SG_SIZE
 
-    const int N_ITERS = BATCH_CHUNK / TM;
+    static_assert(TK == SG_SIZE);
+    static_assert(TN == TK);
+    if constexpr (WIDTH != 64) throw std::invalid_argument("Current implementation only works for a WIDTH of 64");
+    assert(M % TM == 0); // make sure there is no remainder and no out of bounds accesses
 
-    // Execute the kernel for backward pass
-    q.submit([&](handler &h) {
-         local_accessor<bf16> deltas_layers =
-             local_accessor<bf16>(range<1>(SHMEM_SIZE + BATCH_CHUNK * SKEW) * WIDTH / 64, h);
-         local_accessor<float> delta_temp =
-             local_accessor<float>(range<1>(SHMEM_SIZE + BATCH_CHUNK * SKEW) * WIDTH / 64, h);
+    // One Block Row has TM rows an N columns.
+    auto e = q.submit([&](handler &cgh) {
+        cgh.depends_on(deps);
+        // weights matrix. 64*64*2 byte = 8 kb. Thus, can have up to 16 WGs per Xe Core.
+        local_accessor<bf16, 1> B(range<1>(K * N), cgh);
+        // buffer for loading joint matrices. 8*64*64*2byte = 64kb. TODO: check if this is too much. If so, split in
+        // half
+        local_accessor<bf16, 1> Atmp(range<1>(TM * K * SGS_IN_WG), cgh);
 
-         // Execute DGEMM multiply for each hidden layer
-         h.parallel_for(nd_range<1>(batch_size * WG_SIZE / BATCH_CHUNK, WG_SIZE),
-                        [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
-                            kernel_swiftnet_backward<WIDTH, N_ITERS, ACTIVATION>(
-                                item, deltas.data(), deltas_layers, delta_temp, grads_matrices.data(),
-                                weights_transposed.data(), forward, out_inter, n_hidden_matmuls, batch_size,
-                                m_inputs_width);
-                        });
-     }).wait();
+        // number of SGS is given by batch_size / (NBLOCKROWS_PER_SG * TM), since batch_size is the number of rows in
+        // the output
+        cgh.parallel_for(
+            nd_range<1>(std::max(M / (NBLOCKROWS_PER_SG * TM) * SG_SIZE, SGS_IN_WG * SG_SIZE),
+                        SGS_IN_WG * SG_SIZE), // assuming here that the number of block rows is divisable by SGS_IN_WG
+            [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
+                const int wg_id = item.get_group().get_group_id();
+                auto sg = item.get_sub_group();
+                const int loc_id = sg.get_local_id()[0];
+                const int sg_id = sg.get_group_id()[0];
+#ifdef SMALL_BATCH_SIZES
+                const bool sg_has_no_blockrow =
+                    (wg_id * TM * NBLOCKROWS_PER_SG * SGS_IN_WG + sg_id * TM * NBLOCKROWS_PER_SG) >= M;
+#endif
 
-    //   std::vector<float> out_i(batch_size * WIDTH * (n_hidden_matmuls));
-    //   q.memcpy(out_i.data(), out_inter, out_i.size() * sizeof(float));
-    //   q.wait();
-    //   for (int i = 0; i < out_i.size(); i++) {
-    //     std::cout << "Out i: " << i << ": " << out_i[i] << std::endl;
-    //   }
-    int flops = 0;
-    for (int k = 0; k < n_hidden_matmuls; k++) {
-        dgemm_multiply<WIDTH, ACTIVATION>(q, grads_matrices.data(), out_inter, forward, A_dgemm, B_dgemm, C_dgemm, k,
-                                          n_hidden_matmuls, batch_size, m_inputs_width, flops);
+                bf16 const *weights_ptr_loc = weights_ptr + (n_hidden_matrices + 1) * K * N;
+
+                // Load B= transposed weights into slm
+                constexpr int nrows_per_sg_B = K / SGS_IN_WG; // we assume this is divisible
+                constexpr int nelems_per_sg_B = N * nrows_per_sg_B;
+                const int sg_offset_B = sg_id * nelems_per_sg_B;
+
+                /// ATTENTION: this version only works for K = SGS_IN_WG and NBLOCKCOLS_PER_SG = 4
+                const sycl::vec<float, 2> tmp4bvalues = sg.load<2>(
+                    multi_ptr<const float, access::address_space::global_space>(reinterpret_cast<const float *>(
+                        weights_ptr_loc + sg_offset_B))); // load two block cols in one go to load 1 cache line
+                sg.store<2>(
+                    multi_ptr<float, access::address_space::local_space>(reinterpret_cast<float *>(&B[sg_offset_B])),
+                    tmp4bvalues);
+                weights_ptr_loc -= K * N; // decrease weights pointer by one layer
+
+                constexpr int n_rows_per_sg_A = NBLOCKROWS_PER_SG * TM;
+                constexpr int nelems_per_sg_A = K * n_rows_per_sg_A;
+                const int sg_offset_A = sg_id * nelems_per_sg_A;
+                const int wg_offset_A = wg_id * SGS_IN_WG * nelems_per_sg_A;
+                const int total_offset_A = wg_offset_A + sg_offset_A;
+
+                joint_matrix<sub_group, bf16, use::a, TM, TK, layout::row_major> A_block0, A_block1, A_block2, A_block3;
+#ifdef SMALL_BATCH_SIZES
+                if (!sg_has_no_blockrow)
+#endif
+                {
+                    sycl::vec<int32_t, TM> tmp16avalues0, tmp16avalues1;
+                    for (int iter = 0; iter < TM; iter++) {
+                        tmp16avalues0[iter] = *((int32_t *)(inputs_ptr + total_offset_A) + loc_id + iter * K / 2);
+                        tmp16avalues1[iter] =
+                            *((int32_t *)(inputs_ptr + total_offset_A) + loc_id + iter * K / 2 + SG_SIZE);
+                    }
+
+                    for (int iter = 0; iter < TM; iter++) {
+                        *(((int32_t *)&Atmp[sg_offset_A]) + loc_id + iter * K / 2) = tmp16avalues0[iter];
+                        *(((int32_t *)&Atmp[sg_offset_A]) + loc_id + iter * K / 2 + SG_SIZE) = tmp16avalues1[iter];
+                    }
+
+                    // we do not need SLM barrier since each SG writes and reads only its own data.
+                    // load A matrix from slm to joint_matrices. This is done to avoid inefficient bf16 HBM access
+                    joint_matrix_load(sg, A_block0, local_ptr<bf16>(&Atmp[sg_offset_A + 0 * SG_SIZE]), K);
+                    joint_matrix_load(sg, A_block1, local_ptr<bf16>(&Atmp[sg_offset_A + 1 * SG_SIZE]), K);
+                    joint_matrix_load(sg, A_block2, local_ptr<bf16>(&Atmp[sg_offset_A + 2 * SG_SIZE]), K);
+                    joint_matrix_load(sg, A_block3, local_ptr<bf16>(&Atmp[sg_offset_A + 3 * SG_SIZE]), K);
+
+                    // activate the A_blocks with output activation based on forward
+                    if constexpr (output_activation ==
+                                  Activation::ReLU) // is this necessary or garbage since forward is ReLU activated as
+                                                    // well (i.e. >= 0) and never triggers < 0 case.
+                    {
+                        // reuse Atmp for loading of the data through SLM.
+                        for (int iter = 0; iter < TM; iter++) {
+                            *(((int32_t *)&Atmp[sg_offset_A]) + loc_id + iter * K / 2) =
+                                *((int32_t *)(forward + (n_hidden_matrices + 2) * M * K + total_offset_A) + loc_id +
+                                  iter * K / 2);
+                            *(((int32_t *)&Atmp[sg_offset_A]) + loc_id + iter * K / 2 + SG_SIZE) =
+                                *((int32_t *)(forward + (n_hidden_matrices + 2) * M * K + total_offset_A) + loc_id +
+                                  iter * K / 2 + SG_SIZE);
+                        }
+
+                        auto Ai_data0 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block0);
+                        auto Ai_data1 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block1);
+                        auto Ai_data2 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block2);
+                        auto Ai_data3 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block3);
+                        for (int rowiter = 0; rowiter < Ai_data0.length(); rowiter++) {
+                            Ai_data0[rowiter] = fmax((bf16)0, Atmp[sg_offset_A + rowiter * K + 0 * TK + loc_id]);
+                            Ai_data1[rowiter] = fmax((bf16)0, Atmp[sg_offset_A + rowiter * K + 1 * TK + loc_id]);
+                            Ai_data2[rowiter] = fmax((bf16)0, Atmp[sg_offset_A + rowiter * K + 2 * TK + loc_id]);
+                            Ai_data3[rowiter] = fmax((bf16)0, Atmp[sg_offset_A + rowiter * K + 3 * TK + loc_id]);
+                        }
+
+                        // when done, store activated A matrices back to slm
+                        sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                            sg, A_block0, local_ptr<bf16>(&Atmp[sg_offset_A + 0 * SG_SIZE]), K);
+                        sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                            sg, A_block1, local_ptr<bf16>(&Atmp[sg_offset_A + 1 * SG_SIZE]), K);
+                        sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                            sg, A_block2, local_ptr<bf16>(&Atmp[sg_offset_A + 2 * SG_SIZE]), K);
+                        sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                            sg, A_block3, local_ptr<bf16>(&Atmp[sg_offset_A + 3 * SG_SIZE]), K);
+
+                        // and load again in registers
+                        for (int iter = 0; iter < TM; iter++) {
+                            tmp16avalues0[iter] = *(((int32_t *)&Atmp[sg_offset_A]) + loc_id + iter * K / 2);
+                            tmp16avalues1[iter] = *(((int32_t *)&Atmp[sg_offset_A]) + loc_id + iter * K / 2 + SG_SIZE);
+                        }
+                    }
+                    // else { } //nothing to be done
+
+                    // Store this activated input at the end of interm_output for reuse in the update (GEMMS below)
+                    const int loc_offset_A = (n_hidden_matrices + 1) * M * K + total_offset_A;
+
+                    /// store the activated a values of the input to intermediate output
+                    for (int iter = 0; iter < TM; iter++) {
+                        *((int32_t *)(intermediate_output + loc_offset_A) + loc_id + iter * K / 2) =
+                            tmp16avalues0[iter];
+                        *((int32_t *)(intermediate_output + loc_offset_A) + loc_id + iter * K / 2 + SG_SIZE) =
+                            tmp16avalues1[iter];
+                    }
+                }
+
+                // Define matrices
+                joint_matrix<sub_group, bf16, use::b, TK, TN, sycl::ext::intel::experimental::matrix::layout::packed>
+                    B_block;
+                joint_matrix<sub_group, float, use::accumulator, TM, TN> C_block0, C_block1, C_block2, C_block3;
+
+                // We have n_hidden_layers. Thus n_hidden_layers - 1 gemms between
+                // the layers (layer 0 -> GEMM -> layer1 -> GEMM -> layer2 -> etc.)
+                // Since we also do the GEMM from input to hidden layer 0,
+                // we perform n_hidden_layers GEMMS.
+                for (int layer = n_hidden_matrices + 1; layer > 0;
+                     layer--) // we are also doing output->last hidden layer
+                {
+                    const int loc_offset_A = (layer - 1) * M * K + total_offset_A;
+// __builtin_IB_lsc_prefetch_global_uint4((const __attribute__((opencl_global))
+//                        uint32_t *)(intermediate_output+loc_offset_A),
+//                        0, LSC_LDCC_L1C_L3C);
+
+// reset result matrix
+#ifdef SMALL_BATCH_SIZES
+                    if (!sg_has_no_blockrow)
+#endif
+                    {
+                        joint_matrix_fill(sg, C_block0, 0.0f);
+                        joint_matrix_fill(sg, C_block1, 0.0f);
+                        joint_matrix_fill(sg, C_block2, 0.0f);
+                        joint_matrix_fill(sg, C_block3, 0.0f);
+                    }
+
+                    item.barrier(sycl::access::fence_space::local_space); // wait for B to be done storing
+
+// block axpy scheme
+#ifdef SMALL_BATCH_SIZES
+                    if (!sg_has_no_blockrow)
+#endif
+                    {
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 0 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block0 = joint_matrix_mad(sg, A_block0, B_block, C_block0);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 1 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block1 = joint_matrix_mad(sg, A_block0, B_block, C_block1);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 2 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block2 = joint_matrix_mad(sg, A_block0, B_block, C_block2);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[0 * WIDTH * TK + 3 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block3 = joint_matrix_mad(sg, A_block0, B_block, C_block3);
+
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 0 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block0 = joint_matrix_mad(sg, A_block1, B_block, C_block0);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 1 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block1 = joint_matrix_mad(sg, A_block1, B_block, C_block1);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 2 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block2 = joint_matrix_mad(sg, A_block1, B_block, C_block2);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[1 * WIDTH * TK + 3 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block3 = joint_matrix_mad(sg, A_block1, B_block, C_block3);
+
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 0 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block0 = joint_matrix_mad(sg, A_block2, B_block, C_block0);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 1 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block1 = joint_matrix_mad(sg, A_block2, B_block, C_block1);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 2 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block2 = joint_matrix_mad(sg, A_block2, B_block, C_block2);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[2 * WIDTH * TK + 3 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block3 = joint_matrix_mad(sg, A_block2, B_block, C_block3);
+
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 0 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block0 = joint_matrix_mad(sg, A_block3, B_block, C_block0);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 1 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block1 = joint_matrix_mad(sg, A_block3, B_block, C_block1);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 2 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block2 = joint_matrix_mad(sg, A_block3, B_block, C_block2);
+                        joint_matrix_load(sg, B_block, local_ptr<bf16>(&B[3 * WIDTH * TK + 3 * 2 * TN]),
+                                          2 * WIDTH); // 2*TN since weights are in VNNI format
+                        C_block3 = joint_matrix_mad(sg, A_block3, B_block, C_block3);
+                    }
+
+                    // load B for next iteration into SLM
+                    if (layer > 1) {
+                        const sycl::vec<float, 2> tmp4bvalues = sg.load<2>(
+                            multi_ptr<const float, access::address_space::global_space>(reinterpret_cast<const float *>(
+                                weights_ptr_loc + sg_offset_B))); // load two block cols in one go to load 1 cache line
+                        item.barrier(sycl::access::fence_space::local_space); // wait for B to done accessing before
+                                                                              // storing new values in
+                        sg.store<2>(multi_ptr<float, access::address_space::local_space>(
+                                        reinterpret_cast<float *>(&B[sg_offset_B])),
+                                    tmp4bvalues);
+                        weights_ptr_loc -= K * N; // decrease weights pointer by one layer
+                    }
+
+// This can be done in the future with joint_matrix_copy and a joint_maitrx_apply.
+#ifdef SMALL_BATCH_SIZES
+                    if (!sg_has_no_blockrow)
+#endif
+                    {
+                        auto Ci_data0 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block0);
+                        auto Ai_data0 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block0);
+                        auto Ci_data1 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block1);
+                        auto Ai_data1 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block1);
+                        auto Ci_data2 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block2);
+                        auto Ai_data2 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block2);
+                        auto Ci_data3 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, C_block3);
+                        auto Ai_data3 = sycl::ext::intel::experimental::matrix::get_wi_data(sg, A_block3);
+                        /// ATTENTION: forward is already activated in the forward pass.
+                        // In general, we are always using same input and output activation for
+                        // forward pass and backward pass (Is this true?). Do not need to activate again.
+                        if constexpr (false) // forward is ReLU activated, thus always >= 0. The condition is never
+                                             // activated
+                        {
+                            // sycl::vec<int32_t,16> tmp32avalues =  sg.load<16>(multi_ptr<const int32_t,
+                            // access::address_space::global_space>(reinterpret_cast<const int32_t*>(
+                            //     forward+(n_hidden_matrices+2)*M*K + total_offset_A)));
+                            // sg.store<16>(multi_ptr<int32_t,
+                            // access::address_space::local_space>(reinterpret_cast<int32_t*>(Atmp.get_pointer().get() +
+                            // sg_offset_A)),
+                            //     tmp32avalues);
+
+                            /// HERE, implement all the activations
+
+                        } else if constexpr (activation == Activation::ReLU ||
+                                             activation == Activation::None) // nothing to be done since forw is ReLU
+                                                                             // activated an thus >=0
+                        {
+                            for (int rowiter = 0; rowiter < Ci_data0.length(); rowiter++) // should be TM in length
+                            {
+                                Ai_data0[rowiter] = (bf16)Ci_data0[rowiter];
+                                Ai_data1[rowiter] = (bf16)Ci_data1[rowiter];
+                                Ai_data2[rowiter] = (bf16)Ci_data2[rowiter];
+                                Ai_data3[rowiter] = (bf16)Ci_data3[rowiter];
+                            }
+                        }
+                        // esle nothing to be done
+
+                        // store A
+                        sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                            sg, A_block0, local_ptr<bf16>(&Atmp[sg_offset_A + 0 * SG_SIZE]), K);
+                        sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                            sg, A_block1, local_ptr<bf16>(&Atmp[sg_offset_A + 1 * SG_SIZE]), K);
+                        sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                            sg, A_block2, local_ptr<bf16>(&Atmp[sg_offset_A + 2 * SG_SIZE]), K);
+                        sycl::ext::intel::experimental::matrix::joint_matrix_store(
+                            sg, A_block3, local_ptr<bf16>(&Atmp[sg_offset_A + 3 * SG_SIZE]), K);
+                        /// Alternative of loading A through SLM to avoid inefficient access to HBM
+                        // we do not need SLM barrier since each SG writes and reads only its own data.
+                        for (int iter = 0; iter < TM; iter++) {
+                            *((int32_t *)(intermediate_output + loc_offset_A) + loc_id + iter * K / 2) =
+                                *(((int32_t *)&Atmp[sg_offset_A]) + loc_id + iter * K / 2);
+
+                            *((int32_t *)(intermediate_output + loc_offset_A) + loc_id + iter * K / 2 + SG_SIZE) =
+                                *(((int32_t *)&Atmp[sg_offset_A]) + loc_id + iter * K / 2 + SG_SIZE);
+                        }
+                    }
+                }
+            });
+    });
+
+    /// TODO: merge this with the above systolic code
+    /// TODO: check offsets.
+    // NOTE: MKL gemm_batch is slower.
+    std::vector<sycl::event> events(n_hidden_matrices + 2);
+    for (int iter = 0; iter < n_hidden_matrices + 2; iter++) {
+        // Perform GEMM operation
+        events[iter] = oneapi::mkl::blas::row_major::gemm(
+            q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, N, K, M, 1.0f,
+            reinterpret_cast<const oneapi::mkl::bfloat16 *>(forward) + iter * M * K, N,
+            reinterpret_cast<oneapi::mkl::bfloat16 *>(intermediate_output) + iter * M * K, K, 1.0f,
+            reinterpret_cast<oneapi::mkl::bfloat16 *>(output_ptr) + iter * K * N, K, {e});
     }
+
+    return events;
 }
 
 /**
@@ -871,17 +1509,10 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(queue q, int input_width, int output_width, int 
     m_weightsT_matrices.allocate2(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices +
                                       m_net_width * m_output_width,
                                   m_q);
-    //   std::cout << "Allocating: m_net_width" << m_net_width
-    //             << ", m_inputs_width: " << m_inputs_width
-    //             << ", m_n_hidden_matrices: " << m_n_hidden_matrices << ",
-    //             output"
-    //             << m_output_width << std::endl;
-    //   std::cout << "size: " << m_weights_matrices.size() << std::endl;
 
     m_weights_matrices.allocate2(m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices +
                                      m_net_width * m_output_width,
                                  m_q);
-    //   std::cout << "size: " << m_weights_matrices.size() << std::endl;
     m_weights_matrices_inferences.allocate2(
         m_net_width * m_inputs_width + (m_net_width * m_net_width) * m_n_hidden_matrices + m_net_width * m_output_width,
         m_q);
@@ -890,7 +1521,6 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(queue q, int input_width, int output_width, int 
                                m_q);
 
     // Initialize constants and allocations
-    m_alignment = SHMEM_SIZE;
 
     assert(WIDTH >= m_output_width);
     // note that the memory on m_deltas (also called loss sometimes) is
@@ -1015,27 +1645,9 @@ template <int WIDTH> void SwiftNetMLP<WIDTH>::load_from_file(std::string filenam
  * @param q The SYCL queue used for device operations.
  */
 template <int WIDTH> void SwiftNetMLP<WIDTH>::free_mem(queue q) {
-    // Free memory for arrays allocated using sycl::aligned_alloc_device
-    //   free(m_out_inter, q);
-    //   free(m_A_forward, q);
-    //   free(m_B_forward, q);
-    //   free(m_C_forward, q);
-
-    //   // Free memory for DeviceMem<bf16> arrays using their free_mem member
-    //   function m_deltas.free_mem(q);
-
-    //   free(m_A_backward, q);
-    //   free(m_B_backward, q);
-    //   free(m_C_backward, q);
-    //   free(m_A_backward_last_layer, q);
-    //   free(m_B_backward_last_layer, q);
-    //   free(m_C_backward_last_layer, q);
-    //   free(m_D_backward_last_layer, q);
-    //   free(m_E_backward_last_layer, q);
-    //   free(m_F_backward_last_layer, q);
-    //   free(m_A_dgemm, q);
-    //   free(m_B_dgemm, q);
-    //   free(m_C_dgemm, q);
+    m_grads_matrices.free_mem(q); // output after backward pass
+    m_weights_matrices.free_mem(q);
+    m_weightsT_matrices.free_mem(q);
 }
 
 /**
@@ -1043,641 +1655,216 @@ template <int WIDTH> void SwiftNetMLP<WIDTH>::free_mem(queue q) {
  *
  * @param input The input data on the device.
  * @param forward Pointer to the forward intermediate array.
- * @param act_mem Pointer to activation memory.
- * @param act_mem_temp Pointer to temporary activation memory.
- * @param A Temporary array A for matrix multiplication.
- * @param B Temporary array B for matrix multiplication.
- * @param C Temporary array C for matrix multiplication.
- * @param output The output data on the device.
+ * The output is stored at the end of the array 'forward'
  */
 template <int WIDTH>
-void SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16> &input, float *forward, float *A, float *B, float *C,
-                                      DeviceMem<float> &output, const int batch_size) {
-    // Constants and dimensions
-    //   std::vector<float> fwd(m_batch_size * (m_inputs_width + m_output_width +
-    //                                          WIDTH * m_n_hidden_layers));
-
-    //   std::cout << "== == == == == == == == == == == == == == == == == == == ==
-    //   == "
-    //                "== == == == == == == == "
-    //             << std::endl;
-    auto output_activation = m_output_activation;
-    auto activation = m_activation;
-    const int n_hidden_matrices = m_n_hidden_matrices;
-    const int net_width = m_net_width;
-    const int inputs_width = m_inputs_width;
-    const int output_width = m_output_width;
-
+std::vector<sycl::event> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16> &input, float *forward,
+                                                          const size_t batch_size,
+                                                          const std::vector<sycl::event> &deps) {
     // Static assertion and assertion checks
-    static_assert(WIDTH % 16 == 0, "Width must be a multiple of 16.");
-    assert(batch_size % 64 == 0);
-    //   std::cout << "Input size: " << input.size() << std::endl;
-    m_q.parallel_for<>(range<1>(input.size()), [=](id<1> idx) { forward[idx] = input.data()[idx]; })
-        .wait(); // this is necessary for backward pass
-    // Get a pointer to the weights matrices data
-    auto p = m_weights_matrices.data();
-    //   if (inputs_width < 16) {
-    if (inputs_width != WIDTH) {
-        // usually would use XMX for inputs_width > 16 and gemm for smaller, but
-        // somehow workgroup_dynamic has a bug
-        m_q.parallel_for<>(range<1>(inputs_width * WIDTH),
-                           [=](id<1> idx) { A[idx] = (float)p[toPackedLayoutCoord(idx, inputs_width, WIDTH)]; })
-            .wait();
+    static_assert(WIDTH % 64 == 0, "Width must be a multiple of 64.");
 
-        oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
-                                           batch_size, WIDTH, inputs_width, 1, forward, inputs_width, A, WIDTH, 0,
-                                           forward + input.size(), WIDTH);
-        m_q.parallel_for<>(range<1>(WIDTH * batch_size),
-                           [=](id<1> idx) {
-                               forward[idx + (inputs_width * batch_size)] =
-                                   elt_activation_ret<float>(activation, forward[idx + (inputs_width * batch_size)]);
-                           })
-            .wait();
-    }
-    //   m_q.memcpy(fwd.data(), forward, fwd.size() * sizeof(float));
-    //   m_q.wait();
-    //   for (int i = 0; i < 4096; i++) {
-    //     std::cout << "1 Fwd - " << i << ": " << fwd[i] << std::endl;
-    //   }
+    // this is necessary for backward pass
+    // Get a pointer to the weights matrices data
+    bf16 *const Forwardbf16 = reinterpret_cast<bf16 *>(forward);
+
+    if (m_inputs_width != WIDTH) // Should only be triggered on first layer
+        throw std::invalid_argument("m_inputs_width has to be the same as WIDTH");
+    if (m_output_width != WIDTH) // Should only be triggered on first layer
+        throw std::invalid_argument("m_output_width has to be the same as WIDTH");
+
     // Perform forward pass based on activation function
     switch (m_activation) {
     case Activation::None:
-        mlp_swift_forward<WIDTH, Activation::None, false>(m_q, m_output_activation, m_weights_matrices, input,
-                                                          forward + input.size(), output, m_n_hidden_layers,
-                                                          m_inputs_width, m_output_width, batch_size);
+        return mlp_swift_forward<WIDTH, Activation::None, false>(m_q, m_weights_matrices.data(), input.data(),
+                                                                 Forwardbf16, m_n_hidden_layers, batch_size, deps);
         break;
-    case Activation::Exponential:
-        mlp_swift_forward<WIDTH, Activation::Exponential, false>(m_q, m_output_activation, m_weights_matrices, input,
-                                                                 forward + input.size(), output, m_n_hidden_layers,
-                                                                 m_inputs_width, m_output_width, batch_size);
-        break;
-    case Activation::Sigmoid:
-        mlp_swift_forward<WIDTH, Activation::Sigmoid, false>(m_q, m_output_activation, m_weights_matrices, input,
-                                                             forward + input.size(), output, m_n_hidden_layers,
-                                                             m_inputs_width, m_output_width, batch_size);
-        break;
+    // case Activation::Exponential:
+    // return mlp_swift_forward<WIDTH, Activation::Exponential, false>(
+    //     m_q, m_weights_matrices, input,
+    //     Forwardbf16,
+    //     m_n_hidden_layers,
+    //     m_batch_size, deps);
+    //     break;
+    // case Activation::Sigmoid:
+    // return mlp_swift_forward<WIDTH, Activation::Sigmoid, false>(
+    //     m_q, m_weights_matrices, input,
+    //     Forwardbf16,
+    //     m_n_hidden_layers,
+    //     m_batch_size, deps);
+    //     break;
     case Activation::ReLU:
-        mlp_swift_forward<WIDTH, Activation::ReLU, false>(m_q, m_output_activation, m_weights_matrices, input,
-                                                          forward + input.size(), output, m_n_hidden_layers,
-                                                          m_inputs_width, m_output_width, batch_size);
+        return mlp_swift_forward<WIDTH, Activation::ReLU, false>(m_q, m_weights_matrices.data(), input.data(),
+                                                                 Forwardbf16, m_n_hidden_layers, batch_size, deps);
         break;
-    case Activation::LeakyReLU:
-        mlp_swift_forward<WIDTH, Activation::LeakyReLU, false>(m_q, m_output_activation, m_weights_matrices, input,
-                                                               forward + input.size(), output, m_n_hidden_layers,
-                                                               m_inputs_width, m_output_width, batch_size);
-        break;
-    case Activation::Squareplus:
-        mlp_swift_forward<WIDTH, Activation::Squareplus, false>(m_q, m_output_activation, m_weights_matrices, input,
-                                                                forward + input.size(), output, m_n_hidden_layers,
-                                                                m_inputs_width, m_output_width, batch_size);
-        break;
-    case Activation::Softplus:
-        mlp_swift_forward<WIDTH, Activation::Softplus, false>(m_q, m_output_activation, m_weights_matrices, input,
-                                                              forward + input.size(), output, m_n_hidden_layers,
-                                                              m_inputs_width, m_output_width, batch_size);
-        break;
-    case Activation::Tanh:
-        mlp_swift_forward<WIDTH, Activation::Tanh, false>(m_q, m_output_activation, m_weights_matrices, input,
-                                                          forward + input.size(), output, m_n_hidden_layers,
-                                                          m_inputs_width, m_output_width, batch_size);
-        break;
+    // case Activation::LeakyReLU:
+    // return mlp_swift_forward<WIDTH, Activation::LeakyReLU, false>(
+    //     m_q, m_weights_matrices, input,
+    //     Forwardbf16,
+    //     m_n_hidden_layers,
+    //     m_batch_size, deps);
+    //     break;
+    // case Activation::Squareplus:
+    // return mlp_swift_forward<WIDTH, Activation::Squareplus, false>(
+    //     m_q, m_weights_matrices, input,
+    //     Forwardbf16,
+    //     m_n_hidden_layers,
+    //     m_batch_size, deps);
+    //     break;
+    // case Activation::Softplus:
+    // return mlp_swift_forward<WIDTH, Activation::Softplus, false>(
+    //     m_q, m_weights_matrices, input,
+    //     Forwardbf16,
+    //     m_n_hidden_layers,
+    //     m_batch_size, deps);
+    //     break;
+    // case Activation::Tanh:
+    // return mlp_swift_forward<WIDTH, Activation::Tanh, false>(
+    //     m_q, m_weights_matrices, input,
+    //     Forwardbf16,
+    //     m_n_hidden_layers,
+    //     m_batch_size, deps);
+    //     break;
     default:
-        return;
+        return {};
     }
-    //   m_q.memcpy(fwd.data(), forward, fwd.size() * sizeof(float));
-    //   m_q.wait();
-    //   for (int i = 0; i < fwd.size(); i++) {
-    //     std::cout << "2 Fwd - " << i << ": " << fwd[i] << std::endl;
-    //   }
-    // Handle the case when output_width is greater than 16
-
-    // TODO: Not doing check again. According to Darius, it's faster to use
-    // workgroup_last_layer, but somehow results are flawed
-    //   if (m_output_width > 16) {
-    m_q.parallel_for<>(range<1>(m_output_width * m_net_width),
-                       [=](id<1> idx) {
-                           B[idx] = (float)p[toPackedLayoutCoord(idx, net_width, output_width) +
-                                             net_width * (inputs_width + n_hidden_matrices * net_width)];
-                       })
-        .wait();
-
-    oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
-                                       batch_size, m_output_width, WIDTH, 1,
-                                       forward + (n_hidden_matrices * WIDTH + m_inputs_width) * batch_size, WIDTH, B,
-                                       m_output_width, 0, C, m_output_width);
-
-    const int intermediate_output_size = batch_size * (WIDTH * m_n_hidden_layers);
-    //   std::cout << "intermediate_output_size " << intermediate_output_size
-    //             << ", input size: " << input.size()
-    //             << "Output: " << m_output_width * batch_size << std::endl;
-
-    m_q.parallel_for<>(range<1>(m_output_width * batch_size),
-                       [=](id<1> idx) {
-                           output.data()[idx] = elt_activation_ret<float>(output_activation, C[idx]);
-                           forward[intermediate_output_size + input.size() + idx] =
-                               elt_activation_ret<float>(output_activation, C[idx]);
-                       })
-        .wait();
-
-    //   m_q.memcpy(fwd.data(), forward, fwd.size() * sizeof(float));
-    //   m_q.wait();
-    //   for (int i = 0; i < fwd.size(); i++) {
-    //     std::cout << "All Fwd - " << i << ": " << fwd[i] << std::endl;
-    //   }
-    //   } else {
-    //     m_q.parallel_for<>(range<1>(m_output_width * batch_size),
-    //                        [=](id<1> idx) {
-    //                          output.data()[idx] = elt_activation_ret<float>(
-    //                              output_activation, output.data()[idx]);
-    //                        })
-    //         .wait();
-    //   }
-
-    //   output.copy_to_host(out, m_q);
-    //   for (int i = 0; i < out.size(); i++) {
-    //     std::cout << i << ": " << out[i] << std::endl;
-    //   }
-}
-
-template <int WIDTH>
-void SwiftNetMLP<WIDTH>::inference(const DeviceMem<bf16> &input, float *forward, float *A, float *B, float *C,
-                                   DeviceMem<float> &output, const int batch_size) {
-    //   std::cout << "Inference " << std::endl;
-    const int input_size = input.size();
-    const int n_hidden_matrices = m_n_hidden_matrices;
-    const int net_width = m_net_width;
-    const int inputs_width = m_inputs_width;
-    const int output_width = m_output_width;
-
-    auto activation = m_activation;
-
-    static_assert(WIDTH % 16 == 0, "Width must be a multiply of 16.");
-    assert(batch_size % 64 == 0);
-    auto p = m_weights_matrices.data();
-
-    if (inputs_width < 16) {
-        m_q.parallel_for<>(range<1>(input.size()), [=](id<1> idx) { forward[idx] = input.data()[idx]; }).wait();
-
-        m_q.parallel_for<>(range<1>(inputs_width * WIDTH),
-                           [=](id<1> idx) { A[idx] = (float)p[toPackedLayoutCoord(idx, inputs_width, WIDTH)]; })
-            .wait();
-
-        oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
-                                           batch_size, WIDTH, inputs_width, 1, forward, inputs_width, A, WIDTH, 0,
-                                           forward + input.size(), WIDTH);
-        m_q.parallel_for<>(range<1>(WIDTH * batch_size),
-                           [=](id<1> idx) {
-                               forward[idx + (inputs_width * batch_size)] =
-                                   elt_activation_ret<float>(activation, forward[idx + (inputs_width * batch_size)]);
-                           })
-            .wait();
-    }
-    switch (m_activation) {
-    case Activation::None:
-        mlp_swift_forward<WIDTH, Activation::None, true>(m_q, m_output_activation, m_weights_matrices, input, forward,
-                                                         output, m_n_hidden_layers, m_inputs_width, m_output_width,
-                                                         batch_size);
-        break;
-    case Activation::Exponential:
-        mlp_swift_forward<WIDTH, Activation::Exponential, true>(m_q, m_output_activation, m_weights_matrices, input,
-                                                                forward, output, m_n_hidden_layers, m_inputs_width,
-                                                                m_output_width, batch_size);
-        break;
-    case Activation::Sigmoid:
-        mlp_swift_forward<WIDTH, Activation::Sigmoid, true>(m_q, m_output_activation, m_weights_matrices, input,
-                                                            forward, output, m_n_hidden_layers, m_inputs_width,
-                                                            m_output_width, batch_size);
-        break;
-    case Activation::ReLU:
-        mlp_swift_forward<WIDTH, Activation::ReLU, true>(m_q, m_output_activation, m_weights_matrices, input, forward,
-                                                         output, m_n_hidden_layers, m_inputs_width, m_output_width,
-                                                         batch_size);
-        break;
-    case Activation::LeakyReLU:
-        mlp_swift_forward<WIDTH, Activation::LeakyReLU, true>(m_q, m_output_activation, m_weights_matrices, input,
-                                                              forward, output, m_n_hidden_layers, m_inputs_width,
-                                                              m_output_width, batch_size);
-        break;
-    case Activation::Squareplus:
-        mlp_swift_forward<WIDTH, Activation::Squareplus, true>(m_q, m_output_activation, m_weights_matrices, input,
-                                                               forward, output, m_n_hidden_layers, m_inputs_width,
-                                                               m_output_width, batch_size);
-        break;
-    case Activation::Softplus:
-        mlp_swift_forward<WIDTH, Activation::Softplus, true>(m_q, m_output_activation, m_weights_matrices, input,
-                                                             forward, output, m_n_hidden_layers, m_inputs_width,
-                                                             m_output_width, batch_size);
-        break;
-    case Activation::Tanh:
-        mlp_swift_forward<WIDTH, Activation::Tanh, true>(m_q, m_output_activation, m_weights_matrices, input, forward,
-                                                         output, m_n_hidden_layers, m_inputs_width, m_output_width,
-                                                         batch_size);
-        break;
-    default:
-        throw std::runtime_error{"Unsupported activation."};
-    }
-
-    //   if (m_output_width > 16) {
-    m_q.parallel_for<>(range<1>(m_output_width * m_net_width),
-                       [=](id<1> idx) {
-                           B[idx] = p[toPackedLayoutCoord(idx, net_width, output_width) +
-                                      net_width * (inputs_width + n_hidden_matrices * net_width)];
-                       })
-        .wait();
-    oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
-                                       batch_size, m_output_width, WIDTH, 1,
-                                       forward + (n_hidden_matrices * WIDTH + inputs_width) * batch_size, WIDTH, B,
-                                       m_output_width, 0, C, m_output_width);
-    auto output_activation = m_output_activation;
-
-    m_q.parallel_for<>(range<1>(m_output_width * batch_size),
-                       [=](id<1> idx) { output.data()[idx] = elt_activation_ret<float>(output_activation, C[idx]); })
-        .wait();
-    //   }
 }
 
 /**
- * Perform matrix multiplications and activation backpropagation for the last
- * layer (beginning of the backward pass) .
+ * Perform a forward pass of the SwiftNetMLP model.
  *
- * @param grads The gradients on the device.
- * @param forward Pointer to the forward intermediate array.
- * @param loss The loss gradients on the device.
- * @param batch_size The batch size.
- * @param A Temporary array A for matrix multiplication.
- * @param B Temporary array B for matrix multiplication.
- * @param C Temporary array C for matrix multiplication.
- * @param D Temporary array D for activation backpropagation.
- * @param E Temporary array E for activation backpropagation.
- * @param F Temporary array F for matrix multiplication.
+ * @param input The input data on the device.
+ * @param forward Pointer to the forward intermediate array. In inference this is not used for intermediate values.
+ * The output is stored at the end of the array 'forward'
  */
 template <int WIDTH>
-void SwiftNetMLP<WIDTH>::dgemm_last_layer_backward(DeviceMem<bf16> &grads, float *forward, DeviceMem<bf16> &loss,
-                                                   int batch_size, float *A, float *B, float *C, float *D, float *E,
-                                                   float *F) {
-    auto p_w = m_weightsT_matrices.data();
+std::vector<sycl::event> SwiftNetMLP<WIDTH>::inference(const DeviceMem<bf16> &input, float *const forward,
+                                                       const size_t batch_size, const std::vector<sycl::event> &deps) {
+    static_assert(WIDTH % 64 == 0, "Width must be multiple of 64.");
+    assert(batch_size % 64 == 0);
 
-    auto p_g = m_grads_matrices.data();
-    //   std::cout << "Total weights: " << m_weightsT_matrices.size() <<
-    //   std::endl;
-    const int offset_w = m_n_hidden_matrices * m_net_width * m_net_width + m_net_width * m_inputs_width;
-    int offset_g;
-    int offset_f1;
-    int layer_in_width;
-    if (m_n_hidden_matrices == 0) { // need this as input_width != net_width
-        offset_f1 = 0;
-        offset_g = 0;
-        layer_in_width = m_inputs_width;
-    } else {
-        offset_f1 = (m_inputs_width + (m_n_hidden_matrices - 1) * m_net_width) * batch_size;
-        offset_g = m_inputs_width * m_net_width + (m_n_hidden_matrices - 1) * m_net_width * m_net_width;
-        layer_in_width = m_net_width;
+    if (m_inputs_width != WIDTH || m_output_width != WIDTH) {
+        throw std::invalid_argument("inputs_width != WIDTH or output_width!= WIDTH is not supported");
     }
 
-    const int offset_f2 =
-        //   (m_inputs_width + (m_n_hidden_matrices - 1) * m_net_width) *
-        //   batch_size;
-        (m_inputs_width + (m_n_hidden_matrices)*m_net_width) * batch_size;
-    //   std::cout << "m_hidden_matrices: " << m_n_hidden_matrices << ", netwidth"
-    //             << m_net_width << ",input width: " << m_inputs_width
-    //             << ",offsets: " << offset_w << "," << offset_g << ", " <<
-    //             offset_f1
-    //             << ", " << offset_f2 << ", bs: " << batch_size << std::endl;
-    const int output_width = m_output_width;
-    const int net_width = m_net_width;
+    bf16 *const Forwardbf16 = reinterpret_cast<bf16 *>(forward);
 
-    int i = 0;
-    int j = 0;
-    auto activation = m_activation;
-
-    m_q.parallel_for<>(range<1>(grads.size()),
-                       [=](id<1> idx) {
-                           A[idx] = (float)loss.data()[idx];
-
-                           //    int b_first;
-                           //    int b_second;
-                           //    static const CONSTANT char FMT[] = "Pen:
-                           //    A[%d]%d.%d,\n"; get_float_as_integers_own(A[idx],
-                           //    b_first, b_second);
-                           //    sycl::ext::oneapi::experimental::printf(
-                           //        FMT, int(idx), b_first, b_second);
-                       })
-        .wait();
-    //   m_q.parallel_for<>(range<1>(m_weightsT_matrices.size()),
-    //                      [=](id<1> idx) {
-    //                        int b_first;
-    //                        int b_second;
-    //                        static const CONSTANT char FMT[] = "pw[%d]
-    //                        %d.%d,\n"; get_float_as_integers_own(p_w[idx],
-    //                        b_first, b_second);
-    //                        sycl::ext::oneapi::experimental::printf(
-    //                            FMT, int(idx), b_first, b_second);
-    //                      })
-    //       .wait();
-    m_q.parallel_for<>(range<1>(m_output_width * WIDTH),
-                       [=](id<1> idx) {
-                           B[idx] = p_w[offset_w + toPackedLayoutCoord(idx, output_width, net_width)];
-                           //    int b_first;
-                           //    int b_second;
-                           //    static const CONSTANT char FMT[] = "B[%d]
-                           //    %d.%d,\n"; get_float_as_integers_own(B[idx],
-                           //    b_first, b_second);
-                           //    sycl::ext::oneapi::experimental::printf(
-                           //        FMT, int(idx), b_first, b_second);
-                       })
-        .wait();
-
-    oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
-                                       batch_size, m_net_width, m_output_width, 1, A, m_output_width, B, m_net_width, 0,
-                                       C, m_net_width);
-
-    //   m_q.parallel_for<>(range<1>(m_net_width * m_output_width),
-    //                      [=](id<1> idx) {
-    //                        int b_first;
-    //                        int b_second;
-    //                        static const CONSTANT char FMT[] = "C[%d] %d.%d,\n";
-    //                        get_float_as_integers_own(C[idx], b_first,
-    //                        b_second); sycl::ext::oneapi::experimental::printf(
-    //                            FMT, int(idx), b_first, b_second);
-    //                      })
-    //       .wait();
-    m_q.parallel_for<>(range<1>(layer_in_width * batch_size),
-                       [=](id<1> idx) {
-                           int i = idx / batch_size;
-                           int j = idx % batch_size;
-                           D[i * batch_size + j] =
-                               elt_activation_ret<float>(activation, forward[offset_f1 + j * layer_in_width + i]);
-                           //    int b_first;
-                           //    int b_second;
-                           //    static const CONSTANT char FMT[] =
-                           //        "D, total idx: %d, idx: %d, offset: %d,%
-                           //        d.%d\n";
-                           //    get_float_as_integers_own(D[i * batch_size + j],
-                           //    b_first, b_second);
-                           //    sycl::ext::oneapi::experimental::printf(
-                           //        FMT, offset_f1 + j * layer_in_width + i, int(i
-                           //        * batch_size + j), int(offset_f1), b_first,
-                           //        b_second);
-                       })
-        .wait();
-
-    m_q.parallel_for<>(range<1>(m_net_width * batch_size),
-                       [=](id<1> idx) {
-                           elt_activation_bwd<float, float, float>(activation, C[idx], forward[offset_f2 + idx],
-                                                                   E[idx]);
-                           loss.data()[idx] = (bf16)E[idx];
-                           //    int b_first;
-                           //    int b_second;
-                           //    int a_first;
-                           //    int a_second;
-                           //    static const CONSTANT char FMT[] =
-                           //        "E[%d] %d.%d, fwd[%d] %d.%d, offset: %d,idx
-                           //        %d\n ";
-                           //    get_float_as_integers_own(E[idx], b_first,
-                           //    b_second);
-                           //    get_float_as_integers_own(forward[offset_f2 + idx],
-                           //    a_first,
-                           //                              a_second);
-                           //    sycl::ext::oneapi::experimental::printf(
-                           //        FMT, int(idx), b_first, b_second, int(offset_f2
-                           //        + idx), a_first, a_second, int(offset_f2),
-                           //        int(idx));
-                       })
-        .wait();
-
-    oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
-                                       m_net_width, m_net_width, batch_size, 1, D, batch_size, E, m_net_width, 0, F,
-                                       m_net_width);
-
-    m_q.parallel_for<>(range<1>(layer_in_width * m_net_width),
-                       [=](id<1> idx) {
-                           p_g[idx + offset_g] = (float)F[idx];
-                           //    int b_first;
-                           //    int b_second;
-                           //    static const CONSTANT char FMT[] =
-                           //        "F[%d], total_length: %d,  total idx:
-                           //        %d,offset: "
-                           //        "%d, end: %d, %d.%d,\n";
-                           //    get_float_as_integers_own(F[idx], b_first,
-                           //    b_second); sycl::ext::oneapi::experimental::printf(
-                           //        FMT, int(idx), int(layer_in_width * net_width),
-                           //        int(idx + offset_g), offset_g,
-                           //        offset_g + layer_in_width * net_width, b_first,
-                           //        b_second);
-                       })
-        .wait();
+    switch (m_activation) {
+    case Activation::None:
+        return mlp_swift_forward<WIDTH, Activation::None, true>(m_q, m_weights_matrices.data(), input.data(),
+                                                                Forwardbf16, m_n_hidden_layers, batch_size, deps);
+        break;
+    // case Activation::Exponential:
+    //     return mlp_swift_forward<WIDTH, Activation::Exponential, true>(
+    //         m_q, m_weights_matrices, input, Forwardbf16,
+    //         m_n_hidden_layers, m_batch_size, deps);
+    // break;
+    // case Activation::Sigmoid:
+    //     return mlp_swift_forward<WIDTH, Activation::Sigmoid, true>(
+    //         m_q, m_weights_matrices, input, Forwardbf16,
+    //         m_n_hidden_layers, m_batch_size, deps);
+    // break;
+    case Activation::ReLU:
+        return mlp_swift_forward<WIDTH, Activation::ReLU, true>(m_q, m_weights_matrices.data(), input.data(),
+                                                                Forwardbf16, m_n_hidden_layers, batch_size, deps);
+        break;
+    // case Activation::LeakyReLU:
+    //     return mlp_swift_forward<WIDTH, Activation::LeakyReLU, true>(
+    //         m_q, m_weights_matrices, input, Forwardbf16,
+    //         m_n_hidden_layers, m_batch_size, deps);
+    // break;
+    // case Activation::Squareplus:
+    //     return mlp_swift_forward<WIDTH, Activation::Squareplus, true>(
+    //         m_q, m_weights_matrices, input, Forwardbf16,
+    //         m_n_hidden_layers, m_batch_size, deps);
+    // break;
+    // case Activation::Softplus:
+    //     return mlp_swift_forward<WIDTH, Activation::Softplus, true>(
+    //         m_q, m_weights_matrices, input, Forwardbf16,
+    //         m_n_hidden_layers, m_batch_size, deps);
+    // break;
+    // case Activation::Tanh:
+    //     return mlp_swift_forward<WIDTH, Activation::Tanh, true>(
+    //         m_q, m_weights_matrices, input, Forwardbf16,
+    //         m_n_hidden_layers, m_batch_size, deps);
+    // break;
+    default:
+        throw std::runtime_error{"Unsupported activation."};
+    }
 }
 
 /**
  * Perform the backward pass of the neural network.
  *
- * @param input The input data on the device.
- * @param grads The gradients on the device.
- * @param out_inter Intermediate array for storing outputs.
- * @param delta_temp Temporary array for deltas.
- * @param loss Loss array on the device.
- * @param A Temporary array A for activation backpropagation.
- * @param B Temporary array B for activation backpropagation.
- * @param C Temporary array C for matrix multiplication.
- * @param A_backward_last_layer Temporary array A for last layer backward
- * pass.
- * @param B_backward_last_layer Temporary array B for last layer backward
- * pass.
- * @param C_backward_last_layer Temporary array C for last layer backward
- * pass.
- * @param D_backward_last_layer Temporary array D for last layer backward
- * pass.
- * @param E_backward_last_layer Temporary array E for last layer backward
- * pass.
- * @param F_backward_last_layer Temporary array F for last layer backward
- * pass.
- * @param A_dgemm Temporary array A for DGEMM.
- * @param B_dgemm Temporary array B for DGEMM.
- * @param C_dgemm Temporary array C for DGEMM.
- * @param forward Pointer to the forward intermediate array.
+ * @param grads The gradients on the device. Input for the backward pass
+ * @param out_inter Intermediate array for storing outputs. This is filled as part of the backward pass
+ * @param forward Pointer to the forward intermediate array which was filled in the forw pass
  */
 template <int WIDTH>
-void SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16> &input, DeviceMem<bf16> &grads, float *out_inter,
-                                       DeviceMem<bf16> loss, float *A, float *B, float *C, float *A_backward_last_layer,
-                                       float *B_backward_last_layer, float *C_backward_last_layer,
-                                       float *D_backward_last_layer, float *E_backward_last_layer,
-                                       float *F_backward_last_layer, float *A_dgemm, float *B_dgemm, float *C_dgemm,
-                                       float *forward, int batch_size) {
-    //   std::cout << "calling bwd" << std::endl;
+std::vector<sycl::event> SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16> &grads, float *const out_inter,
+                                                           float const *const forward, const size_t batch_size,
+                                                           const std::vector<sycl::event> &deps) {
+    // Compute activation backpropagation using parallel_for
+    bf16 const *const Forwardbf16 = reinterpret_cast<const bf16 *>(forward);
+    bf16 *const out_interbf16 = reinterpret_cast<bf16 *>(out_inter);
 
-    auto p = m_grads_matrices.data();
-    int s = m_grads_matrices.size();
-    auto activation = m_activation;
-    auto output_activation = m_output_activation;
-    const int offset_grad = m_n_hidden_matrices * m_net_width * m_net_width + m_inputs_width * m_net_width;
-    const int offset_f = m_inputs_width * batch_size + m_n_hidden_matrices * m_net_width * batch_size;
-    //   std::vector<float> fwd(batch_size * (m_inputs_width + m_output_width +
-    //                                        WIDTH * m_n_hidden_layers));
-    //   std::cout << "Fwd size: "
-    //             << batch_size *
-    //                    (m_inputs_width + m_output_width + WIDTH *
-    //                    m_n_hidden_layers)
-    //             << ", m_n_hidden: " << m_n_hidden_layers << std::endl;
-    //   m_q.memcpy(fwd.data(), forward, fwd.size() * sizeof(float));
-    //   m_q.wait();
-    //   for (int i = 0; i < fwd.size(); i++) {
-    //     std::cout << "Fwd - " << i << ": " << fwd[i] << std::endl;
-    //   }
-
-    // Compute activation backpropagation
-    m_q.parallel_for<>(range<1>(WIDTH * batch_size),
-                       [=](id<1> idx) {
-                           int i = idx / batch_size;
-                           int j = idx % batch_size;
-                           A[i * batch_size + j] =
-                               elt_activation_ret<float>(activation, forward[offset_f + j * WIDTH + i]);
-                           //    int b_first;
-                           //    int b_second;
-                           //    static const CONSTANT char FMT[] =
-                           //        "A [from %d to %d] at i: %d,j: %d: %d.%d, \n ";
-                           //    get_float_as_integers_own(A[i * batch_size + j],
-                           //    b_first,
-                           //                              b_second);
-                           //    sycl::ext::oneapi::experimental::printf(
-                           //        FMT, int(offset_f + j * WIDTH + i),
-                           //        int(i * batch_size + j), i, j, b_first,
-                           //        b_second);
-                       })
-        .wait();
-    // Compute output activation backpropagation and copy to
-    // loss array
-    m_q.parallel_for<>(range<1>(batch_size * m_output_width),
-                       [=](id<1> idx) {
-                           elt_activation_bwd<bf16, float, float>(output_activation, grads.data()[idx],
-                                                                  forward[offset_f + batch_size * WIDTH + idx], B[idx]);
-                           loss.data()[idx] = (bf16)B[idx];
-                           //    int b_first;
-                           //    int b_second;
-                           //    int a_first;
-                           //    int a_second;
-                           //    static const CONSTANT char FMT[] = "loss[%d]
-                           //    %d.%d,"; get_float_as_integers_own(B[idx], b_first,
-                           //    b_second); sycl::ext::oneapi::experimental::printf(
-                           //        FMT, int(idx), b_first, b_second);
-                       })
-        .wait();
-    // Perform matrix multiplication using MKL BLAS
-    oneapi::mkl::blas::row_major::gemm(m_q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
-                                       m_net_width, m_output_width, batch_size, 1, A, batch_size, B, m_output_width, 0,
-                                       C, m_output_width);
-    // Copy the result back to the gradients matrix
-    m_q.parallel_for<>(range<1>(m_net_width * m_output_width),
-                       [=](id<1> idx) {
-                           p[idx + offset_grad] = (float)C[idx];
-                           //    int b_first;
-                           //    int b_second;
-                           //    static const CONSTANT char FMT[] =
-                           //        "p[%d], offset_grad: %d, idx: %d, %d.%d,\n";
-                           //    get_float_as_integers_own(C[idx], b_first,
-                           //    b_second); sycl::ext::oneapi::experimental::printf(
-                           //        FMT, int(idx + offset_grad), offset_grad, idx,
-                           //        b_first, b_second);
-                       })
-        .wait();
-    //   std::vector<bf16> grad_vec_out(m_grads_matrices.size());
-    //   std::cout << " grads  " << std::endl;
-    //   m_q.memcpy(grad_vec_out.data(), m_grads_matrices.data(),
-    //              m_grads_matrices.size() * sizeof(bf16))
-    //       .wait();
-    //   for (int i = 0; i < grad_vec_out.size(); i++) {
-    //     std::cout << "Grad at " << i << ": " << grad_vec_out[i] << std::endl;
-    //   }
-
-    //   std::vector<bf16> loss_vec(loss.size());
-    //   m_q.memcpy(loss_vec.data(), loss.data(), loss_vec.size() * sizeof(bf16));
-    //   m_q.wait();
-    //   for (int i = 0; i < loss_vec.size(); i++) {
-    //     std::cout << "Loss i: " << i << ": " << loss_vec[i] << std::endl;
-    //   }
-    // Backpropagation through last layer using dgemm_last_layer_backward
-    dgemm_last_layer_backward(grads, forward, loss, batch_size, A_backward_last_layer, B_backward_last_layer,
-                              C_backward_last_layer, D_backward_last_layer, E_backward_last_layer,
-                              F_backward_last_layer);
-    //   m_q.memcpy(loss_vec.data(), loss.data(), loss_vec.size() * sizeof(bf16));
-    //   m_q.wait();
-    //   for (int i = 0; i < loss_vec.size(); i++) {
-    //     std::cout << "Loss 2 i: " << i << ": " << loss_vec[i] << std::endl;
-    //   }
-    // std::cout << " grads 2 " << std::endl;
-    // m_q.memcpy(grad_vec_out.data(), m_grads_matrices.data(),
-    //            m_grads_matrices.size() * sizeof(bf16))
-    //     .wait();
-    // for (int i = 0; i < grad_vec_out.size(); i++) {
-    //   std::cout << "Grad 2 at " << i << ": " << grad_vec_out[i] << std::endl;
-    // }
-    //   std::cout << " grads should be penultimate layer " << std::endl;
-    //   m_q.memcpy(grad_vec_out.data(), m_grads_matrices.data(),
-    //              m_grads_matrices.size() * sizeof(bf16))
-    //       .wait();
-    //   for (int i = 0; i < grad_vec_out.size(); i++) {
-    //     std::cout << "Grad at " << i << ": " << grad_vec_out[i] << std::endl;
-    //   }
-    //   std::cout <<
-    //   "=========================================================="
-    //             << std::endl;
     // Choose appropriate mlp_swiftnet_backward based on activation
+    // We are onyl doinh output_activation==none right now
     switch (m_activation) {
     case Activation::None:
-        mlp_swiftnet_backward<WIDTH, Activation::None>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter,
-                                                       forward, A_dgemm, B_dgemm, C_dgemm, m_n_hidden_matrices,
-                                                       batch_size, m_inputs_width);
+        return mlp_swiftnet_backward<WIDTH, Activation::None>(m_q, m_weightsT_matrices.data(), grads.data(),
+                                                              m_grads_matrices.data(), out_interbf16, Forwardbf16,
+                                                              m_n_hidden_matrices, batch_size, deps);
         break;
     case Activation::ReLU:
-        mlp_swiftnet_backward<WIDTH, Activation::ReLU>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter,
-                                                       forward, A_dgemm, B_dgemm, C_dgemm, m_n_hidden_matrices,
-                                                       batch_size, m_inputs_width);
+        return mlp_swiftnet_backward<WIDTH, Activation::ReLU>(m_q, m_weightsT_matrices.data(), grads.data(),
+                                                              m_grads_matrices.data(), out_interbf16, Forwardbf16,
+                                                              m_n_hidden_matrices, batch_size, deps);
         break;
-    case Activation::LeakyReLU:
-        mlp_swiftnet_backward<WIDTH, Activation::LeakyReLU>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter,
-                                                            forward, A_dgemm, B_dgemm, C_dgemm, m_n_hidden_matrices,
-                                                            batch_size, m_inputs_width);
-        break;
-    case Activation::Exponential:
-        mlp_swiftnet_backward<WIDTH, Activation::Exponential>(m_q, m_weightsT_matrices, loss, m_grads_matrices,
-                                                              out_inter, forward, A_dgemm, B_dgemm, C_dgemm,
-                                                              m_n_hidden_matrices, batch_size, m_inputs_width);
-        break;
-    case Activation::Sigmoid:
-        mlp_swiftnet_backward<WIDTH, Activation::Sigmoid>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter,
-                                                          forward, A_dgemm, B_dgemm, C_dgemm, m_n_hidden_matrices,
-                                                          batch_size, m_inputs_width);
-        break;
-    case Activation::Tanh:
-        mlp_swiftnet_backward<WIDTH, Activation::Tanh>(m_q, m_weightsT_matrices, loss, m_grads_matrices, out_inter,
-                                                       forward, A_dgemm, B_dgemm, C_dgemm, m_n_hidden_matrices,
-                                                       batch_size, m_inputs_width);
-        break;
+    // case Activation::LeakyReLU:
+    // return mlp_swiftnet_backward<WIDTH, Activation::LeakyReLU>(
+    //     m_q, m_weightsT_matrices, grads, m_grads_matrices,
+    //     out_interbf16, Forwardbf16,
+    //    m_n_hidden_matrices, m_batch_size,deps);
+    //     break;
+    // case Activation::Exponential:
+    // return mlp_swiftnet_backward<WIDTH, Activation::Exponential>(
+    //     m_q, m_weightsT_matrices, grads, m_grads_matrices,
+    //     out_interbf16, Forwardbf16,
+    //     m_n_hidden_matrices, m_batch_size,deps);
+    //     break;
+    // case Activation::Sigmoid:
+    // return mlp_swiftnet_backward<WIDTH, Activation::Sigmoid>(
+    //     m_q, m_weightsT_matrices, grads, m_grads_matrices,
+    //     out_interbf16, Forwardbf16,
+    //     m_n_hidden_matrices, m_batch_size,deps);
+    //     break;
+    // case Activation::Tanh:
+    // return mlp_swiftnet_backward<WIDTH, Activation::Tanh>(
+    //     m_q, m_weightsT_matrices, grads, m_grads_matrices,
+    //     out_interbf16, Forwardbf16,
+    //     m_n_hidden_matrices, m_batch_size,deps);
+    //     break;
     default:
-        return;
+        return {};
     }
-    //   std::cout << "For all hidden " << std::endl;
-    //   m_q.memcpy(grad_vec_out.data(), m_grads_matrices.data(),
-    //              m_grads_matrices.size() * sizeof(bf16))
-    //       .wait();
-    //   for (int i = 0; i < grad_vec_out.size(); i++) {
-    //     std::cout << "Grad at " << i << ": " << grad_vec_out[i] << std::endl;
-    //   }
-    //   std::cout << "
-    //   =========================================================="
-    //             << std::endl;
-    //   // Normalize gradients
-    //   m_q.parallel_for<>(range<1>(s), [=](id<1> idx) { p[idx] /= batch_size;
-    //   })
-    //       .wait();
-    //   std::vector<bf16> grad_vec_out(m_grads_matrices.size());
-    //   std::cout << " grads final" << std::endl;
-    //   m_q.memcpy(grad_vec_out.data(), m_grads_matrices.data(),
-    //              m_grads_matrices.size() * sizeof(bf16))
-    //       .wait();
-    //   for (int i = 0; i < grad_vec_out.size(); i++) {
-    //     std::cout << grad_vec_out[i] << ", ";
-    //   }
-    //   std::cout << std::endl;
+}
+
+template <int WIDTH>
+std::vector<sycl::event> SwiftNetMLP<WIDTH>::training(const DeviceMem<bf16> &input, const DeviceMem<bf16> &target,
+                                                      float *const intermediate_output_forward,
+                                                      float *const intermediate_output_backward,
+                                                      const size_t batch_size, const std::vector<sycl::event> &deps) {
+    // Compute activation backpropagation using parallel_for
+    bf16 *const intermediate_output_forwardbf16 = reinterpret_cast<bf16 *>(intermediate_output_forward);
+    bf16 *const intermediate_output_backwardbf16 = reinterpret_cast<bf16 *>(intermediate_output_backward);
+
+    return mlp_swift_fused<WIDTH, Activation::ReLU, Activation::None>(
+        m_q, m_weights_matrices.data(), m_weightsT_matrices.data(),
+        input.data(),            // input to forward pass
+        target.data(),           // targets for error computation
+        m_grads_matrices.data(), // gradients output after backward pass
+        intermediate_output_forwardbf16, intermediate_output_backwardbf16, m_n_hidden_layers, batch_size, deps);
 }
 
 template <int WIDTH> void SwiftNetMLP<WIDTH>::set_params(float *params) {

@@ -133,20 +133,26 @@ template <int WIDTH> class SwiftNetMLP : public Network {
     SwiftNetMLP(queue q, int input_width, int output_width, int n_hidden_layers, Activation activation,
                 Activation output_activation);
     ~SwiftNetMLP();
-    void forward_pass(const DeviceMem<bf16> &input, float *forward, float *A, float *B, float *C,
-                      DeviceMem<float> &output, const int batch_size) override;
+    std::vector<sycl::event> forward_pass(const DeviceMem<bf16> &input, float *forward, const size_t batch_size,
+                                          const std::vector<sycl::event> &deps) override;
 
-    void inference(const DeviceMem<bf16> &input, float *forward, float *A, float *B, float *C, DeviceMem<float> &output,
-                   const int batch_size) override;
+    std::vector<sycl::event> inference(const DeviceMem<bf16> &input, float *forward, const size_t batch_size,
+                                       const std::vector<sycl::event> &deps) override;
 
-    void backward_pass(const DeviceMem<bf16> &input, DeviceMem<bf16> &grads, float *out_inter, DeviceMem<bf16> loss,
-                       float *A, float *B, float *C, float *A_backward_last_layer, float *B_backward_last_layer,
-                       float *C_backward_last_layer, float *D_backward_last_layer, float *E_backward_last_layer,
-                       float *F_backward_last_layer, float *A_dgemm, float *B_dgemm, float *C_dgemm, float *forward,
-                       const int batch_size) override;
+    std::vector<sycl::event> backward_pass(const DeviceMem<bf16> &grads, float *const out_inter,
+                                           float const *const forward, const size_t batch_size,
+                                           const std::vector<sycl::event> &deps) override;
 
-    void dgemm_last_layer_backward(DeviceMem<bf16> &grads, float *forward, DeviceMem<bf16> &loss, int batch_size,
-                                   float *A, float *B, float *C, float *D, float *E, float *F);
+    std::vector<sycl::event> training(const DeviceMem<bf16> &input, const DeviceMem<bf16> &target,
+                                      float *const intermediate_output_forward,
+                                      float *const intermediate_output_backward, const size_t batch_size,
+                                      const std::vector<sycl::event> &deps) override;
+
+    bf16 const *const GetOutput(float const *const forward, const size_t batch_size) const override {
+        return reinterpret_cast<bf16 const *const>(forward) + m_inputs_width * batch_size +
+               WIDTH * batch_size * m_n_hidden_layers;
+    }
+
     void set_params(std::vector<bf16> &params) override;
     void set_params(float *params) override;
 

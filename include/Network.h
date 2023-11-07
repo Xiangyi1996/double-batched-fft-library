@@ -8,24 +8,29 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 class Network {
   public:
     // Perform forward pass through the network
-    virtual void forward_pass(const DeviceMem<bf16> &input, float *forward, float *A, float *B, float *C,
-                              DeviceMem<float> &output, const int m_batch_size) = 0;
+    virtual std::vector<sycl::event> forward_pass(const DeviceMem<bf16> &input, float *forward, const size_t batch_size,
+                                                  const std::vector<sycl::event> &deps) = 0;
 
     // Perform inference through the network
-    virtual void inference(const DeviceMem<bf16> &input, float *forward, float *A, float *B, float *C,
-                           DeviceMem<float> &output, const int m_batch_size) = 0;
+    virtual std::vector<sycl::event> inference(const DeviceMem<bf16> &input, float *forward, const size_t batch_size,
+                                               const std::vector<sycl::event> &deps) = 0;
 
     // Perform backward pass through the network
-    virtual void backward_pass(const DeviceMem<bf16> &input, DeviceMem<bf16> &grads, float *out_inter,
-                               DeviceMem<bf16> loss, float *A, float *B, float *C, float *A_backward_last_layer,
-                               float *B_backward_last_layer, float *C_backward_last_layer, float *D_backward_last_layer,
-                               float *E_backward_last_layer, float *F_backward_last_layer, float *A_dgemm,
-                               float *B_dgemm, float *C_dgemm, float *forward, const int m_batch_size) = 0;
+    virtual std::vector<sycl::event> backward_pass(const DeviceMem<bf16> &grads, float *const out_inter,
+                                                   float const *const forward, const size_t batch_size,
+                                                   const std::vector<sycl::event> &deps) = 0;
+
+    virtual std::vector<sycl::event> training(const DeviceMem<bf16> &input, const DeviceMem<bf16> &target,
+                                              float *const intermediate_output_forward,
+                                              float *const intermediate_output_backward, const size_t batch_size,
+                                              const std::vector<sycl::event> &deps) = 0;
 
     // Initialize network parameters
     virtual void initialize_params(int use_constant) = 0;
     // Free memory allocated by the network
     virtual void free_mem(queue q) = 0;
+
+    virtual bf16 const *const GetOutput(float const *const forward, const size_t batch_size) const { return nullptr; }
 
     // Get the SYCL queue associated with the network
     queue get_queue() { return m_q; }
@@ -40,7 +45,6 @@ class Network {
     virtual std::vector<bf16> get_weightsT_matrices_as_vector() = 0;
     // Data members
     int m_shmem_size;
-    size_t m_alignment;
 
     queue m_q;
 
