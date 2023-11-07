@@ -43,20 +43,16 @@ void free_multi_streams(dpct::queue_ptr parent_stream);
 // Synchronization helpers
 struct StreamAndEvent {
   public:
-    StreamAndEvent() try {
-        /*
-        DPCT1003:112: Migrated API does not return error code. (*, 0) is
-        inserted. You may need to rewrite this code.
-        */
-        CUDA_CHECK_THROW((m_stream = dpct::get_current_device().create_queue(), 0));
-        /*
-        DPCT1003:113: Migrated API does not return error code. (*, 0) is
-        inserted. You may need to rewrite this code.
-        */
-        CUDA_CHECK_THROW((m_event = new sycl::event(), 0));
-    } catch (sycl::exception const &exc) {
-        std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
-        std::exit(1);
+    StreamAndEvent() {
+        try {
+
+            m_stream = dpct::get_current_device().create_queue();
+
+            m_event = new sycl::event();
+        } catch (sycl::exception const &exc) {
+            std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
+            std::exit(1);
+        }
     }
 
     ~StreamAndEvent() {
@@ -82,59 +78,36 @@ struct StreamAndEvent {
 
     StreamAndEvent(StreamAndEvent &&other) { *this = std::move(other); }
 
-    void wait_for(dpct::event_ptr event) try {
-        /*
-        DPCT1003:114: Migrated API does not return error code. (*, 0) is
-        inserted. You may need to rewrite this code.
-        */
-        CUDA_CHECK_THROW((m_stream->ext_oneapi_submit_barrier({*event}), 0));
-    } catch (sycl::exception const &exc) {
-        std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
-        std::exit(1);
+    void wait_for(dpct::event_ptr event) {
+        try {
+            m_stream->ext_oneapi_submit_barrier({*event});
+        } catch (sycl::exception const &exc) {
+            std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
+            std::exit(1);
+        }
     }
 
-    void wait_for(dpct::queue_ptr stream) try {
-        /*
-        DPCT1012:115: Detected kernel execution time measurement pattern
-        and generated an initial code for time measurements in SYCL. You
-        can change the way time is measured depending on your goals.
-        */
-        /*
-        DPCT1024:116: The original code returned the error code that was
-        further consumed by the program logic. This original code was
-        replaced with 0. You may need to rewrite the program logic
-        consuming the error code.
-        */
-        m_event_ct1 = std::chrono::steady_clock::now();
-        CUDA_CHECK_THROW((*m_event = stream->ext_oneapi_submit_barrier(), 0));
-        wait_for(m_event);
-    } catch (sycl::exception const &exc) {
-        std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
-        std::exit(1);
+    void wait_for(dpct::queue_ptr stream) {
+        try {
+            m_event_ct1 = std::chrono::steady_clock::now();
+            *m_event = stream->ext_oneapi_submit_barrier();
+            wait_for(m_event);
+        } catch (sycl::exception const &exc) {
+            std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
+            std::exit(1);
+        }
     }
 
-    void signal(dpct::queue_ptr stream) try {
-        /*
-        DPCT1012:117: Detected kernel execution time measurement pattern
-        and generated an initial code for time measurements in SYCL. You
-        can change the way time is measured depending on your goals.
-        */
-        /*
-        DPCT1024:118: The original code returned the error code that was
-        further consumed by the program logic. This original code was
-        replaced with 0. You may need to rewrite the program logic
-        consuming the error code.
-        */
-        m_event_ct1 = std::chrono::steady_clock::now();
-        CUDA_CHECK_THROW((*m_event = m_stream->ext_oneapi_submit_barrier(), 0));
-        /*
-        DPCT1003:119: Migrated API does not return error code. (*, 0) is
-        inserted. You may need to rewrite this code.
-        */
-        CUDA_CHECK_THROW((stream->ext_oneapi_submit_barrier({*m_event}), 0));
-    } catch (sycl::exception const &exc) {
-        std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
-        std::exit(1);
+    void signal(dpct::queue_ptr stream) {
+        try {
+
+            m_event_ct1 = std::chrono::steady_clock::now();
+            *m_event = m_stream->ext_oneapi_submit_barrier();
+            stream->ext_oneapi_submit_barrier({*m_event});
+        } catch (sycl::exception const &exc) {
+            std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
+            std::exit(1);
+        }
     }
 
     dpct::queue_ptr get() { return m_stream; }
@@ -147,15 +120,13 @@ struct StreamAndEvent {
 
 struct MultiStream {
   public:
-    MultiStream() try {
-        /*
-        DPCT1003:120: Migrated API does not return error code. (*, 0) is
-        inserted. You may need to rewrite this code.
-        */
-        CUDA_CHECK_THROW((m_event = new sycl::event(), 0));
-    } catch (sycl::exception const &exc) {
-        std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
-        std::exit(1);
+    MultiStream() {
+        try {
+            m_event = new sycl::event();
+        } catch (sycl::exception const &exc) {
+            std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
+            std::exit(1);
+        }
     }
 
     ~MultiStream() { dpct::destroy_event(m_event); }
@@ -171,30 +142,21 @@ struct MultiStream {
         }
     }
 
-    void wait_for(dpct::queue_ptr stream) try {
-        if (m_n_streams == 0) {
-            return;
-        }
+    void wait_for(dpct::queue_ptr stream) {
+        try {
+            if (m_n_streams == 0) {
+                return;
+            }
 
-        /*
-        DPCT1012:121: Detected kernel execution time measurement pattern
-        and generated an initial code for time measurements in SYCL. You
-        can change the way time is measured depending on your goals.
-        */
-        /*
-        DPCT1024:122: The original code returned the error code that was
-        further consumed by the program logic. This original code was
-        replaced with 0. You may need to rewrite the program logic
-        consuming the error code.
-        */
-        m_event_ct1 = std::chrono::steady_clock::now();
-        CUDA_CHECK_THROW((*m_event = stream->ext_oneapi_submit_barrier(), 0));
-        for (size_t i = 0; i < m_n_streams; ++i) {
-            m_streams[i].wait_for(m_event);
+            m_event_ct1 = std::chrono::steady_clock::now();
+            *m_event = stream->ext_oneapi_submit_barrier();
+            for (size_t i = 0; i < m_n_streams; ++i) {
+                m_streams[i].wait_for(m_event);
+            }
+        } catch (sycl::exception const &exc) {
+            std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
+            std::exit(1);
         }
-    } catch (sycl::exception const &exc) {
-        std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
-        std::exit(1);
     }
 
     void resize(size_t n_streams) {
@@ -232,7 +194,7 @@ inline std::unordered_map<int, std::stack<std::shared_ptr<MultiStream>>> &global
 }
 
 inline std::stack<std::shared_ptr<MultiStream>> &get_multi_stream_stack(dpct::queue_ptr parent_stream) {
-    return parent_stream ? stream_multi_streams()[parent_stream] : global_multi_streams()[cuda_device()];
+    return parent_stream ? stream_multi_streams()[parent_stream] : global_multi_streams()[get_device()];
 }
 
 inline void free_multi_streams(dpct::queue_ptr parent_stream) {
@@ -259,7 +221,7 @@ inline std::shared_ptr<MultiStream> reserve_multi_stream(dpct::queue_ptr parent_
 
 inline void return_multi_stream(dpct::queue_ptr parent_stream, std::shared_ptr<MultiStream> multi_stream) {
     if (parent_stream ? (stream_multi_streams().count(parent_stream) == 0)
-                      : (global_multi_streams().count(cuda_device()) == 0)) {
+                      : (global_multi_streams().count(get_device()) == 0)) {
         throw std::runtime_error{"Attempted to return multi stream to the wrong parent stream."};
     }
 

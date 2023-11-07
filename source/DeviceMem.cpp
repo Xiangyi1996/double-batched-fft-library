@@ -724,51 +724,35 @@ template <typename T> void DeviceMem<T>::intitialize_he_normal(int input_width, 
     initialize_normal(dev, q);
 }
 
-template <typename T> void DeviceMem<T>::allocate_memory(size_t n_bytes) try {
-    dpct::device_ext &dev_ct1 = dpct::get_current_device();
-    sycl::queue &q_ct1 = dev_ct1.default_queue();
-    if (n_bytes == 0) {
-        return;
-    }
+template <typename T> void DeviceMem<T>::allocate_memory(size_t n_bytes) {
 
-    // fmt::print("GPUMemory: allocating {}.", bytes_to_string(n_bytes));
+    try {
+        dpct::device_ext &dev_ct1 = dpct::get_current_device();
+        sycl::queue &q_ct1 = dev_ct1.default_queue();
+        if (n_bytes == 0) {
+            return;
+        }
 
-    uint8_t *rawptr = nullptr;
-    if (m_managed) {
-        /*
-        DPCT1003:63: Migrated API does not return error code.
-        (*, 0) is inserted. You may need to rewrite this code.
-        */
-        /*
-        DPCT1064:110: Migrated cudaMallocManaged call is used in
-        a macro definition and is not valid for all macro uses.
-        Adjust the code.
-        */
-        CUDA_CHECK_THROW(
-            (rawptr = (uint8_t *)sycl::malloc_shared(n_bytes + DEBUG_GUARD_SIZE * 2, dpct::get_default_queue()), 0));
-    } else {
-        /*
-        DPCT1003:64: Migrated API does not return error code.
-        (*, 0) is inserted. You may need to rewrite this code.
-        */
-        /*
-        DPCT1064:111: Migrated cudaMalloc call is used in a
-        macro definition and is not valid for all macro uses.
-        Adjust the code.
-        */
-        CUDA_CHECK_THROW(
-            (rawptr = (uint8_t *)sycl::malloc_device(n_bytes + DEBUG_GUARD_SIZE * 2, dpct::get_default_queue()), 0));
-    }
-#if DEBUG_GUARD_SIZE > 0
-    CUDA_CHECK_THROW(cudaMemset(rawptr, 0xff, DEBUG_GUARD_SIZE));
-    CUDA_CHECK_THROW(cudaMemset(rawptr + n_bytes + DEBUG_GUARD_SIZE, 0xfe, DEBUG_GUARD_SIZE));
+        // fmt::print("GPUMemory: allocating {}.", bytes_to_string(n_bytes));
+
+        uint8_t *rawptr = nullptr;
+        if (m_managed) {
+            rawptr = (uint8_t *)sycl::malloc_shared(n_bytes + DEBUG_GUARD_SIZE * 2, dpct::get_default_queue());
+        } else {
+            rawptr = (uint8_t *)sycl::malloc_device(n_bytes + DEBUG_GUARD_SIZE * 2, dpct::get_default_queue());
+        }
+#if DEBUG_GUARD_SIZE > 0 // CB: No clue if this is correct but there was still a cudaMemset in here
+        dpct::get_default_queue().memset(rawptr, 0xff, DEBUG_GUARD_SIZE * sizeof(uint8_t));
+        dpct::get_default_queue().memset(rawptr + n_bytes + DEBUG_GUARD_SIZE * sizeof(uint8_t), 0xfe,
+                                         DEBUG_GUARD_SIZE * sizeof(uint8_t));
 #endif
-    if (rawptr) rawptr += DEBUG_GUARD_SIZE;
-    m_data = (T *)(rawptr);
-    total_n_bytes_allocated() += n_bytes;
-} catch (sycl::exception const &exc) {
-    std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
-    std::exit(1);
+        if (rawptr) rawptr += DEBUG_GUARD_SIZE;
+        m_data = (T *)(rawptr);
+        total_n_bytes_allocated() += n_bytes;
+    } catch (sycl::exception const &exc) {
+        std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
+        std::exit(1);
+    }
 }
 
 template <typename T> void DeviceMem<T>::resize(const size_t size) {
@@ -789,8 +773,8 @@ template <typename T> void DeviceMem<T>::enlarge(const size_t size) {
 template <typename T> void DeviceMem<T>::memset(const int value, const size_t num_elements, const size_t offset) {
     if (num_elements + offset > m_size) {
         throw std::runtime_error{tinydpcppnn::format("Could not set memory: Number of elements {}+{} larger "
-                                             "than allocated memory {}.",
-                                             num_elements, offset, m_size)};
+                                                     "than allocated memory {}.",
+                                                     num_elements, offset, m_size)};
     }
 
     dpct::get_default_queue().memset(m_data + offset, value, num_elements * sizeof(T));

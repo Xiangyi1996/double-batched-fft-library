@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 find_package(IntelSYCL REQUIRED)
+find_package(LevelZero REQUIRED)
 
 include(CTest)
 include(${PROJECT_SOURCE_DIR}/extern/doctest/cmake/doctest.cmake)
@@ -24,3 +25,10 @@ add_sycl_to_target(TARGET test-common SOURCES common.cpp)
 target_link_libraries(test-common PRIVATE test-lib swiftnetmlp) #add libraries you need here
 target_include_directories(test-common PRIVATE "${PROJECT_SOURCE_DIR}/include/")
 doctest_discover_tests(test-common)
+
+
+add_executable(test-network-with-encoding doctest_network_with_encodings.cpp)
+add_sycl_to_target(TARGET test-network-with-encoding SOURCES doctest_network_with_encodings.cpp)
+target_link_libraries(test-network-with-encoding PRIVATE test-lib swiftnetmlp ${LevelZero_LIBRARY}) #add libraries you need here
+target_include_directories(test-network-with-encoding PRIVATE "${PROJECT_SOURCE_DIR}/include/")
+doctest_discover_tests(test-network-with-encoding)

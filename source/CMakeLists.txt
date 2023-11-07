@@ -17,6 +17,7 @@ set(SOURCES
     RelativeL2.cpp
     common.cpp
     common_host.cpp
+    network_with_encodings.cpp
 )
 # set(PUBLIC_HEADERS
 #     ${PROJECT_SOURCE_DIR}/include/

@@ -60,8 +60,6 @@ class GPUMatrixBase {
         }
 
         if (memory.bytes() < total_n_bytes) {
-            // fmt::print("GPUMatrix: allocating {} shared among {} matrices.",
-            // bytes_to_string(total_n_bytes), matrices.size()); //log_debug
             memory.resize(total_n_bytes);
         }
 
@@ -77,35 +75,6 @@ class GPUMatrixBase {
 
     template <typename T, MatrixLayout layout>
     static void allocate_shared_memory(DeviceMem<char> &memory, std::vector<GPUMatrix<T, layout>> &matrices);
-
-    //     static DeviceMemArena::Allocation
-    //     allocate_shared_memory(sycl::queue& stream,
-    //                            const std::vector<GPUMatrixBase *> &matrices) {
-    //             size_t total_n_bytes = 0;
-    // 	for (auto* matrix : matrices) {
-    // 		total_n_bytes += matrix->n_bytes();
-    // 	}
-
-    // 	auto alloc = allocate_workspace(stream, total_n_bytes);
-
-    // 	size_t offset = 0;
-    // 	for (auto* matrix : matrices) {
-    // 		matrix->set_data_unsafe(alloc.data() + offset);
-    // 		offset += matrix->n_bytes();
-    // 	}
-
-    // 	return alloc;
-    // }
-
-    //     template <typename T>
-    //     static DeviceMemArena::Allocation
-    //     allocate_shared_memory(sycl::queue& stream,
-    //                            std::vector<GPUMatrixDynamic<T>> &matrices);
-
-    //     template <typename T, MatrixLayout layout>
-    //     static DeviceMemArena::Allocation
-    //     allocate_shared_memory(sycl::queue& stream,
-    //                            std::vector<GPUMatrix<T, layout>> &matrices);
 };
 
 template <typename T> class GPUMatrixDynamic : public GPUMatrixBase {
@@ -120,15 +89,6 @@ template <typename T> class GPUMatrixDynamic : public GPUMatrixBase {
         set_stride_contiguous();
     }
 
-    // Owning its memory as an allocation from a stream's memory arena
-    // GPUMatrixDynamic(uint32_t m, uint32_t n, sycl::queue& stream,
-    // 					MatrixLayout layout = CM)
-    // 	: m_rows{m}, m_cols{n}, m_layout{layout} {
-    // 		m_arena_allocation =
-    // std::make_shared<DeviceMemArena::Allocation>(allocate_workspace(stream, m *
-    // n * sizeof(T))); 	m_data = (T*)m_arena_allocation->data();
-    // 	set_stride_contiguous();
-    // }
     GPUMatrixDynamic(uint32_t m, uint32_t n, sycl::queue &stream, MatrixLayout layout = CM)
         : m_rows{m}, m_cols{n}, m_layout{layout} {
         m_arena_allocation = nullptr;
@@ -136,15 +96,6 @@ template <typename T> class GPUMatrixDynamic : public GPUMatrixBase {
         m_data = (T *)m_malloc_allocation->data();
         set_stride_contiguous();
     }
-
-    // Pointing to external memory
-    // explicit GPUMatrixDynamic(T* data, uint32_t m, uint32_t n, MatrixLayout
-    // layout = CM, uint32_t stride = 0, std::shared_ptr<DeviceMem<uint8_t>>
-    // malloc_allocation = nullptr, std::shared_ptr<DeviceMemArena::Allocation>
-    // arena_allocation = nullptr) : m_data{data}, m_layout{layout},
-    // m_malloc_allocation{malloc_allocation},
-    // m_arena_allocation{arena_allocation} { 	set(data, m, n, stride);
-    // }
 
     explicit GPUMatrixDynamic(T *data, uint32_t m, uint32_t n, MatrixLayout layout = CM, uint32_t stride = 0)
         : m_data{data}, m_layout{layout} {
@@ -189,12 +140,6 @@ template <typename T> class GPUMatrixDynamic : public GPUMatrixBase {
     }
 
     void resize(uint32_t rows, uint32_t cols) {
-        // if (m_arena_allocation) {
-        //                 sycl::queue& stream = m_arena_allocation->stream();
-        //                 m_arena_allocation.reset();
-        // 	m_arena_allocation =
-        // std::make_shared<DeviceMemArena::Allocation>(allocate_workspace(stream,
-        // rows * cols * sizeof(T))); } else
         if (m_malloc_allocation) {
             m_malloc_allocation.reset();
             m_malloc_allocation = std::make_shared<DeviceMem<uint8_t>>((int)(rows * cols * sizeof(T)));
@@ -255,203 +200,23 @@ template <typename T> class GPUMatrixDynamic : public GPUMatrixBase {
     void memset(int value) {
         CHECK_THROW(data());
         CHECK_THROW(is_contiguous());
-        /*
-        DPCT1003:84: Migrated API does not return error code. (*, 0) is
-        inserted. You may need to rewrite this code.
-        */
-        CUDA_CHECK_THROW((dpct::get_default_queue().memset(data(), value, n_bytes()).wait(), 0));
+
+        dpct::get_default_queue().memset(data(), value, n_bytes()).wait();
     }
 
     void memset_async(sycl::queue &stream, int value) {
         CHECK_THROW(data());
         CHECK_THROW(is_contiguous());
-        /*
-        DPCT1003:85: Migrated API does not return error code. (*, 0) is
-        inserted. You may need to rewrite this code.
-        */
-        CUDA_CHECK_THROW((stream.memset(data(), value, n_bytes()), 0));
+        stream.memset(data(), value, n_bytes());
     }
 
     std::vector<T> to_cpu_vector() {
         CHECK_THROW(data());
         CHECK_THROW(is_contiguous());
         std::vector<T> v(n_elements());
-        /*
-        DPCT1003:86: Migrated API does not return error code. (*, 0) is
-        inserted. You may need to rewrite this code.
-        */
-        CUDA_CHECK_THROW((dpct::get_default_queue().memcpy(v.data(), data(), n_bytes()).wait(), 0));
+        dpct::get_default_queue().memcpy(v.data(), data(), n_bytes()).wait();
         return v;
     }
-
-    // // Various initializations
-    // void initialize_uniform(pcg32& rnd, float low, float high) {
-    // 	CHECK_THROW(data());
-    // 	CHECK_THROW(is_contiguous());
-
-    // 	// Define probability distribution
-    // 	float scale = high - low;
-
-    // 	// Sample initialized values
-    // 	std::vector<T> new_data(n_elements());
-
-    // 	for (size_t i = 0; i < new_data.size(); ++i) {
-    // 		new_data[i] = (T)(low + rnd.next_float() * scale);
-    // 	}
-
-    //             /*
-    //             DPCT1003:87: Migrated API does not return error code. (*, 0) is
-    //             inserted. You may need to rewrite this code.
-    //             */
-    //             CUDA_CHECK_THROW(
-    //                 (dpct::get_default_queue()
-    //                      .memcpy(data(), new_data.data(), n_bytes())
-    //                      .wait(),
-    //                  0));
-    //     }
-
-    //     void initialize_xavier_uniform(pcg32 &rnd, float scale = 1) try {
-    //             CHECK_THROW(data());
-    // 	CHECK_THROW(is_contiguous());
-
-    // 	// Define probability distribution
-    // 	scale *= std::sqrt(6.0f / (float)(fan_in() + fan_out()));
-
-    // 	// Sample initialized values
-    // 	std::vector<T> new_data(n_elements());
-
-    // 	for (size_t i = 0; i < new_data.size(); ++i) {
-    // 		new_data[i] = (T)(rnd.next_float() * 2.0f * scale - scale);
-    // 	}
-
-    //             /*
-    //             DPCT1003:88: Migrated API does not return error code. (*, 0) is
-    //             inserted. You may need to rewrite this code.
-    //             */
-    //             CUDA_CHECK_THROW(
-    //                 (dpct::get_default_queue()
-    //                      .memcpy(data(), new_data.data(), n_bytes())
-    //                      .wait(),
-    //                  0));
-    //     }
-    //     catch (sycl::exception const &exc) {
-    //       std::cerr << exc.what() << "Exception caught at file:" << __FILE__
-    //                 << ", line:" << __LINE__ << std::endl;
-    //       std::exit(1);
-    //     }
-
-    //     void initialize_fa_uniform_forward(pcg32& rnd, float scale = 1) {
-    // 	CHECK_THROW(data());
-    // 	CHECK_THROW(is_contiguous());
-
-    // 	// Define probability distribution
-    // 	scale *= std::sqrt(1.0f / (float)fan_in());
-
-    // 	// Sample initialized values
-    // 	std::vector<T> new_data(n_elements());
-
-    // 	for (size_t i = 0; i < new_data.size(); ++i) {
-    // 		new_data[i] = (T)(rnd.next_float() * 2.0f * scale - scale);
-    // 	}
-
-    //             /*
-    //             DPCT1003:89: Migrated API does not return error code. (*, 0) is
-    //             inserted. You may need to rewrite this code.
-    //             */
-    //             CUDA_CHECK_THROW(
-    //                 (dpct::get_default_queue()
-    //                      .memcpy(data(), new_data.data(), n_bytes())
-    //                      .wait(),
-    //                  0));
-    //     }
-
-    // void initialize_fa_uniform_backward(pcg32& rnd, float scale = 1) {
-    // 	CHECK_THROW(data());
-    // 	CHECK_THROW(is_contiguous());
-
-    // 	// Define probability distribution
-    // 	scale *= std::sqrt(1.0f / (float)fan_out());
-
-    // 	// Sample initialized values
-    // 	std::vector<T> new_data(n_elements());
-
-    // 	for (size_t i = 0; i < new_data.size(); ++i) {
-    // 		new_data[i] = (T)(rnd.next_float() * 2.0f * scale - scale);
-    // 	}
-
-    //             /*
-    //             DPCT1003:90: Migrated API does not return error code. (*, 0) is
-    //             inserted. You may need to rewrite this code.
-    //             */
-    //             CUDA_CHECK_THROW(
-    //                 (dpct::get_default_queue()
-    //                      .memcpy(data(), new_data.data(), n_bytes())
-    //                      .wait(),
-    //                  0));
-    //     }
-
-    //     void initialize_siren_uniform(pcg32 &rnd, float scale = 1) try {
-    //             CHECK_THROW(data());
-    // 	CHECK_THROW(is_contiguous());
-
-    // 	// Define probability distribution
-    // 	scale *= std::sqrt(6.0f / (float)fan_in());
-
-    // 	// Sample initialized values
-    // 	std::vector<T> new_data(n_elements());
-
-    // 	for (size_t i = 0; i < new_data.size(); ++i) {
-    // 		new_data[i] = (T)(rnd.next_float() * 2.0f * scale - scale);
-    // 	}
-
-    //             /*
-    //             DPCT1003:91: Migrated API does not return error code. (*, 0) is
-    //             inserted. You may need to rewrite this code.
-    //             */
-    //             CUDA_CHECK_THROW(
-    //                 (dpct::get_default_queue()
-    //                      .memcpy(data(), new_data.data(), n_bytes())
-    //                      .wait(),
-    //                  0));
-    //     }
-    //     catch (sycl::exception const &exc) {
-    //       std::cerr << exc.what() << "Exception caught at file:" << __FILE__
-    //                 << ", line:" << __LINE__ << std::endl;
-    //       std::exit(1);
-    //     }
-
-    //     void initialize_siren_uniform_first(pcg32 &rnd, float scale = 1) try {
-    //             CHECK_THROW(data());
-    // 	CHECK_THROW(is_contiguous());
-
-    // 	// Define probability distribution
-
-    // 	// The 30 in the first layer comes from
-    // https://vsitzmann.github.io/siren/ 	scale *= 30.0f /
-    // (float)fan_in();
-
-    // 	// Sample initialized values
-    // 	std::vector<T> new_data(n_elements());
-
-    // 	for (size_t i = 0; i < new_data.size(); ++i) {
-    // 		new_data[i] = (T)(rnd.next_float() * 2.0f * scale - scale);
-    // 	}
-
-    //             /*
-    //             DPCT1003:92: Migrated API does not return error code. (*, 0) is
-    //             inserted. You may need to rewrite this code.
-    //             */
-    //             CUDA_CHECK_THROW(
-    //                 (dpct::get_default_queue()
-    //                      .memcpy(data(), new_data.data(), n_bytes())
-    //                      .wait(),
-    //                  0));
-    //     }
-    //     catch (sycl::exception const &exc) {
-    //       std::cerr << exc.what() << "Exception caught at file:" << __FILE__
-    //                 << ", line:" << __LINE__ << std::endl;
-    //       std::exit(1);
-    //     }
 
     void initialize_constant(float val) {
         CHECK_THROW(data());
@@ -459,30 +224,8 @@ template <typename T> class GPUMatrixDynamic : public GPUMatrixBase {
 
         std::vector<T> new_data(n_elements(), (T)val);
 
-        CUDA_CHECK_THROW((dpct::get_default_queue().memcpy(data(), new_data.data(), n_bytes()).wait(), 0));
+        dpct::get_default_queue().memcpy(data(), new_data.data(), n_bytes()).wait();
     }
-
-    // void initialize_diagonal(float val = 1) {
-    // 	CHECK_THROW(data());
-    // 	CHECK_THROW(is_contiguous());
-    // 	CHECK_THROW(n() == m()); // Must be square for diagonal init to make
-    // sense
-
-    // 	std::vector<T> new_data(n_elements(), (T)0);
-    // 	for (uint32_t i = 0; i < n(); ++i) {
-    // 		new_data[i + i*n()] = (T)val;
-    // 	}
-
-    //             /*
-    //             DPCT1003:94: Migrated API does not return error code. (*, 0) is
-    //             inserted. You may need to rewrite this code.
-    //             */
-    //             CUDA_CHECK_THROW(
-    //                 (dpct::get_default_queue()
-    //                      .memcpy(data(), new_data.data(), n_bytes())
-    //                      .wait(),
-    //                  0));
-    //     }
 
     GPUMatrixDynamic<T> transposed() const {
         return GPUMatrixDynamic<T>(data(), n(), m(), transposed_layout(), stride(), m_malloc_allocation,
@@ -516,20 +259,17 @@ template <typename T, MatrixLayout _layout = MatrixLayout::ColumnMajor> class GP
     static const MatrixLayout static_transposed_layout = _layout == RM ? CM : RM;
 
     // Owning its memory as a DeviceMem<T>
-    GPUMatrix(uint32_t m, uint32_t n) : GPUMatrixDynamic<T>{m, n, static_layout} {}
+    GPUMatrix(uint32_t m, uint32_t n) : GPUMatrixDynamic<T> { m, n, static_layout }
+    {}
 
     // Owning its memory as an allocation from a stream's memory arena
-    GPUMatrix(uint32_t m, uint32_t n, sycl::queue &stream) : GPUMatrixDynamic<T>{m, n, stream, static_layout} {}
+    GPUMatrix(uint32_t m, uint32_t n, sycl::queue &stream) : GPUMatrixDynamic<T> { m, n, stream, static_layout }
+    {}
 
-    // Pointing to external memory
-    // explicit GPUMatrix(T* data, uint32_t m, uint32_t n, uint32_t stride = 0,
-    // std::shared_ptr<DeviceMem<uint8_t>> malloc_allocation = nullptr,
-    // std::shared_ptr<DeviceMemArena::Allocation> arena_allocation = nullptr) :
-    // GPUMatrixDynamic<T>{data, m, n, static_layout, stride, malloc_allocation,
-    // arena_allocation} { }
-
-    GPUMatrix(T *data, uint32_t m, uint32_t n, uint32_t stride = 0)
-        : GPUMatrixDynamic<T>{data, m, n, static_layout, stride} {}
+    GPUMatrix(T *data, uint32_t m, uint32_t n, uint32_t stride = 0) : GPUMatrixDynamic<T> {
+        data, m, n, static_layout, stride
+    }
+    {}
 
     GPUMatrix() : GPUMatrix{nullptr, 0, 0} {}
 
@@ -577,10 +317,6 @@ template <typename T, MatrixLayout _layout = MatrixLayout::ColumnMajor> class GP
     void print() const {
         std::vector<T> data(this->cols() * this->rows());
         dpct::get_default_queue().memcpy(data.data(), this->data(), data.size() * sizeof(T)).wait();
-        // std::cout << "Raw: " << std::endl;
-        // for (uint32_t i = 0; i < data.size(); i++) {
-        //   std::cout << i << ": " << data[i] << std::endl;
-        // }
 
         std::cout << "Matrix (" << this->rows() << "x" << this->cols() << "):" << std::endl;
         for (uint32_t i = 0; i < this->rows(); ++i) {
@@ -613,23 +349,3 @@ void GPUMatrixBase::allocate_shared_memory(DeviceMem<char> &memory, std::vector<
     }
     allocate_shared_memory(memory, matrix_pointers);
 }
-
-// template <typename T>
-// DeviceMemArena::Allocation GPUMatrixBase::allocate_shared_memory(
-//     sycl::queue& stream, std::vector<GPUMatrixDynamic<T>> &matrices) {
-//         std::vector<GPUMatrixBase*> matrix_pointers;
-// 	for (auto& matrix : matrices) {
-// 		matrix_pointers.emplace_back(&matrix);
-// 	}
-// 	return allocate_shared_memory(stream, matrix_pointers);
-// }
-
-// template <typename T, MatrixLayout layout>
-// DeviceMemArena::Allocation GPUMatrixBase::allocate_shared_memory(
-//     sycl::queue& stream, std::vector<GPUMatrix<T, layout>> &matrices) {
-//         std::vector<GPUMatrixBase*> matrix_pointers;
-// 	for (auto& matrix : matrices) {
-// 		matrix_pointers.emplace_back(&matrix);
-// 	}
-// 	return allocate_shared_memory(stream, matrix_pointers);
-// }

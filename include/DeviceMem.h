@@ -149,8 +149,8 @@ template <typename T> class DeviceMem {
     /// Copies num_elements from the device to a vector on the host
     void copy_to_host(std::vector<T> &data, const size_t num_elements) const {
         if (data.size() < num_elements) {
-            throw std::runtime_error{
-                tinydpcppnn::format("Trying to copy {} elements, but vector size is only {}.", num_elements, data.size())};
+            throw std::runtime_error{tinydpcppnn::format("Trying to copy {} elements, but vector size is only {}.",
+                                                         num_elements, data.size())};
         }
 
         copy_to_host(data.data(), num_elements);
@@ -476,8 +476,8 @@ class DeviceMemArena {
 
         if (dpct::get_current_device_id() != m_device_id)
             throw std::runtime_error{tinydpcppnn::format("Attempted to use a DeviceMemArena of device {} from the "
-                                                 "wrong device {}.",
-                                                 m_device_id, dpct::get_current_device_id())};
+                                                         "wrong device {}.",
+                                                         m_device_id, dpct::get_current_device_id())};
 
         log_debug("DeviceMemArena: enlarging from {} to {}", bytes_to_string(m_size), bytes_to_string(n_bytes));
 
@@ -528,19 +528,12 @@ class DeviceMemArena {
                               m_handles.back(), 0, ZE_MEMORY_ACCESS_ATTRIBUTE_READWRITE);
         if (res != ZE_RESULT_SUCCESS)
             throw std::runtime_error{tinydpcppnn::format("DeviceMemArena::enlarge: Could not map memory into "
-                                                 "virtual address space. Retval={}",
-                                                 res)};
+                                                         "virtual address space. Retval={}",
+                                                         res)};
 
         m_size += n_bytes_to_allocate;
         total_n_bytes_allocated() += n_bytes_to_allocate;
 
-        // TODO:
-        // Need to synchronize the device to make sure memory is available to all
-        // streams. if (current_capture()) {
-        //    current_capture()->schedule_synchronize();
-        //} else {
-        //    CUDA_CHECK_THROW(cudaDeviceSynchronize());
-        //}
         q.wait();
     }
 
@@ -644,7 +637,7 @@ inline DeviceMemArena::Allocation allocate_workspace(dpct::queue_ptr stream, siz
         return {};
     }
 
-    auto &arena = stream ? stream_gpu_memory_arenas()[stream] : global_gpu_memory_arenas()[cuda_device()];
+    auto &arena = stream ? stream_gpu_memory_arenas()[stream] : global_gpu_memory_arenas()[get_device()];
     if (!arena) {
         arena = std::make_shared<DeviceMemArena>();
     }

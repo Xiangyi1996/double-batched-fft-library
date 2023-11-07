@@ -59,7 +59,7 @@ template <typename... T> std::string format(std::string_view str, T... vals) {
     os << str;
     return os.str();
 }
-}
+} // namespace tinydpcppnn
 
 enum class LogSeverity {
     Info,
@@ -103,64 +103,6 @@ void set_verbose(bool verbose);
         if (!(x)) throw std::runtime_error{FILE_LINE " check failed: " #x};                                            \
     } while (0)
 
-/// Checks the result of a cuXXXXXX call and throws an error on failure
-/*
-DPCT1001:72: The statement could not be removed.
-*/
-/*
-DPCT1000:73: Error handling if-stmt was detected but could not be rewritten.
-*/
-/*
-DPCT1007:75: Migration of cuGetErrorName is not supported.
-*/
-#define CU_CHECK_THROW(x)                                                                                              \
-    do {                                                                                                               \
-        int result = x;                                                                                                \
-        if (result != 0) {                                                                                             \
-            const char *msg;                                                                                           \
-            cuGetErrorName(result, &msg);                                                                              \
-            throw std::runtime_error{""};                                                                              \
-    //throw std::runtime_error{fmt::format(FILE_LINE " " #x " failed: {}", msg)}; \
-  }                                                                            \
- } while (0)
-
-/// Checks the result of a cuXXXXXX call and prints an error on failure
-#define CU_CHECK_PRINT(x)                                                                                              \
-    do {                                                                                                               \
-        CUresult result = x;                                                                                           \
-        if (result != CUDA_SUCCESS) {                                                                                  \
-            const char *msg;                                                                                           \
-            cuGetErrorName(result, &msg);                                                                              \
-            log_error(FILE_LINE " " #x " failed: {}", msg);                                                            \
-        }                                                                                                              \
-    } while (0)
-
-/// Checks the result of a cudaXXXXXX call and throws an error on failure
-/*
-DPCT1001:47: The statement could not be removed.
-*/
-/*
-DPCT1000:48: Error handling if-stmt was detected but could not be rewritten.
-*/
-/*
-DPCT1009:50: SYCL uses exceptions to report errors and does not use the error
-codes. The original code was commented out and a warning string was inserted.
-You need to rewrite this code.
-*/
-#define CUDA_CHECK_THROW(x)                                                                                            \
-    do {                                                                                                               \
-        dpct::err0 result = x;                                                                                         \
-        if (result != 0) throw std::runtime_error{"CUDA CHECK THROW"};                                                 \
-    } while (0)
-
-/// Checks the result of a cudaXXXXXX call and prints an error on failure
-// #define CUDA_CHECK_PRINT(x) \
-// 	do { \
-// 		cudaError_t result = x; \
-// 		if (result != cudaSuccess) \
-// 			log_error(FILE_LINE " " #x " failed: {}", cudaGetErrorString(result)); \
-// 	} while(0)
-
 //////////////////////////////
 // Enum<->string conversion //
 //////////////////////////////
@@ -184,45 +126,11 @@ std::string to_string(ReductionType reduction_type);
 // Misc helpers //
 //////////////////
 
-int cuda_runtime_version();
-inline std::string cuda_runtime_version_string() {
-    int v = 1;    // cuda_runtime_version();
-    return "1.0"; // return fmt::format("{}.{}", v / 1000, (v % 100) / 10);
-}
+int get_device();
+void set_device(int device);
+int device_count();
 
-int cuda_device();
-void set_cuda_device(int device);
-int cuda_device_count();
-
-bool cuda_supports_virtual_memory(int device);
-inline bool cuda_supports_virtual_memory() { return cuda_supports_virtual_memory(cuda_device()); }
-
-std::string cuda_device_name(int device);
-inline std::string cuda_device_name() { return cuda_device_name(cuda_device()); }
-
-uint32_t cuda_compute_capability(int device);
-inline uint32_t cuda_compute_capability() { return cuda_compute_capability(cuda_device()); }
-
-uint32_t cuda_max_supported_compute_capability();
-uint32_t cuda_supported_compute_capability(int device);
-inline uint32_t cuda_supported_compute_capability() { return cuda_supported_compute_capability(cuda_device()); }
-
-size_t cuda_max_shmem(int device);
-inline size_t cuda_max_shmem() { return cuda_max_shmem(cuda_device()); }
-
-uint32_t cuda_max_registers(int device);
-inline uint32_t cuda_max_registers() { return cuda_max_registers(cuda_device()); }
-
-size_t cuda_memory_granularity(int device);
-inline size_t cuda_memory_granularity() { return cuda_memory_granularity(cuda_device()); }
-
-struct MemoryInfo {
-    size_t total;
-    size_t free;
-    size_t used;
-};
-
-MemoryInfo cuda_memory_info();
+std::string get_device_name(int device);
 
 // Hash helpers taken from https://stackoverflow.com/a/50978188
 template <typename T> T xorshift(T n, int i) { return n ^ (n >> i); }
@@ -282,11 +190,6 @@ struct CaseInsensitiveEqual {
 template <typename T> using ci_hashmap = std::unordered_map<std::string, T, CaseInsensitiveHash, CaseInsensitiveEqual>;
 
 template <typename T> std::string type_to_string();
-
-// template <typename T, uint32_t N, size_t A>
-// std::string to_string(const tvec<T, N, A>& v) {
-// 	return fmt::format("tvec<{}, {}, {}>({})", type_to_string<T>(), N, A, join(v, ", "));
-// }
 
 inline std::string bytes_to_string(size_t bytes) {
     std::array<std::string, 7> suffixes = {{"B", "KB", "MB", "GB", "TB", "PB", "EB"}};

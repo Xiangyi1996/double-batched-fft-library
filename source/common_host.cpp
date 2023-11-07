@@ -46,19 +46,15 @@ bool g_verbose = false;
 bool verbose() { return g_verbose; }
 void set_verbose(bool verbose) { g_verbose = verbose; }
 
-// static_assert(
-// 	__CUDACC_VER_MAJOR__ > 10 || (__CUDACC_VER_MAJOR__ == 10 && __CUDACC_VER_MINOR__ >= 2),
-// 	"tiny-cuda-nn requires at least CUDA 10.2");
-
 std::function<void(LogSeverity, const std::string &)> g_log_callback = [](LogSeverity severity,
                                                                           const std::string &msg) {
     switch (severity) {
     case LogSeverity::Warning:
-        std::cerr << "tiny-cuda-nn warning: " << msg << std::endl;
+        std::cerr << "tiny-dpcpp-nn warning: " << msg << std::endl;
         ;
         break;
     case LogSeverity::Error:
-        std::cerr << "tiny-cuda-nn error: " << msg << std::endl;
+        std::cerr << "tiny-dpcpp-nn error: " << msg << std::endl;
         ;
         break;
     default:
@@ -68,15 +64,15 @@ std::function<void(LogSeverity, const std::string &)> g_log_callback = [](LogSev
     if (verbose()) {
         switch (severity) {
         case LogSeverity::Debug:
-            std::cerr << "tiny-cuda-nn debug: " << msg << std::endl;
+            std::cerr << "tiny-dpcpp-nn debug: " << msg << std::endl;
             ;
             break;
         case LogSeverity::Info:
-            std::cerr << "tiny-cuda-nn info: " << msg << std::endl;
+            std::cerr << "tiny-dpcpp-nn info: " << msg << std::endl;
             ;
             break;
         case LogSeverity::Success:
-            std::cerr << "tiny-cuda-nn success: " << msg << std::endl;
+            std::cerr << "tiny-dpcpp-nn success: " << msg << std::endl;
             ;
             break;
         default:
@@ -241,195 +237,42 @@ std::string to_string(ReductionType reduction_type) {
     }
 }
 
-int cuda_runtime_version() try {
-    int version;
-    /*
-    DPCT1003:125: Migrated API does not return error code. (*, 0) is
-    inserted. You may need to rewrite this code.
-    */
-    /*
-    DPCT1043:126: The version-related API is different in SYCL. An initial
-    code was generated, but you need to adjust it.
-    */
-    CUDA_CHECK_THROW((version = dpct::get_current_device().get_major_version(), 0));
-    return version;
-} catch (sycl::exception const &exc) {
-    std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
-    std::exit(1);
-}
-
-int cuda_device() try {
-    int device;
-    CUDA_CHECK_THROW(device = dpct::dev_mgr::instance().current_device_id());
-    return device;
-} catch (sycl::exception const &exc) {
-    std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
-    std::exit(1);
-}
-
-void set_cuda_device(int device) try {
-    /*
-    DPCT1093:127: The "device" device may be not the one intended for use.
-    Adjust the selected device if needed.
-    */
-    /*
-    DPCT1003:128: Migrated API does not return error code. (*, 0) is
-    inserted. You may need to rewrite this code.
-    */
-    CUDA_CHECK_THROW((dpct::select_device(device), 0));
-} catch (sycl::exception const &exc) {
-    std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
-    std::exit(1);
-}
-
-int cuda_device_count() try {
-    int device_count;
-    /*
-    DPCT1003:129: Migrated API does not return error code. (*, 0) is
-    inserted. You may need to rewrite this code.
-    */
-    CUDA_CHECK_THROW((device_count = dpct::dev_mgr::instance().device_count(), 0));
-    return device_count;
-} catch (sycl::exception const &exc) {
-    std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
-    std::exit(1);
-}
-
-bool cuda_supports_virtual_memory(int device) {
-    int supports_vmm;
-    supports_vmm = 1;
-    // https://registry.khronos.org/SYCL/specs/sycl-2020/html/sycl-2020.html#table.device.info
-    /*
-    DPCT1028:130: The cuDeviceGetAttribute was not migrated because
-    parameter CU_DEVICE_ATTRIBUTE_VIRTUAL_ADDRESS_MANAGEMENT_SUPPORTED is
-    unsupported.
-    */
-    // TODO: Checkfor sycl device?
-    // CU_CHECK_THROW(cuDeviceGetAttribute(
-    // 	&supports_vmm,
-    // 	CU_DEVICE_ATTRIBUTE_VIRTUAL_ADDRESS_MANAGEMENT_SUPPORTED, device));
-    return supports_vmm != 0;
-}
-
-std::string cuda_device_name(int device) try {
-    dpct::device_info props;
-    /*
-    DPCT1003:131: Migrated API does not return error code. (*, 0) is
-    inserted. You may need to rewrite this code.
-    */
-    // CUDA_CHECK_THROW((
-    //     dpct::dev_mgr::instance().get_device(device).get_device_info(props),
-    //     0));
-    return props.get_name();
-} catch (sycl::exception const &exc) {
-    std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
-    std::exit(1);
-}
-
-uint32_t cuda_compute_capability(int device) try {
-    dpct::device_info props;
-    /*
-    DPCT1003:132: Migrated API does not return error code. (*, 0) is
-    inserted. You may need to rewrite this code.
-    */
-    CUDA_CHECK_THROW((dpct::dev_mgr::instance().get_device(device).get_device_info(props), 0));
-    /*
-    DPCT1005:133: The SYCL device version is different from CUDA Compute
-    Compatibility. You may need to rewrite this code.
-    */
-    return props.get_major_version() * 10 + props.get_minor_version();
-} catch (sycl::exception const &exc) {
-    std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
-    std::exit(1);
-}
-
-uint32_t cuda_max_supported_compute_capability() {
-    int cuda_version = cuda_runtime_version();
-    if (cuda_version < 11000) {
-        return 75;
-    } else if (cuda_version < 11010) {
-        return 80;
-    } else if (cuda_version < 11080) {
-        return 86;
-    } else {
-        return 90;
+int get_device() {
+    try {
+        return dpct::dev_mgr::instance().current_device_id();
+    } catch (sycl::exception const &exc) {
+        std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
+        std::exit(1);
     }
 }
 
-uint32_t cuda_supported_compute_capability(int device) {
-    return std::min(cuda_compute_capability(device), cuda_max_supported_compute_capability());
+void set_device(int device) {
+    try {
+        dpct::select_device(device);
+    } catch (sycl::exception const &exc) {
+        std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
+        std::exit(1);
+    }
 }
 
-size_t cuda_max_shmem(int device) try {
-    dpct::device_info props;
-    // https://www.intel.com/content/www/us/en/docs/oneapi/optimization-guide-gpu/2023-0/shared-local-memory.html
-
-    /*
-    DPCT1003:134: Migrated API does not return error code. (*, 0) is
-    inserted. You may need to rewrite this code.
-    */
-    CUDA_CHECK_THROW((dpct::dev_mgr::instance().get_device(device).get_device_info(props), 0));
-    // q.get_device().get_info<sycl::info::device::local_mem_size>()
-    return props.get_local_mem_size();
-} catch (sycl::exception const &exc) {
-    std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
-    std::exit(1);
+int device_count() {
+    try {
+        return dpct::dev_mgr::instance().device_count();
+    } catch (sycl::exception const &exc) {
+        std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
+        std::exit(1);
+    }
 }
 
-uint32_t cuda_max_registers(int device) try {
-    dpct::device_info props;
-    /*
-    DPCT1003:135: Migrated API does not return error code. (*, 0) is
-    inserted. You may need to rewrite this code.
-    */
-    CUDA_CHECK_THROW((dpct::dev_mgr::instance().get_device(device).get_device_info(props), 0));
-    /*
-    DPCT1090:136: SYCL does not support the device property that would be
-    functionally compatible with regsPerBlock. It was not migrated. You need
-    to rewrite the code.
-    */
-    // return (uint32_t)props.get_max_registers;
-    return 0;
-} catch (sycl::exception const &exc) {
-    std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
-    std::exit(1);
-}
-
-size_t cuda_memory_granularity(int device) {
-    size_t granularity;
-    granularity = 0;
-    // CUmemAllocationProp prop = {};
-    // prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
-    // prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-    // prop.location.id = 0;
-    // /*
-    // DPCT1007:137: Migration of cuMemGetAllocationGranularity is not
-    // supported.
-    // */
-    // int granularity_result = cuMemGetAllocationGranularity(
-    // 	&granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM);
-
-    // CU_CHECK_THROW(granularity_result);
-    return granularity;
-}
-
-MemoryInfo cuda_memory_info() try {
-    MemoryInfo info;
-    /*
-    DPCT1003:138: Migrated API does not return error code. (*, 0) is
-    inserted. You may need to rewrite this code.
-    */
-    /*
-    DPCT1106:139: 'cudaMemGetInfo' was migrated with the Intel extensions
-    for device information which may not be supported by all compilers or
-    runtimes. You may need to adjust the code.
-    */
-    CUDA_CHECK_THROW((dpct::get_current_device().get_memory_info(info.free, info.total), 0));
-    info.used = info.total - info.free;
-    return info;
-} catch (sycl::exception const &exc) {
-    std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
-    std::exit(1);
+std::string get_device_name(int device) {
+    try {
+        dpct::device_info props;
+        dpct::dev_mgr::instance().get_device(device).get_device_info(props);
+        return props.get_name();
+    } catch (sycl::exception const &exc) {
+        std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
+        std::exit(1);
+    }
 }
 
 std::string to_snake_case(const std::string &str) {
