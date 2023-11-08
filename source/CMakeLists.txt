@@ -12,11 +12,6 @@ find_package(oneDPL REQUIRED)
 
 set(SOURCES
     SwiftNetMLP.cpp
-    DeviceMem.cpp
-    L1.cpp
-    L2.cpp
-    RelativeL1.cpp
-    RelativeL2.cpp
     network_with_encodings.cpp
 )
 # set(PUBLIC_HEADERS
@@ -38,7 +33,7 @@ target_link_options(swiftnetmlp PUBLIC -qmkl)
 target_link_libraries(swiftnetmlp PUBLIC oneDPL common)
 target_include_directories(swiftnetmlp PUBLIC "${PROJECT_SOURCE_DIR}/include/"
     "${PROJECT_SOURCE_DIR}/include/Network/"
-    "${PROJECT_SOURCE_DIR}/include/Losses/"
+    "${PROJECT_SOURCE_DIR}/include/losses/"
     "${PROJECT_SOURCE_DIR}/include/Optimizers/"
 )
 #target_include_directories(swiftnetmlp PUBLIC "${PROJECT_SOURCE_DIR}/include/common/")

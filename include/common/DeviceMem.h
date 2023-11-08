@@ -12,17 +12,19 @@
 
 #include "common.h"
 #include "common_host.h"
-// #include <fmt/format.h>
+
 using namespace sycl;
 
 #define DEBUG_GUARD_SIZE 0
 
+/// TODO: Why? We are never using this, just updating
 inline std::atomic<size_t> &total_n_bytes_allocated() {
     static std::atomic<size_t> s_total_n_bytes_allocated{0};
     return s_total_n_bytes_allocated;
 }
 
 // A templated class for managing device memory
+/// TODO: this class seems bloated. Can we simplify it?
 template <typename T> class DeviceMem {
   private:
     T *m_data = nullptr;
@@ -314,6 +316,7 @@ template <typename T> class DeviceMem {
     void allocate_memory(size_t n_bytes);
 };
 
+/// TODO: this can be a sub struct of the Arena
 struct Interval {
     // Inclusive start, exclusive end
     size_t start, end;

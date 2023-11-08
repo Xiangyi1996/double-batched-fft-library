@@ -1,15 +1,14 @@
 
 #pragma once
 
+#include "common_host.h"
 #include <DeviceMem.h>
 #include <common.h>
 #include <common_device.h>
-#include "common_host.h"
 #include <encoding.h>
 #include <gpu_matrix.h>
 #include <stdint.h>
 
-#include <dpct/dpct.hpp>
 #include <numeric>
 #include <stdexcept>
 #include <string>
@@ -36,7 +35,7 @@ template <typename T> class IdentityEncoding : public Encoding<T> {
         //           << ", m_offset: " << m_offset << std::endl;
     }
 
-    std::unique_ptr<Context> forward_impl(dpct::queue_ptr stream, const GPUMatrixDynamic<float> &input,
+    std::unique_ptr<Context> forward_impl(sycl::queue *const q, const GPUMatrixDynamic<float> &input,
                                           GPUMatrixDynamic<T> *output = nullptr, bool use_inference_params = false,
                                           bool prepare_input_gradients = false) override {
         if (!output || padded_output_width() == 0) {
@@ -78,7 +77,7 @@ template <typename T> class IdentityEncoding : public Encoding<T> {
             //             << std::endl;
 
             // Create a command group to issue commands to the queue
-            stream->submit([&](handler &cgh) {
+            q->submit([&](handler &cgh) {
                 accessor input_acc{inputBuf, cgh, read_only};
                 accessor output_acc{outputBuf, cgh, write_only};
 
@@ -128,7 +127,7 @@ template <typename T> class IdentityEncoding : public Encoding<T> {
         return std::make_unique<Context>();
     }
 
-    void backward_impl(dpct::queue_ptr stream, const Context &ctx, const GPUMatrixDynamic<float> &input,
+    void backward_impl(sycl::queue *const q, const Context &ctx, const GPUMatrixDynamic<float> &input,
                        const GPUMatrixDynamic<T> &output, const GPUMatrixDynamic<T> &dL_doutput,
                        GPUMatrixDynamic<float> *dL_dinput = nullptr, bool use_inference_params = false,
                        GradientMode param_gradients_mode = GradientMode::Overwrite) override {
@@ -159,7 +158,7 @@ template <typename T> class IdentityEncoding : public Encoding<T> {
             // }
 
             // Create a command group to issue commands to the queue
-            stream->submit([&](handler &cgh) {
+            q->submit([&](handler &cgh) {
                 // Request write access to the buffer without initialization
                 accessor dL_dx{buf_dL_dx, cgh, write_only};
                 accessor dL_dy{buf_dL_dy, cgh, read_only};

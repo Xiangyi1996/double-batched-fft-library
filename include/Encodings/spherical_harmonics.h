@@ -19,7 +19,7 @@ template <typename T> class SphericalHarmonicsEncoding : public Encoding<T> {
         }
     }
 
-    std::unique_ptr<Context> forward_impl(dpct::queue_ptr stream, const GPUMatrixDynamic<float> &input,
+    std::unique_ptr<Context> forward_impl(sycl::queue *const q, const GPUMatrixDynamic<float> &input,
                                           GPUMatrixDynamic<T> *output = nullptr, bool use_inference_params = false,
                                           bool prepare_input_gradients = false) override {
         const uint32_t n_elements = input.n();
@@ -41,7 +41,7 @@ template <typename T> class SphericalHarmonicsEncoding : public Encoding<T> {
             auto local_padded_output_width = padded_output_width();
             auto local_m_n_output_dims = m_n_output_dims;
             // Create a command group to issue commands to the queue
-            stream->submit([&](handler &cgh) {
+            q->submit([&](handler &cgh) {
                 accessor input_acc{inputBuf, cgh, read_only};
                 accessor output_acc{outputBuf, cgh, write_only};
 
@@ -77,7 +77,7 @@ template <typename T> class SphericalHarmonicsEncoding : public Encoding<T> {
         return std::make_unique<Context>();
     }
 
-    void backward_impl(dpct::queue_ptr stream, const Context &ctx, const GPUMatrixDynamic<float> &input,
+    void backward_impl(sycl::queue *const q, const Context &ctx, const GPUMatrixDynamic<float> &input,
                        const GPUMatrixDynamic<T> &output, const GPUMatrixDynamic<T> &dL_doutput,
                        GPUMatrixDynamic<float> *dL_dinput = nullptr, bool use_inference_params = false,
                        GradientMode param_gradients_mode = GradientMode::Overwrite) override {
@@ -85,7 +85,7 @@ template <typename T> class SphericalHarmonicsEncoding : public Encoding<T> {
         //     return;
         //   }
 
-        //   linear_kernel(kernel_sh_backward<T>, 0, stream, input.n(), m_degree,
+        //   linear_kernel(kernel_sh_backward<T>, 0, q, input.n(), m_degree,
         //                 m_n_to_pad, dL_doutput.view(), input.view(),
         //                 dL_dinput->view());
     }

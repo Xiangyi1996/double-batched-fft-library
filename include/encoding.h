@@ -3,7 +3,6 @@
 #include <common.h>
 
 #include <cstdint>
-#include <dpct/dpct.hpp>
 #include <sycl/sycl.hpp>
 
 #include "activation.h"
@@ -24,20 +23,12 @@ template <typename T> class Encoding {
     Encoding() {}
     virtual ~Encoding() {}
 
-    // void inference_mixed_precision_impl(
-    // 	dpct::queue_ptr stream, const GPUMatrixDynamic<float> &input,
-    // 	GPUMatrixDynamic<T> &output,
-    // 	bool use_inference_params = true) override {
-    // 		this->forward(stream, input, &output, use_inference_params,
-    // false);
-    // }
-
-    virtual std::unique_ptr<Context> forward_impl(dpct::queue_ptr stream, const GPUMatrixDynamic<float> &input,
+    virtual std::unique_ptr<Context> forward_impl(sycl::queue *const q, const GPUMatrixDynamic<float> &input,
                                                   GPUMatrixDynamic<T> *output = nullptr,
                                                   bool use_inference_params = false,
                                                   bool prepare_input_gradients = false) = 0;
 
-    virtual void backward_impl(dpct::queue_ptr stream, const Context &ctx, const GPUMatrixDynamic<float> &input,
+    virtual void backward_impl(sycl::queue *const q, const Context &ctx, const GPUMatrixDynamic<float> &input,
                                const GPUMatrixDynamic<T> &output, const GPUMatrixDynamic<T> &dL_doutput,
                                GPUMatrixDynamic<float> *dL_dinput = nullptr, bool use_inference_params = false,
                                GradientMode param_gradients_mode = GradientMode::Overwrite) = 0;

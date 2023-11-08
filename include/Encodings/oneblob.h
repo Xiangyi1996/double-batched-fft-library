@@ -32,7 +32,6 @@
 
 #include <common.h>
 #include <common_device.h>
-#include <dpct/dpct.hpp>
 #include <encoding.h>
 #include <gpu_memory.h>
 #include <sycl/sycl.hpp>
@@ -79,7 +78,8 @@ inline float one_blob_subwarp_aligned(F kernel, MatrixView<const float> data_in,
     device. Modify the size of the work-group to ensure that the value of
     the right-most dimension is a multiple of "32".
     */
-    float right_cdf = dpct::select_from_sub_group(item_ct1.get_sub_group(), left_cdf, bin_index + 1, n_bins);
+    // float right_cdf = dpct::select_from_sub_group(item_ct1.get_sub_group(), left_cdf, bin_index + 1, n_bins);
+    float right_cdf = sycl::select_from_group(item_ct1.get_sub_group(), left_cdf, bin_index + 1);
     if (bin_index == n_bins - 1) {
         right_cdf +=
             1; // The right CDF must gain a 1 due to wrapping from right to left (it lost one (hopefully) saturated CDF)
@@ -212,7 +212,7 @@ template <typename T> class OneBlobEncoding : public Encoding<T> {
         }
     }
 
-    std::unique_ptr<Context> forward_impl(dpct::queue_ptr stream, const GPUMatrixDynamic<float> &input,
+    std::unique_ptr<Context> forward_impl(sycl::queue *const q, const GPUMatrixDynamic<float> &input,
                                           GPUMatrixDynamic<T> *output = nullptr, bool use_inference_params = false,
                                           bool prepare_input_gradients = false) override {
         if (!output || padded_output_width() == 0) {
@@ -235,7 +235,7 @@ template <typename T> class OneBlobEncoding : public Encoding<T> {
             query info::device::max_work_group_size. Adjust the
             work-group size if needed.
             */
-            stream->submit([&](sycl::handler &cgh) {
+            q->submit([&](sycl::handler &cgh) {
                 auto input_n_ct0 = input.n();
                 auto input_view_ct2 = input.view();
                 auto output_pitched_ptr_ct3 = output->pitched_ptr();
@@ -248,7 +248,7 @@ template <typename T> class OneBlobEncoding : public Encoding<T> {
             });
 
             // Padding
-            parallel_for_gpu_aos(stream, input.n(), m_n_to_pad,
+            parallel_for_gpu_aos(q, input.n(), m_n_to_pad,
                                  [n_output_dims = m_n_output_dims, out = output->pitched_ptr()](
                                      size_t elem, size_t dim) { out(elem)[n_output_dims + dim] = (T)1.0f; });
         } else {
@@ -265,7 +265,7 @@ template <typename T> class OneBlobEncoding : public Encoding<T> {
             query info::device::max_work_group_size. Adjust the
             work-group size if needed.
             */
-            stream->submit([&](sycl::handler &cgh) {
+            q->submit([&](sycl::handler &cgh) {
                 auto input_n_ct0 = input.n();
                 auto m_n_dims_to_encode_ct2 = m_n_dims_to_encode;
                 auto input_view_ct3 = input.view();
@@ -278,14 +278,14 @@ template <typename T> class OneBlobEncoding : public Encoding<T> {
             });
 
             // Padding
-            parallel_for_gpu(stream, input.n() * m_n_to_pad,
+            parallel_for_gpu(q, input.n() * m_n_to_pad,
                              [out = output->data() + input.n() * m_n_dims_to_encode](size_t i) { out[i] = (T)1.0f; });
         }
 
         return std::make_unique<Context>();
     }
 
-    void backward_impl(dpct::queue_ptr stream, const Context &ctx, const GPUMatrixDynamic<float> &input,
+    void backward_impl(sycl::queue *const q stream, const Context &ctx, const GPUMatrixDynamic<float> &input,
                        const GPUMatrixDynamic<T> &output, const GPUMatrixDynamic<T> &dL_doutput,
                        GPUMatrixDynamic<float> *dL_dinput = nullptr, bool use_inference_params = false,
                        GradientMode param_gradients_mode = GradientMode::Overwrite) override {
@@ -308,7 +308,7 @@ template <typename T> class OneBlobEncoding : public Encoding<T> {
         info::device::max_work_group_size. Adjust the work-group size if
         needed.
         */
-        stream->submit([&](sycl::handler &cgh) {
+        q->submit([&](sycl::handler &cgh) {
             auto input_n_ct0 = input.n();
             auto m_n_dims_to_encode_ct1 = m_n_dims_to_encode;
             auto dL_doutput_view_ct3 = dL_doutput.view();

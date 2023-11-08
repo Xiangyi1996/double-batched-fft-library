@@ -27,9 +27,7 @@
  *  @brief  Common utilities that are needed by pretty much every component of this framework.
  */
 
-#include <common_device.h>
-#include <common_host.h>
-#include <dpct/dpct.hpp>
+#include "common_host.h"
 #include <sycl/sycl.hpp>
 
 #include <algorithm>
@@ -237,35 +235,6 @@ std::string to_string(ReductionType reduction_type) {
 int get_device() {
     try {
         return dpct::dev_mgr::instance().current_device_id();
-    } catch (sycl::exception const &exc) {
-        std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
-        std::exit(1);
-    }
-}
-
-void set_device(int device) {
-    try {
-        dpct::select_device(device);
-    } catch (sycl::exception const &exc) {
-        std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
-        std::exit(1);
-    }
-}
-
-int device_count() {
-    try {
-        return dpct::dev_mgr::instance().device_count();
-    } catch (sycl::exception const &exc) {
-        std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
-        std::exit(1);
-    }
-}
-
-std::string get_device_name(int device) {
-    try {
-        dpct::device_info props;
-        dpct::dev_mgr::instance().get_device(device).get_device_info(props);
-        return props.get_name();
     } catch (sycl::exception const &exc) {
         std::cerr << exc.what() << "Exception caught at file:" << __FILE__ << ", line:" << __LINE__ << std::endl;
         std::exit(1);

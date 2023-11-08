@@ -38,7 +38,7 @@
 #include <DeviceMem.h>
 #include <Encodings/grid_interface.h>
 #include <common.h>
-#include <common_device.h>
+#include "common_device.h"
 #include <encoding.h>
 
 #include <sycl/sycl.hpp>
@@ -1151,20 +1151,20 @@ class GridEncodingTemplated : public GridEncoding<T> {
         }
     }
 
-    std::unique_ptr<Context> forward_impl(dpct::queue_ptr stream, const GPUMatrixDynamic<float> &input,
+    std::unique_ptr<Context> forward_impl(sycl::queue *const q, const GPUMatrixDynamic<float> &input,
                                           GPUMatrixDynamic<T> *output = nullptr, bool use_inference_params = false,
                                           bool prepare_input_gradients = false) override {
         auto forward = std::make_unique<ForwardContext>();
         const uint32_t num_elements = input.n();
         if ((!output && !prepare_input_gradients) || padded_output_width() == 0 || num_elements == 0) return forward;
 
-        // TODO: SyncedMultiStream synced_streams{stream, m_n_to_pad > 0 ? 2u : 1u};
+        // TODO: SyncedMultiStream synced_streams{q, m_n_to_pad > 0 ? 2u : 1u};
 
         // Take care of padding on the auxiliary stream
         if (output && m_n_to_pad > 0) {
             if (output->layout() == MatrixLayout::AoS) {
                 // Original:
-                // parallel_for_gpu_aos(stream, num_elements, m_n_to_pad,
+                // parallel_for_gpu_aos(q, num_elements, m_n_to_pad,
                 // [n_output_dims=m_n_output_dims, out=output->pitched_ptr()] (size_t
                 // elem, size_t dim) {
                 //    out(elem)[n_output_dims + dim] = 0;
@@ -1182,7 +1182,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
                     1, 1, tinydpcppnn::math::div_round_up((size_t)(num_elements * n_dims), n_threads)};
                 const sycl::nd_range<3> ndrange{blocks * threads, threads};
 
-                stream->parallel_for(ndrange, [=](nd_item<3> it) {
+                q->parallel_for(ndrange, [=](nd_item<3> it) {
                     const size_t dim = it.get_local_id(2);
                     const size_t elem = it.get_local_id(1) + it.get_group(2) * it.get_local_range(1);
                     if (dim >= n_dims || elem >= num_elements) return;
@@ -1194,7 +1194,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
                 auto out = output->data() + num_elements * m_n_output_dims;
                 size_t size = num_elements * m_n_to_pad;
 
-                stream->parallel_for(sycl::range<1>(size), [=](size_t i) { out[i] = 0; });
+                q->parallel_for(sycl::range<1>(size), [=](size_t i) { out[i] = 0; });
             }
         }
 
@@ -1211,18 +1211,18 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
         DeviceMemArena::Allocation workspace;
         if (output && output->layout() == MatrixLayout::AoS) {
-            workspace = allocate_workspace(stream, num_elements * m_n_features * sizeof(T));
+            workspace = allocate_workspace(q, num_elements * m_n_features * sizeof(T));
 
             encoded_positions_soa = (T *)workspace.data();
         }
 
         if (prepare_input_gradients) {
-            forward->dy_dx = GPUMatrix<float, MatrixLayout::RowMajor>{N_POS_DIMS * m_n_features, input.n(), *stream};
+            forward->dy_dx = GPUMatrix<float, MatrixLayout::RowMajor>{N_POS_DIMS * m_n_features, input.n(), *q};
         }
         auto use_inference_params2 = use_inference_params ? this->inference_params() : this->params();
         std::cout << "use_inference_params: " << use_inference_params << ", pointer: " << use_inference_params2
                   << std::endl;
-        stream->submit([&](sycl::handler &cgh) {
+        q->submit([&](sycl::handler &cgh) {
             auto m_n_features_ct1 = m_n_features;
             auto m_offset_table_ct2 = m_offset_table;
             auto m_base_resolution_ct3 = m_base_resolution;
@@ -1262,7 +1262,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
             const sycl::range<3> threads_transpose = {1, 8, m_n_levels * N_FEATURES_PER_LEVEL};
             const uint32_t blocks_transpose =
                 tinydpcppnn::math::div_round_up(num_elements, (uint32_t)threads_transpose[1]);
-            stream->submit([&](sycl::handler &cgh) {
+            q->submit([&](sycl::handler &cgh) {
                 auto output_pitched_ptr_ct2 = output->pitched_ptr();
                 cgh.parallel_for(
                     sycl::nd_range<3>(sycl::range<3>(1, 1, blocks_transpose) * threads_transpose, threads_transpose),
@@ -1276,7 +1276,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
         return forward;
     }
 
-    void backward_impl(sycl::queue *stream, const Context &ctx, const GPUMatrixDynamic<float> &input,
+    void backward_impl(sycl::queue * const q, const Context &ctx, const GPUMatrixDynamic<float> &input,
                        const GPUMatrixDynamic<T> &output, const GPUMatrixDynamic<T> &dL_doutput,
                        GPUMatrixDynamic<float> *dL_dinput = nullptr, bool use_inference_params = false,
                        GradientMode param_gradients_mode = GradientMode::Overwrite) override {
@@ -1289,14 +1289,14 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
         DeviceMemArena::Allocation workspace;
         if (dL_doutput.layout() == MatrixLayout::ColumnMajor) {
-            workspace = allocate_workspace(stream, num_elements * m_n_features * sizeof(T));
+            workspace = allocate_workspace(q, num_elements * m_n_features * sizeof(T));
 
             // Transpose dL_dy. Use the buffer previously occupied by the encoded
             // positions
             const sycl::range<3> threads_transpose = {1, 8, m_n_levels * N_FEATURES_PER_LEVEL};
             const uint32_t blocks_transpose =
                 tinydpcppnn::math::div_round_up(num_elements, (uint32_t)threads_transpose[1]);
-            stream->submit([&](sycl::handler &cgh) {
+            q->submit([&](sycl::handler &cgh) {
                 auto workspace_data_ct1 = (T *)workspace.data();
                 auto dL_doutput_pitched_ptr_ct2 = dL_doutput.pitched_ptr();
 
@@ -1318,14 +1318,14 @@ class GridEncodingTemplated : public GridEncoding<T> {
             DeviceMemArena::Allocation grid_gradient_tmp;
 
             if (!std::is_same<grad_t, T>::value) {
-                grid_gradient_tmp = allocate_workspace(stream, m_n_params * sizeof(grad_t));
+                grid_gradient_tmp = allocate_workspace(q, m_n_params * sizeof(grad_t));
                 grid_gradient = (grad_t *)grid_gradient_tmp.data();
             } else {
                 grid_gradient = (grad_t *)this->gradients();
             }
 
             if (param_gradients_mode == GradientMode::Overwrite) {
-                stream->memset(grid_gradient, 0, n_params() * sizeof(grad_t));
+                q->memset(grid_gradient, 0, n_params() * sizeof(grad_t));
             }
 
             static constexpr uint32_t N_THREADS_HASHGRID = 256;
@@ -1336,7 +1336,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
                 tinydpcppnn::math::div_round_up(num_elements * N_FEATURES_PER_LEVEL / N_FEATURES_PER_THREAD,
                                                 N_THREADS_HASHGRID)};
 
-            stream->submit([&](sycl::handler &cgh) {
+            q->submit([&](sycl::handler &cgh) {
                 auto m_n_features_ct1 = m_n_features;
                 auto m_offset_table_ct2 = m_offset_table;
                 auto m_base_resolution_ct3 = m_base_resolution;
@@ -1373,17 +1373,17 @@ class GridEncodingTemplated : public GridEncoding<T> {
                 auto grad = this->gradients();
                 auto grad_tmp = grid_gradient;
 
-                stream->parallel_for(sycl::range<1>(n_params()), [&](size_t i) { grad[i] = (T)grad_tmp[i]; });
+                q->parallel_for(sycl::range<1>(n_params()), [&](size_t i) { grad[i] = (T)grad_tmp[i]; });
             }
         }
 
         if (!dL_dinput) return;
 
-        linear_kernel(kernel_grid_backward_input<T, N_POS_DIMS>, 0, stream, num_elements, m_n_features, dL_dy_rm,
+        linear_kernel(kernel_grid_backward_input<T, N_POS_DIMS>, 0, q, num_elements, m_n_features, dL_dy_rm,
                       forward.dy_dx.data(), dL_dinput->view());
     }
 
-    void backward_backward_input_impl(sycl::queue *stream, const Context &ctx, const GPUMatrixDynamic<float> &input,
+    void backward_backward_input_impl(sycl::queue * const q, const Context &ctx, const GPUMatrixDynamic<float> &input,
                                       const GPUMatrixDynamic<float> &dL_ddLdinput,
                                       const GPUMatrixDynamic<T> &dL_doutput,
                                       GPUMatrixDynamic<T> *dL_ddLdoutput = nullptr,
@@ -1401,14 +1401,14 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
         DeviceMemArena::Allocation workspace;
         if (dL_doutput.layout() == MatrixLayout::ColumnMajor) {
-            workspace = allocate_workspace(stream, num_elements * m_n_features * sizeof(T));
+            workspace = allocate_workspace(q, num_elements * m_n_features * sizeof(T));
 
             // Transpose dL_dy. Use the buffer previously occupied by the encoded
             // positions
             const sycl::range<3> threads_transpose = {1, 8, m_n_levels * N_FEATURES_PER_LEVEL};
             const uint32_t blocks_transpose =
                 tinydpcppnn::math::div_round_up(num_elements, (uint32_t)threads_transpose[1]);
-            stream->submit([&](sycl::handler &cgh) {
+            q->submit([&](sycl::handler &cgh) {
                 auto workspace_data_ct1 = (T *)workspace.data();
                 auto dL_doutput_pitched_ptr_ct2 = dL_doutput.pitched_ptr();
 
@@ -1430,14 +1430,14 @@ class GridEncodingTemplated : public GridEncoding<T> {
             DeviceMemArena::Allocation grid_gradient_tmp;
 
             if (!std::is_same<grad_t, T>::value) {
-                grid_gradient_tmp = allocate_workspace(stream, m_n_params * sizeof(grad_t));
+                grid_gradient_tmp = allocate_workspace(q, m_n_params * sizeof(grad_t));
                 grid_gradient = (grad_t *)grid_gradient_tmp.data();
             } else {
                 grid_gradient = (grad_t *)this->gradients();
             }
 
             if (param_gradients_mode == GradientMode::Overwrite) {
-                stream->memset(grid_gradient, 0, n_params() * sizeof(grad_t));
+                q->memset(grid_gradient, 0, n_params() * sizeof(grad_t));
             }
 
             static constexpr uint32_t N_THREADS_HASHGRID = 256;
@@ -1449,7 +1449,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
                                                 N_THREADS_HASHGRID)};
 
             // from dL_d(dL_dx) to dL_dgrid
-            stream->submit([&](sycl::handler &cgh) {
+            q->submit([&](sycl::handler &cgh) {
                 auto m_n_features_ct1 = m_n_features;
                 auto m_offset_table_ct2 = m_offset_table;
                 auto m_base_resolution_ct3 = m_base_resolution;
@@ -1479,13 +1479,13 @@ class GridEncodingTemplated : public GridEncoding<T> {
             if constexpr (!std::is_same<grad_t, T>::value) {
                 auto grad = this->gradients();
                 auto grad_tmp = grid_gradient;
-                stream->parallel_for(sycl::range<1>(n_params()), [&](size_t i) { grad[i] = (T)grad_tmp[i]; });
+                q->parallel_for(sycl::range<1>(n_params()), [&](size_t i) { grad[i] = (T)grad_tmp[i]; });
             }
         }
 
         if (dL_ddLdoutput) {
             // from dL_d(dL_dx) to dL_doutput
-            linear_kernel(kernel_grid_backward_input_backward_dLdoutput<T, N_POS_DIMS>, 0, stream, num_elements,
+            linear_kernel(kernel_grid_backward_input_backward_dLdoutput<T, N_POS_DIMS>, 0, q, num_elements,
                           m_n_features,
                           // inputs
                           dL_ddLdinput.view(), forward.dy_dx.data(), dL_dy_rm,
@@ -1503,7 +1503,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
                                                 N_THREADS_HASHGRID)};
 
             // from dL_d(dL_dx) to dL_dx
-            stream->submit([&](sycl::handler &cgh) {
+            q->submit([&](sycl::handler &cgh) {
                 auto m_n_features_ct1 = m_n_features;
                 auto m_offset_table_ct2 = m_offset_table;
                 auto m_base_resolution_ct3 = m_base_resolution;

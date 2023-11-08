@@ -39,7 +39,6 @@
 #include <multi_stream.h>
 #include <stdint.h>
 
-#include <dpct/dpct.hpp>
 #include <numeric>
 #include <stdexcept>
 #include <string>
@@ -201,7 +200,7 @@ template <typename T> class CompositeEncoding : public Encoding<T> {
         }
     }
 
-    std::unique_ptr<Context> forward_impl(dpct::queue_ptr stream, const GPUMatrixDynamic<float> &input,
+    std::unique_ptr<Context> forward_impl(sycl::queue *const q, const GPUMatrixDynamic<float> &input,
                                           GPUMatrixDynamic<T> *output = nullptr, bool use_inference_params = false,
                                           bool prepare_input_gradients = false) override {
         if (m_n_dims_to_encode == 0) {
@@ -213,8 +212,8 @@ template <typename T> class CompositeEncoding : public Encoding<T> {
 
         GPUMatrixDynamic<T> *reduced_output = output;
         if (m_reduction_type != ReductionType::Concatenation) {
-            forward->to_reduce = GPUMatrixDynamic<T>{padded_output_width() * (uint32_t)m_nested.size(), input.n(),
-                                                     stream, preferred_output_layout()};
+            forward->to_reduce = GPUMatrixDynamic<T>{padded_output_width() * (uint32_t)m_nested.size(), input.n(), q,
+                                                     preferred_output_layout()};
             output = &forward->to_reduce;
         }
 
@@ -232,8 +231,8 @@ template <typename T> class CompositeEncoding : public Encoding<T> {
             }
 
             forward->nested[i] =
-                nested->forward(stream, // TODO: use SyncedMultiStream but ensure memory arena
-                                        // allocations happen on `stream`
+                nested->forward(q, // TODO: use SyncedMultiStream but ensure memory arena
+                                   // allocations happen on `stream`
                                 input.slice_rows(input_offset, input_width), output ? &sliced_output : nullptr,
                                 use_inference_params, prepare_input_gradients);
 
@@ -244,11 +243,11 @@ template <typename T> class CompositeEncoding : public Encoding<T> {
         if (reduced_output && m_reduction_type != ReductionType::Concatenation) {
             switch (m_reduction_type) {
             case ReductionType::Sum:
-                linear_kernel(reduce_sum_forward<T>, 0, stream, input.n(), padded_output_width(),
-                              (uint32_t)m_nested.size(), forward->to_reduce.view(), reduced_output->view());
+                linear_kernel(reduce_sum_forward<T>, 0, q, input.n(), padded_output_width(), (uint32_t)m_nested.size(),
+                              forward->to_reduce.view(), reduced_output->view());
                 break;
             case ReductionType::Product:
-                linear_kernel(reduce_product_forward<T>, 0, stream, input.n(), padded_output_width(),
+                linear_kernel(reduce_product_forward<T>, 0, q, input.n(), padded_output_width(),
                               (uint32_t)m_nested.size(), forward->to_reduce.view(), reduced_output->view());
                 break;
             default:
@@ -259,7 +258,7 @@ template <typename T> class CompositeEncoding : public Encoding<T> {
         return forward;
     }
 
-    void backward_impl(dpct::queue_ptr stream, const Context &ctx, const GPUMatrixDynamic<float> &input,
+    void backward_impl(sycl::queue *const q, const Context &ctx, const GPUMatrixDynamic<float> &input,
                        const GPUMatrixDynamic<T> &output, const GPUMatrixDynamic<T> &dL_doutput,
                        GPUMatrixDynamic<float> *dL_dinput = nullptr, bool use_inference_params = false,
                        GradientMode param_gradients_mode = GradientMode::Overwrite) override {
@@ -276,15 +275,15 @@ template <typename T> class CompositeEncoding : public Encoding<T> {
         GPUMatrixDynamic<T> dL_dnested_output;
         if (m_reduction_type != ReductionType::Concatenation) {
             dL_dnested_output =
-                GPUMatrixDynamic<T>{forward.to_reduce.m(), forward.to_reduce.n(), stream, forward.to_reduce.layout()};
+                GPUMatrixDynamic<T>{forward.to_reduce.m(), forward.to_reduce.n(), q, forward.to_reduce.layout()};
             dL_dunreduced_output = &dL_dnested_output;
             switch (m_reduction_type) {
             case ReductionType::Sum:
-                linear_kernel(reduce_sum_backward<T>, 0, stream, input.n(), padded_output_width(),
-                              (uint32_t)m_nested.size(), dL_dunreduced_output->view(), dL_doutput.view());
+                linear_kernel(reduce_sum_backward<T>, 0, q, input.n(), padded_output_width(), (uint32_t)m_nested.size(),
+                              dL_dunreduced_output->view(), dL_doutput.view());
                 break;
             case ReductionType::Product:
-                linear_kernel(reduce_product_backward<T>, 0, stream, input.n(), padded_output_width(),
+                linear_kernel(reduce_product_backward<T>, 0, q, input.n(), padded_output_width(),
                               (uint32_t)m_nested.size(), forward.to_reduce.view(), dL_dunreduced_output->view(),
                               dL_doutput.view());
                 break;
@@ -293,7 +292,7 @@ template <typename T> class CompositeEncoding : public Encoding<T> {
             }
         }
 
-        SyncedMultiStream synced_streams{stream, m_nested.size()};
+        SyncedMultiStream synced_streams{q, m_nested.size()};
 
         uint32_t output_offset = 0;
 

@@ -36,7 +36,6 @@
 #include <encoding.h>
 
 #include <cstdint>
-#include <dpct/dpct.hpp>
 #include <sycl/sycl.hpp>
 
 template <typename T>

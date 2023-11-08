@@ -31,7 +31,6 @@
 
 #include <common.h>
 #include <common_device.h>
-#include <dpct/dpct.hpp>
 #include <encoding.h>
 #include <gpu_memory.h>
 #include <sycl/sycl.hpp>
@@ -118,7 +117,7 @@ template <typename T> class TriangleWaveEncoding : public Encoding<T> {
         m_n_output_dims = m_n_dims_to_encode * m_n_frequencies;
     }
 
-    std::unique_ptr<Context> forward_impl(dpct::queue_ptr stream, const GPUMatrixDynamic<float> &input,
+    std::unique_ptr<Context> forward_impl(sycl::queue *const q, const GPUMatrixDynamic<float> &input,
                                           GPUMatrixDynamic<T> *output = nullptr, bool use_inference_params = false,
                                           bool prepare_input_gradients = false) override {
         auto forward = std::make_unique<ForwardContext>();
@@ -131,13 +130,13 @@ template <typename T> class TriangleWaveEncoding : public Encoding<T> {
             forward->dy_dx = GPUMatrix<float>{m_n_dims_to_encode * m_n_frequencies, input.n(), stream};
         }
 
-        linear_kernel(triangle_wave_encoding<T>, 0, stream, input.n() * padded_output_width(), m_n_frequencies,
+        linear_kernel(triangle_wave_encoding<T>, 0, q, input.n() * padded_output_width(), m_n_frequencies,
                       m_n_dims_to_encode, m_n_to_pad, input.view(), output->view(), forward->dy_dx.data());
 
         return forward;
     }
 
-    void backward_impl(dpct::queue_ptr stream, const Context &ctx, const GPUMatrixDynamic<float> &input,
+    void backward_impl(sycl::queue *const q, const Context &ctx, const GPUMatrixDynamic<float> &input,
                        const GPUMatrixDynamic<T> &output, const GPUMatrixDynamic<T> &dL_doutput,
                        GPUMatrixDynamic<float> *dL_dinput = nullptr, bool use_inference_params = false,
                        GradientMode param_gradients_mode = GradientMode::Overwrite) override {
@@ -147,7 +146,7 @@ template <typename T> class TriangleWaveEncoding : public Encoding<T> {
 
         const auto &forward = dynamic_cast<const ForwardContext &>(ctx);
 
-        linear_kernel(triangle_wave_encoding_backward<T>, 0, stream, input.n() * m_n_dims_to_encode, m_n_dims_to_encode,
+        linear_kernel(triangle_wave_encoding_backward<T>, 0, q, input.n() * m_n_dims_to_encode, m_n_dims_to_encode,
                       m_n_frequencies, dL_doutput.view(), forward.dy_dx.data(), dL_dinput->view());
     }
 

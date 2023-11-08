@@ -16,9 +16,10 @@
  * @param cols  The number of columns in the layout.
  * @return      The packed layout coordinate for the given index.
  */
-int toPackedLayoutCoord(int idx, int rows, int cols) {
-    int i = idx / cols;
-    int j = idx % cols;
+unsigned toPackedLayoutCoord(const unsigned idx, const unsigned rows, const unsigned cols) {
+    assert(idx < rows * cols);
+    const int i = idx / cols;
+    const int j = idx % cols;
     if (i % 2 == 0) {
         return i * cols + 2 * j;
     } else {
@@ -40,9 +41,9 @@ int toPackedLayoutCoord(int idx, int rows, int cols) {
  * @param cols  The number of columns in the layout.
  * @return      The index corresponding to the given packed layout coordinate.
  */
-int fromPackedLayoutCoord(int idx, int rows, int cols) {
-    int i = idx / (cols * 2);
-    int j = idx % (cols * 2);
+unsigned fromPackedLayoutCoord(const unsigned idx, const unsigned rows, const unsigned cols) {
+    const int i = idx / (cols * 2);
+    const int j = idx % (cols * 2);
     if (j % 2 == 0) {
         return (i * 2) * cols + j / 2;
     } else {

@@ -178,7 +178,7 @@ template <typename T> struct MatrixView {
  * @param cols Number of columns in original matrix
  * @return Index in packed matrix layout
  */
-extern SYCL_EXTERNAL int toPackedLayoutCoord(int idx, int rows, int cols);
+extern SYCL_EXTERNAL unsigned toPackedLayoutCoord(const unsigned idx, const unsigned rows, const unsigned cols);
 
 /**
  * @brief Convert index from packed layout to original matrix layout
@@ -188,7 +188,7 @@ extern SYCL_EXTERNAL int toPackedLayoutCoord(int idx, int rows, int cols);
  * @param cols Number of columns in original matrix
  * @return Index in original matrix layout
  */
-extern SYCL_EXTERNAL int fromPackedLayoutCoord(int idx, int rows, int cols);
+extern SYCL_EXTERNAL unsigned fromPackedLayoutCoord(const unsigned idx, const unsigned rows, const unsigned cols);
 
 /**
  * @brief Compare two strings case-insensitively

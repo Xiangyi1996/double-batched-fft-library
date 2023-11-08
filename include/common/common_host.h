@@ -30,7 +30,6 @@
 #pragma once
 
 #include "common.h"
-#include <dpct/dpct.hpp>
 #include <sycl/sycl.hpp>
 
 #include <array>
@@ -127,10 +126,6 @@ std::string to_string(ReductionType reduction_type);
 //////////////////
 
 int get_device();
-void set_device(int device);
-int device_count();
-
-std::string get_device_name(int device);
 
 // Hash helpers taken from https://stackoverflow.com/a/50978188
 template <typename T> T xorshift(T n, int i) { return n ^ (n >> i); }
@@ -260,18 +255,15 @@ template <typename T> constexpr uint32_t n_blocks_linear(T n_elements, uint32_t 
 }
 
 template <typename K, typename T, typename... Types>
-inline void linear_kernel(K kernel, uint32_t shmem_size, dpct::queue_ptr stream, T n_elements, Types... args) {
+inline void linear_kernel(K kernel, uint32_t shmem_size, sycl::queue *const q, T n_elements, Types... args) {
     if (n_elements <= 0) {
         return;
     }
-    /*
-    DPCT1049:0: The work-group size passed to the SYCL kernel may exceed the
-    limit. To get the device limit, query info::device::max_work_group_size.
-    Adjust the work-group size if needed.
-    */
-    stream->parallel_for(sycl::nd_range<3>(n_blocks_linear(n_elements) * sycl::range<3>(1, 1, N_THREADS_LINEAR),
-                                           sycl::range<3>(1, 1, N_THREADS_LINEAR)),
-                         [=](sycl::nd_item<3> item_ct1) { int a = 3; });
+
+    static_assert(N_THREADS_LINEAR <= 1024);
+    q->parallel_for(sycl::nd_range<3>(n_blocks_linear(n_elements) * sycl::range<3>(1, 1, N_THREADS_LINEAR),
+                                      sycl::range<3>(1, 1, N_THREADS_LINEAR)),
+                    [=](sycl::nd_item<3> item_ct1) { int a = 3; });
 }
 
 template <typename F> void parallel_for_kernel(const size_t n_elements, F fun, const sycl::nd_item<3> &item_ct1) {
@@ -282,22 +274,18 @@ template <typename F> void parallel_for_kernel(const size_t n_elements, F fun, c
 }
 
 template <typename F>
-inline void parallel_for_gpu(uint32_t shmem_size, dpct::queue_ptr stream, size_t n_elements, F &&fun) {
+inline void parallel_for_gpu(uint32_t shmem_size, sycl::queue *const q, size_t n_elements, F &&fun) {
     if (n_elements <= 0) {
         return;
     }
-    stream->parallel_for(
+    q->parallel_for(
         sycl::nd_range<3>(sycl::range<3>(1, 1, n_blocks_linear(n_elements)) * sycl::range<3>(1, 1, N_THREADS_LINEAR),
                           sycl::range<3>(1, 1, N_THREADS_LINEAR)),
         [=](sycl::nd_item<3> item_ct1) { parallel_for_kernel<F>(n_elements, fun, item_ct1); });
 }
 
-template <typename F> inline void parallel_for_gpu(dpct::queue_ptr stream, size_t n_elements, F &&fun) {
-    parallel_for_gpu(0, stream, n_elements, std::forward<F>(fun));
-}
-
-template <typename F> inline void parallel_for_gpu(size_t n_elements, F &&fun) {
-    parallel_for_gpu(&dpct::get_default_queue(), n_elements, std::forward<F>(fun));
+template <typename F> inline void parallel_for_gpu(sycl::queue *const q, size_t n_elements, F &&fun) {
+    parallel_for_gpu(0, q, n_elements, std::forward<F>(fun));
 }
 
 template <typename F>
@@ -311,7 +299,7 @@ void parallel_for_aos_kernel(const size_t n_elements, const uint32_t n_dims, F f
 }
 
 template <typename F>
-inline void parallel_for_gpu_aos(uint32_t shmem_size, dpct::queue_ptr stream, size_t n_elements, uint32_t n_dims,
+inline void parallel_for_gpu_aos(uint32_t shmem_size, sycl::queue *const q, size_t n_elements, uint32_t n_dims,
                                  F &&fun) {
     if (n_elements <= 0 || n_dims <= 0) {
         return;
@@ -326,14 +314,13 @@ inline void parallel_for_gpu_aos(uint32_t shmem_size, dpct::queue_ptr stream, si
     limit. To get the device limit, query info::device::max_work_group_size.
     Adjust the work-group size if needed.
     */
-    stream->parallel_for(sycl::nd_range<3>(blocks * threads, threads), [=](sycl::nd_item<3> item_ct1) {
-        parallel_for_aos_kernel(n_elements, n_dims, fun, item_ct1);
-    });
+    q->parallel_for(sycl::nd_range<3>(blocks * threads, threads),
+                    [=](sycl::nd_item<3> item_ct1) { parallel_for_aos_kernel(n_elements, n_dims, fun, item_ct1); });
 }
 
 template <typename F>
-inline void parallel_for_gpu_aos(dpct::queue_ptr stream, size_t n_elements, uint32_t n_dims, F &&fun) {
-    parallel_for_gpu_aos(0, stream, n_elements, n_dims, std::forward<F>(fun));
+inline void parallel_for_gpu_aos(sycl::queue *const q, size_t n_elements, uint32_t n_dims, F &&fun) {
+    parallel_for_gpu_aos(0, q, n_elements, n_dims, std::forward<F>(fun));
 }
 
 template <typename F> inline void parallel_for_gpu_aos(size_t n_elements, uint32_t n_dims, F &&fun) {
@@ -351,7 +338,7 @@ void parallel_for_soa_kernel(const size_t n_elements, const uint32_t n_dims, F f
 }
 
 template <typename F>
-inline void parallel_for_gpu_soa(uint32_t shmem_size, dpct::queue_ptr stream, size_t n_elements, uint32_t n_dims,
+inline void parallel_for_gpu_soa(uint32_t shmem_size, sycl::queue *const q, size_t n_elements, uint32_t n_dims,
                                  F &&fun) {
     if (n_elements <= 0 || n_dims <= 0) {
         return;
@@ -359,15 +346,15 @@ inline void parallel_for_gpu_soa(uint32_t shmem_size, dpct::queue_ptr stream, si
 
     const sycl::range<3> blocks = {1, n_dims, n_blocks_linear(n_elements)};
 
-    stream->parallel_for(
+    q->parallel_for(
         sycl::nd_range<3>(sycl::range<3>(1, 1, n_blocks_linear(n_elements)) * sycl::range<3>(1, 1, N_THREADS_LINEAR),
                           sycl::range<3>(1, 1, N_THREADS_LINEAR)),
         [=](sycl::nd_item<3> item_ct1) { parallel_for_soa_kernel(n_elements, n_dims, fun, item_ct1); });
 }
 
 template <typename F>
-inline void parallel_for_gpu_soa(dpct::queue_ptr stream, size_t n_elements, uint32_t n_dims, F &&fun) {
-    parallel_for_gpu_soa(0, stream, n_elements, n_dims, std::forward<F>(fun));
+inline void parallel_for_gpu_soa(sycl::queue *const q, size_t n_elements, uint32_t n_dims, F &&fun) {
+    parallel_for_gpu_soa(0, q, n_elements, n_dims, std::forward<F>(fun));
 }
 
 template <typename F> inline void parallel_for_gpu_soa(size_t n_elements, uint32_t n_dims, F &&fun) {

@@ -2,7 +2,6 @@
 
 #include <common.h>
 
-#include <dpct/dpct.hpp>
 #include <oneapi/dpl/random>
 #include <sycl/sycl.hpp>
 
@@ -37,306 +36,15 @@ SYCL_EXTERNAL void __builtin_IB_lsc_prefetch_global_uint4(const __attribute__((o
 } // namespace builtin
 } // namespace tinydpcppnn
 
-// static constexpr float PI = 3.14159265358979323846f;
-static constexpr float SQRT2 = 1.41421356237309504880f;
-
 inline float logistic(const float x) { return 1.0f / (1.0f + sycl::exp(-x)); }
-
-inline float logit(const float x) {
-    return -sycl::log(1.0f / (sycl::fmin(sycl::fmax((float)x, 1e-9f), 1.0f - 1e-9f)) - 1.0f);
-}
-
-template <uint32_t N> inline void softmax(float vals[N]) {
-    float total = 0;
-
-    for (uint32_t i = 0; i < N; ++i) {
-        vals[i] = expf(vals[i]);
-        total += vals[i];
-    }
-
-    const float inv_total = 1.0f / total;
-
-    for (uint32_t i = 0; i < N; ++i) {
-        vals[i] *= inv_total;
-    }
-}
-
-template <uint32_t N> inline float softmax(const float vals[N], uint32_t idx) {
-    float total = 0;
-
-    for (uint32_t i = 0; i < N; ++i) {
-        total += expf(vals[i]);
-    }
-
-    return expf(vals[idx]) / total;
-}
 
 template <typename V> struct VectorFragment {
     static const uint32_t num_elements = V::size();
     V x;
 };
 
-template <typename T> T relu(T val) { return (T)sycl::max((float)val, 0.0f); }
-
-template <> inline sycl::half relu(sycl::half val) {
-#if defined(DPCT_COMPATIBILITY_TEMP) && DPCT_COMPATIBILITY_TEMP >= 800
-    return __hmax(val, (half)0.0f);
-#else
-    return (sycl::half)relu<float>((float)val);
-#endif
-}
-
-static constexpr float K_ACT = 10.0f;
-
-template <typename T, typename fragment_t>
-void warp_activation(Activation activation, const fragment_t &frag, fragment_t &result) {
-    switch (activation) {
-    case Activation::ReLU:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            result.x[t] = relu((T)frag.x[t]);
-        }
-        return;
-    case Activation::LeakyReLU:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            result.x[t] = frag.x[t] * (T)((T)frag.x[t] > (T)0.0f ? 1.0f : 0.01f);
-        }
-        return;
-    case Activation::Exponential:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            result.x[t] = (T)(sycl::exp((float)frag.x[t]));
-        }
-        return;
-    case Activation::Sine:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            result.x[t] = (T)(sycl::sin((float)frag.x[t]));
-        }
-        return;
-    case Activation::Sigmoid:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            result.x[t] = (T)(logistic((float)frag.x[t]));
-        }
-        return;
-    case Activation::Squareplus:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            float x = (float)frag.x[t] * K_ACT;
-            result.x[t] = (T)(0.5f * (x + sycl::sqrt(x * x + 4)) / K_ACT);
-        }
-        return;
-    case Activation::Softplus:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            result.x[t] = (T)(sycl::log(sycl::exp((float)frag.x[t] * K_ACT) + 1.0f) / K_ACT);
-        }
-        return;
-    case Activation::Tanh:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            result.x[t] = (T)(sycl::tanh((float)frag.x[t]));
-        }
-        return;
-    case Activation::None:
-        result = frag;
-        return;
-    default:
-        // Unsupported activation
-        // assert(false); // Commented out due to isolated strange side-effects on
-        // Windows
-        return;
-    }
-}
-
-template <typename T, typename fragment_t> fragment_t warp_activation(Activation activation, const fragment_t &frag) {
-    fragment_t result;
-    warp_activation<T>(activation, frag, result);
-    return result;
-}
-
-template <typename T, typename fragment_t, typename forward_fragment_t>
-void warp_activation_backward_in(Activation activation, const fragment_t &frag,
-                                 const forward_fragment_t &forward_frag_in, fragment_t &result) {
-    switch (activation) {
-    case Activation::ReLU:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            result.x[t] = frag.x[t] * (T)(forward_frag_in.x[t] > (T)0.0f);
-        }
-        return;
-    case Activation::LeakyReLU:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            result.x[t] = frag.x[t] * (T)(forward_frag_in.x[t] > (T)0.0f ? 1.0f : 0.01f);
-        }
-        return;
-    case Activation::Exponential:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            result.x[t] = frag.x[t] * (T)(sycl::exp((float)(forward_frag_in.x[t])));
-        }
-        return;
-    case Activation::Sine:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            result.x[t] = frag.x[t] * (T)(sycl::cos((float)(forward_frag_in.x[t])));
-        }
-        return;
-    case Activation::Sigmoid:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            float x = logistic(forward_frag_in.x[t]);
-            result.x[t] = frag.x[t] * (T)(x * (1.0f - x));
-        }
-        return;
-    case Activation::Squareplus:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            float x = (float)forward_frag_in.x[t] * K_ACT;
-            float y = 0.5f * (x + sycl::sqrt(x * x + 4));
-            result.x[t] = frag.x[t] * (T)(y * y / (y * y + 1));
-        }
-        return;
-    case Activation::Softplus:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            float tmp = sycl::exp((float)forward_frag_in.x[t] * K_ACT);
-            result.x[t] = frag.x[t] * (T)(tmp / (tmp + 1));
-        }
-        return;
-    case Activation::Tanh:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            float x = sycl::tanh((float)(forward_frag_in.x[t]));
-            result.x[t] = frag.x[t] * (T)(1.0f - x * x);
-        }
-        return;
-    case Activation::None:
-        result = frag;
-        return;
-    default:
-        // Unsupported activation
-        // assert(false); // Commented out due to isolated strange side-effects on
-        // Windows
-        return;
-    }
-}
-
-template <typename T, typename fragment_t, typename forward_fragment_t>
-fragment_t warp_activation_backward_in(Activation activation, const fragment_t &frag,
-                                       const forward_fragment_t &forward_frag_in) {
-    fragment_t result;
-    warp_activation_backward_in<T>(activation, frag, forward_frag_in, result);
-    return result;
-}
-
-template <typename T, typename fragment_t, typename forward_fragment_t>
-void warp_activation_backward(Activation activation, const fragment_t &frag, const forward_fragment_t &forward_frag,
-                              fragment_t &result) {
-    switch (activation) {
-    case Activation::ReLU:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            result.x[t] = frag.x[t] * (T)(forward_frag.x[t] > (T)0.0f);
-        }
-        return;
-    case Activation::LeakyReLU:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            result.x[t] = frag.x[t] * (T)(forward_frag.x[t] > (T)0.0f ? 1.0f : 0.01f);
-        }
-        return;
-    case Activation::Exponential:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            result.x[t] = frag.x[t] * forward_frag.x[t];
-        }
-        return;
-    case Activation::Sine:
-        // Sine requires stored pre-activations, which we don't have. We only
-        // write out the post-activations.
-        // assert(false); // Commented out due to isolated strange side-effects on
-        // Windows
-        return;
-    case Activation::Sigmoid:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            result.x[t] = frag.x[t] * (T)(forward_frag.x[t] * (T)(1.0f - (float)forward_frag.x[t]));
-        }
-        return;
-    case Activation::Squareplus:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            float y = (float)forward_frag.x[t] * K_ACT;
-            result.x[t] = frag.x[t] * (T)(y * y / (y * y + 1));
-        }
-        return;
-    case Activation::Softplus:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            result.x[t] = frag.x[t] * (T)(1.0f - sycl::exp(-(float)forward_frag.x[t] * K_ACT));
-        }
-        return;
-    case Activation::Tanh:
-
-        for (int t = 0; t < result.num_elements; t++) {
-            result.x[t] = frag.x[t] * (T)(1.0f - ((float)forward_frag.x[t] * (float)forward_frag.x[t]));
-        }
-        return;
-    case Activation::None:
-        result = frag;
-        return;
-    default:
-        // Unsupported activation
-        // assert(false); // Commented out due to isolated strange side-effects on
-        // Windows
-        return;
-    }
-}
-
-template <typename T, typename fragment_t, typename forward_fragment_t>
-fragment_t warp_activation_backward(Activation activation, const fragment_t &frag,
-                                    const forward_fragment_t &forward_frag) {
-    fragment_t result;
-    warp_activation_backward<T>(activation, frag, forward_frag, result);
-    return result;
-}
-
-#define IQ_DEFAULT_STATE 0x853c49e6748fea9bULL
-
-/// Based on https://www.iquilezles.org/www/articles/sfrand/sfrand.htm
-struct iqrand {
-    /// Initialize the pseudorandom number generator with default seed
-    iqrand() : state((uint32_t)IQ_DEFAULT_STATE) {}
-
-    /// Initialize the pseudorandom number generator with the \ref seed() function
-    iqrand(uint32_t initstate) : state(initstate) {}
-
-    /// Generate a single precision floating point value on the interval [0, 1)
-    float next_float() {
-        union {
-            float fres;
-            unsigned int ires;
-        };
-
-        state *= 16807;
-        ires = ((((unsigned int)state) >> 9) | 0x3f800000);
-        return fres - 1.0f;
-    }
-
-    uint32_t state; // RNG state.  All values are possible.
-};
-
-// using default_rng_t = pcg32;
-
 // Swap this to get rid of onedpl
 inline float random_val(uint32_t seed, uint32_t idx) {
-    // default_rng_t rng{seed};
-    // rng.advance(idx);
-    // return rng.next_float();
 
     // Create minstd_rand engine
     oneapi::dpl::minstd_rand engine(seed, idx);
@@ -346,11 +54,6 @@ inline float random_val(uint32_t seed, uint32_t idx) {
 }
 template <typename T, typename ARRAY_T>
 void sh_enc(uint32_t degree, float x, float y, float z, ARRAY_T &data_out, int offset) {
-    //   for (int i = 0; i < 16; i++) {
-    //     float val = (offset == 0) ? 1.0f : 2.0f;
-    //     data_out[i + offset] = val;
-    //     // data_out[i] = offset;
-    //   }
 
     // Let compiler figure out how to sequence/reorder these calculations w.r.t.
     // branches
@@ -1046,20 +749,6 @@ template <uint32_t N_DIMS> uint32_t reversed_prime_hash(const tnn::uvec<N_DIMS> 
     return lcg_hash<N_DIMS, 7>(pos_grid, factors);
 }
 
-// template <uint32_t N_DIMS>
-// uint32_t rng_hash(const tnn::uvec<N_DIMS>& pos_grid, const uint32_t seed =
-// 1337) { 	constexpr uint32_t N_BITS_PER_DIM = 64 / N_DIMS; 	uint64_t
-// step = 0;
-
-// 	for (uint32_t i = 0; i < N_DIMS; ++i) {
-// 		step ^= (uint64_t)pos_grid[i] << (i * N_BITS_PER_DIM);
-// 	}
-
-// 	default_rng_t rng{seed};
-// 	rng.advance((int64_t)step);
-// 	return rng.next_uint();
-// }
-
 template <uint32_t N_DIMS, HashType HASH_TYPE> uint32_t grid_hash(const tnn::uvec<N_DIMS> &pos_grid) {
     switch (HASH_TYPE) {
     case HashType::Prime:
@@ -1105,49 +794,6 @@ inline float grid_scale(uint32_t level, float log2_per_level_scale, uint32_t bas
 
 inline uint32_t grid_resolution(float scale) { return (uint32_t)sycl::ceil(scale) + 1; }
 
-template <typename T, uint32_t N, size_t A = sizeof(T)> using vector_fragment_t = VectorFragment<tnn::tvec<T, N, A>>;
-
-template <typename T, uint32_t N = 1>
-void kernel_activation(const uint32_t num_elements, const Activation act, const T *in, T *out,
-                       const sycl::nd_item<3> &item_ct1) {
-    const uint32_t i = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
-    if (i >= num_elements) return;
-
-    auto frag = ((vector_fragment_t<T, N> *)in)[i];
-    warp_activation<T>(act, frag, frag);
-    ((vector_fragment_t<T, N> *)out)[i] = frag;
-}
-
-// Transfer functions corresponding to activations; version without biases
-template <typename T, uint32_t N = 1>
-void kernel_activation_backward(const uint32_t num_elements, const Activation act, const T *__restrict__ values,
-                                const T *gradients_out, T *gradients_in, const sycl::nd_item<3> &item_ct1) {
-    const uint32_t i = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
-    if (i >= num_elements) return;
-
-    auto frag_forward_in = ((vector_fragment_t<T, N> *)values)[i];
-    auto frag = ((vector_fragment_t<T, N> *)gradients_out)[i];
-    warp_activation_backward_in<T>(act, frag, frag_forward_in, frag);
-
-    ((vector_fragment_t<T, N> *)gradients_in)[i] = frag;
-}
-
-// Transfer functions corresponding to activations, given _output_ values. Only
-// works if the activation is invertible
-template <typename T, uint32_t N = 1>
-void kernel_activation_backward_output(const uint32_t num_elements, const Activation act,
-                                       const T *__restrict__ output_values, const T *gradients_out, T *gradients_in,
-                                       const sycl::nd_item<3> &item_ct1) {
-    const uint32_t i = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
-    if (i >= num_elements) return;
-
-    auto frag_forward_out = ((vector_fragment_t<T, N> *)output_values)[i];
-    auto frag = ((vector_fragment_t<T, N> *)gradients_out)[i];
-    warp_activation_backward<T>(act, frag, frag_forward_out, frag);
-
-    ((vector_fragment_t<T, N> *)gradients_in)[i] = frag;
-}
-
 // Expands a 10-bit integer into 30 bits
 // by inserting 2 zeros after each bit.
 inline uint32_t expand_bits(uint32_t v) {
@@ -1156,38 +802,6 @@ inline uint32_t expand_bits(uint32_t v) {
     v = (v * 0x00000011u) & 0xC30C30C3u;
     v = (v * 0x00000005u) & 0x49249249u;
     return v;
-}
-
-// Calculates a 30-bit Morton code for the
-// given 3D point located within the unit cube [0,1].
-inline uint32_t morton3D(uint32_t x, uint32_t y, uint32_t z) {
-    uint32_t xx = expand_bits(x);
-    uint32_t yy = expand_bits(y);
-    uint32_t zz = expand_bits(z);
-    return xx | (yy << 1) | (zz << 2);
-}
-
-inline uint32_t morton3D_invert(uint32_t x) {
-    x = x & 0x49249249;
-    x = (x | (x >> 2)) & 0xc30c30c3;
-    x = (x | (x >> 4)) & 0x0f00f00f;
-    x = (x | (x >> 8)) & 0xff0000ff;
-    x = (x | (x >> 16)) & 0x0000ffff;
-    return x;
-}
-
-inline uint64_t expand_bits(uint64_t w) {
-    w &= 0x1fffff;
-    w = (w | w << 32) & 0x1f00000000ffff;
-    w = (w | w << 16) & 0x1f0000ff0000ff;
-    w = (w | w << 8) & 0x100f00f00f00f00f;
-    w = (w | w << 4) & 0x10c30c30c30c30c3;
-    w = (w | w << 2) & 0x1249249249249249;
-    return w;
-}
-
-inline uint64_t morton3D_64bit(const tnn::ivec3 &p) {
-    return ((expand_bits((uint64_t)p.x)) | (expand_bits((uint64_t)p.y) << 1) | (expand_bits((uint64_t)p.z) << 2));
 }
 
 inline float smoothstep(float val) { return val * val * (3.0f - 2.0f * val); }
@@ -1253,44 +867,6 @@ inline void pos_fract(const float input, float *pos, uint32_t *pos_grid, float s
     *pos = interpolation_fun(*pos);
 }
 
-inline float weight_decay(float relative_weight_decay, float absolute_weight_decay, float weight) {
-    // Relative weight decay is closely related to l2 regularization, whereas
-    // absolute weight decay corresponds to l1 regularization
-    return (1 - relative_weight_decay) * weight - sycl::copysign(absolute_weight_decay, weight);
-}
-
-inline float gaussian_cdf(const float x, const float inv_radius) {
-    /*
-    DPCT1007:46: Migration of normcdff is not supported.
-    */
-    // return normcdff(x * inv_radius);
-    return -99999999999.9f;
-}
-
-inline float gaussian_cdf_approx(const float x, const float inv_radius) {
-    static constexpr float MAGIC_SIGMOID_FACTOR = 1.12f / SQRT2;
-    return logistic(MAGIC_SIGMOID_FACTOR * x * inv_radius);
-}
-
-inline float gaussian_cdf_approx_derivative(const float result, const float inv_radius) {
-    static constexpr float MAGIC_SIGMOID_FACTOR = 1.12f / SQRT2;
-    return result * (1 - result) * MAGIC_SIGMOID_FACTOR * inv_radius;
-}
-
-inline float gaussian_pdf(const float x, const float inv_radius) {
-    return inv_radius * sycl::rsqrt(2.0f * PI) * sycl::exp(-0.5f * (x * x * inv_radius * inv_radius));
-}
-
-inline float gaussian_pdf_max_1(const float x, const float inv_radius) {
-    return sycl::exp(-0.5f * (x * x * inv_radius * inv_radius));
-}
-
-inline float tent(const float x, const float inv_radius) { return sycl::fmax(1.0f - sycl::fabs(x * inv_radius), 0.0f); }
-
-inline float tent_cdf(const float x, const float inv_radius) {
-    return sycl::fmax(0.0f, sycl::fmin(1.0f, x * inv_radius + 0.5f));
-}
-
 inline float quartic(const float x, const float inv_radius) {
     const float u = x * inv_radius;
     const float tmp = sycl::fmax(1 - u * u, 0.0f);
@@ -1305,49 +881,6 @@ inline float quartic_cdf(const float x, const float inv_radius) {
     const float u4 = u2 * u2;
     return sycl::fmax(0.0f,
                       sycl::fmin(1.0f, ((float)15 / 16) * u * (1 - ((float)2 / 3) * u2 + ((float)1 / 5) * u4) + 0.5f));
-}
-
-inline uint32_t permute(uint32_t num, uint32_t size) {
-    const uint32_t A = 1434869437; // Large prime number
-    const uint32_t B = 2097192037;
-    return ((uint64_t)num * A + B) % size;
-}
-
-template <typename T>
-void shuffle(const uint32_t n_elements, const uint32_t stride, const uint32_t seed, const T *__restrict__ in,
-             T *__restrict__ out, const sycl::nd_item<3> &item_ct1) {
-    const uint32_t i = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
-    if (i >= n_elements * stride) return;
-
-    const uint32_t elem_id = i / stride;
-    const uint32_t member_id = i % stride;
-
-    out[i] = in[permute(elem_id + seed, n_elements) * stride + member_id];
-}
-
-template <typename T>
-void fill_rollover(const uint32_t n_elements, const uint32_t stride, const uint32_t *n_input_elements_ptr, T *inout,
-                   const sycl::nd_item<3> &item_ct1) {
-    const uint32_t i = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
-    const uint32_t n_input_elements = *n_input_elements_ptr;
-
-    if (i < (n_input_elements * stride) || i >= (n_elements * stride) || n_input_elements == 0) return;
-
-    T result = inout[i % (n_input_elements * stride)];
-    inout[i] = result;
-}
-
-template <typename T>
-void fill_rollover_and_rescale(const uint32_t n_elements, const uint32_t stride, const uint32_t *n_input_elements_ptr,
-                               T *inout, const sycl::nd_item<3> &item_ct1) {
-    const uint32_t i = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
-    const uint32_t n_input_elements = *n_input_elements_ptr;
-
-    if (i < (n_input_elements * stride) || i >= (n_elements * stride) || n_input_elements == 0) return;
-
-    T result = inout[i % (n_input_elements * stride)];
-    result = (T)((float)result * n_input_elements / n_elements);
-    inout[i] = result;
 }
 
 template <typename T1, typename T2, typename T3>
@@ -1369,90 +902,10 @@ void add(const uint32_t num_elements, const T *__restrict__ data_in, T *__restri
 }
 
 template <typename T>
-void trim(const uint32_t num_elements, const uint32_t stride, const uint32_t dims, const T *__restrict__ data_in,
-          T *__restrict__ data_out, const sycl::nd_item<3> &item_ct1) {
-    const uint32_t i = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
-    if (i >= num_elements) return;
-
-    uint32_t idx = i % dims;
-    uint32_t elem = i / dims;
-
-    data_out[i] = data_in[elem * stride + idx];
-}
-
-template <typename T>
-void trim_and_cast(const uint32_t num_elements, const uint32_t stride, const uint32_t dims,
-                   const T *__restrict__ data_in, float *__restrict__ data_out, const sycl::nd_item<3> &item_ct1) {
-    const uint32_t i = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
-    if (i >= num_elements) return;
-
-    uint32_t idx = i % dims;
-    uint32_t elem = i / dims;
-
-    data_out[i] = (float)data_in[elem * stride + idx];
-}
-
-template <typename T>
 void cast(const uint32_t num_elements, const float *__restrict__ full_precision, T *__restrict__ target,
           const sycl::nd_item<3> &item_ct1) {
     const uint32_t i = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
     if (i >= num_elements) return;
 
     target[i] = (T)full_precision[i];
-}
-
-template <typename T>
-void cast_from(const uint32_t num_elements, const T *__restrict__ precision, float *__restrict__ full_precision,
-               const sycl::nd_item<3> &item_ct1) {
-    const uint32_t i = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
-    if (i >= num_elements) return;
-
-    full_precision[i] = (float)precision[i];
-}
-
-template <typename T>
-void extract_dimension_pos_neg_kernel(const uint32_t num_elements, const uint32_t dim, const uint32_t fan_in,
-                                      const uint32_t fan_out, const T *__restrict__ encoded, const MatrixLayout layout,
-                                      float *__restrict__ output, const sycl::nd_item<3> &item_ct1) {
-    const uint32_t i = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
-    if (i >= num_elements) return;
-
-    const uint32_t elem_idx = i / fan_out;
-    const uint32_t dim_idx = i % fan_out;
-
-    const uint32_t encoded_idx =
-        layout == MatrixLayout::AoS ? (elem_idx * fan_in + dim) : (elem_idx + dim * num_elements / fan_out);
-
-    if (fan_out == 1) {
-        output[i] = (float)encoded[encoded_idx];
-        return;
-    }
-
-    if (dim_idx == 0) {
-        output[i] = sycl::fmax(-(float)encoded[encoded_idx], 0.0f);
-    } else if (dim_idx == 1) {
-        output[i] = sycl::fmax((float)encoded[encoded_idx], 0.0f);
-    } else if (dim_idx == 2) {
-        output[i] = 0;
-    } else {
-        output[i] = 1;
-    }
-}
-
-template <typename T>
-void mult_scalar_kernel(const uint32_t num_elements, T *__restrict__ inout, float factor,
-                        const sycl::nd_item<3> &item_ct1) {
-    const uint32_t i = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
-    if (i >= num_elements) return;
-
-    inout[i] = (T)((float)inout[i] * factor);
-}
-
-template <typename T>
-void mult_kernel(const uint32_t num_elements, const T *factor1, const T *factor2, T *result,
-                 const sycl::nd_item<3> &item_ct1) {
-    const uint32_t i = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
-    if (i >= num_elements) return;
-
-    result[i] = factor1[i] * factor2[i];
 }

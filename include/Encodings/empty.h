@@ -32,7 +32,6 @@
 
 #include <common.h>
 #include <common_device.h>
-#include <dpct/dpct.hpp>
 #include <encoding.h>
 #include <gpu_memory.h>
 #include <sycl/sycl.hpp>
@@ -61,7 +60,7 @@ template <typename T> class EmptyEncoding : public Encoding<T> {
   public:
     EmptyEncoding(uint32_t n_dims_to_encode) : m_n_dims_to_encode{n_dims_to_encode} {}
 
-    std::unique_ptr<Context> forward_impl(dpct::queue_ptr stream, const GPUMatrixDynamic<float> &input,
+    std::unique_ptr<Context> forward_impl(sycl::queue *const q, const GPUMatrixDynamic<float> &input,
                                           GPUMatrixDynamic<T> *output = nullptr, bool use_inference_params = false,
                                           bool prepare_input_gradients = false) override {
         const uint32_t num_elements = input.n();
@@ -70,16 +69,16 @@ template <typename T> class EmptyEncoding : public Encoding<T> {
         }
 
         if (output->layout() == MatrixLayout::AoS) {
-            parallel_for_gpu_aos(stream, num_elements, m_n_to_pad,
+            parallel_for_gpu_aos(q, num_elements, m_n_to_pad,
                                  [out = output->pitched_ptr()](size_t elem, size_t dim) { out(elem)[dim] = (T)1.0f; });
         } else {
-            parallel_for_gpu(stream, num_elements * m_n_to_pad, [out = output->data()](size_t i) { out[i] = (T)1.0f; });
+            parallel_for_gpu(q, num_elements * m_n_to_pad, [out = output->data()](size_t i) { out[i] = (T)1.0f; });
         }
 
         return std::make_unique<Context>();
     }
 
-    void backward_impl(dpct::queue_ptr stream, const Context &ctx, const GPUMatrixDynamic<float> &input,
+    void backward_impl(sycl::queue *const q, const Context &ctx, const GPUMatrixDynamic<float> &input,
                        const GPUMatrixDynamic<T> &output, const GPUMatrixDynamic<T> &dL_doutput,
                        GPUMatrixDynamic<float> *dL_dinput = nullptr, bool use_inference_params = false,
                        GradientMode param_gradients_mode = GradientMode::Overwrite) override {
@@ -87,8 +86,7 @@ template <typename T> class EmptyEncoding : public Encoding<T> {
             return;
         }
 
-        linear_kernel(empty_backward<T>, 0, stream, input.n() * m_n_dims_to_encode, m_n_dims_to_encode,
-                      dL_dinput->view());
+        linear_kernel(empty_backward<T>, 0, q, input.n() * m_n_dims_to_encode, m_n_dims_to_encode, dL_dinput->view());
     }
 
     uint32_t input_width() const override { return m_n_dims_to_encode; }

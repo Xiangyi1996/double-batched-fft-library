@@ -1,6 +1,8 @@
 // Copyright (C) 2023 Intel Corporation
 // SPDX-License-Identifier: BSD-3-Clause
 
+// This file includes tests for all of our common implementations
+
 #include "doctest/doctest.h"
 
 #include "common_host.h"
@@ -68,3 +70,99 @@ TEST_CASE("isequalstring 3") { CHECK(!isequalstring("TESTE", "TEST")); }
 TEST_CASE("isequalstring 4") { CHECK(!isequalstring("TEST", "TESTE")); }
 TEST_CASE("isequalstring 5") { CHECK(!isequalstring("", "TESTE")); }
 TEST_CASE("isequalstring 6") { CHECK(isequalstring("tEsT", "TESt")); }
+
+TEST_CASE("toPackedLayoutCoord 1") {
+
+    int idx = 0;
+    int nrows = 1;
+    int ncols = 1;
+    CHECK(toPackedLayoutCoord(idx, nrows, ncols) == 0);
+}
+
+TEST_CASE("toPackedLayoutCoord 2") {
+
+    int idx = 1;
+    int nrows = 2;
+    int ncols = 2;
+    CHECK(toPackedLayoutCoord(idx, nrows, ncols) == 2);
+}
+
+TEST_CASE("toPackedLayoutCoord 3") {
+
+    int idx = 2;
+    int nrows = 2;
+    int ncols = 2;
+    CHECK(toPackedLayoutCoord(idx, nrows, ncols) == 1);
+}
+
+TEST_CASE("toPackedLayoutCoord 4") {
+
+    int idx = 4;
+    int nrows = 4;
+    int ncols = 2;
+    CHECK(toPackedLayoutCoord(idx, nrows, ncols) == 4);
+}
+
+TEST_CASE("toPackedLayoutCoord 5") {
+
+    int idx = 5;
+    int nrows = 4;
+    int ncols = 2;
+    CHECK(toPackedLayoutCoord(idx, nrows, ncols) == 6);
+}
+
+TEST_CASE("toPackedLayoutCoord 6") {
+
+    int idx = 6;
+    int nrows = 4;
+    int ncols = 2;
+    CHECK(toPackedLayoutCoord(idx, nrows, ncols) == 5);
+}
+
+TEST_CASE("fromPackedLayoutCoord 1") {
+
+    int idx = 0;
+    int nrows = 1;
+    int ncols = 1;
+    CHECK(fromPackedLayoutCoord(idx, nrows, ncols) == 0);
+}
+
+TEST_CASE("fromPackedLayoutCoord 2") {
+
+    int idx = 1;
+    int nrows = 2;
+    int ncols = 2;
+    CHECK(fromPackedLayoutCoord(idx, nrows, ncols) == 2);
+}
+
+TEST_CASE("fromPackedLayoutCoord 3") {
+
+    int idx = 2;
+    int nrows = 2;
+    int ncols = 2;
+    CHECK(fromPackedLayoutCoord(idx, nrows, ncols) == 1);
+}
+
+TEST_CASE("fromPackedLayoutCoord 4") {
+
+    int idx = 4;
+    int nrows = 4;
+    int ncols = 2;
+    CHECK(fromPackedLayoutCoord(idx, nrows, ncols) == 4);
+}
+
+TEST_CASE("fromPackedLayoutCoord 5") {
+
+    int idx = 5;
+    int nrows = 4;
+    int ncols = 2;
+    CHECK(fromPackedLayoutCoord(idx, nrows, ncols) == 6);
+}
+
+TEST_CASE("fromPackedLayoutCoord 6") {
+
+    int idx = 6;
+    int nrows = 4;
+    int ncols = 2;
+    CHECK(fromPackedLayoutCoord(idx, nrows, ncols) == 5);
+}
