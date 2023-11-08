@@ -46,6 +46,8 @@ void test_network_with_encoding() {
 
     network.forward_pass(input, 0, network_output, forward);
 
+    network.get_queue().wait();
+
     std::vector<float> out(batch_size * (OUTPUT_WIDTH));
     network_output.copy_to_host(out, network.get_queue());
 

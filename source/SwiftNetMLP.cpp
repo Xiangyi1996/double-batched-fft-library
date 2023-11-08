@@ -962,8 +962,7 @@ std::vector<sycl::event> mlp_swift_forward(queue &q, bf16 const *const __restric
                         if constexpr (activation == Activation::ReLU) {
                             for (int rowiter = 0; rowiter < Ci_data0.length(); rowiter++) // should be TM in length
                             {
-                                Ai_data0[rowiter] =
-                                    fmax((bf16)0, (bf16)Ci_data0[rowiter]); // tmpCi < (bf16)0 ? (bf16)0 : tmpCi;
+                                Ai_data0[rowiter] = fmax((bf16)0, (bf16)Ci_data0[rowiter]);
                                 Ai_data1[rowiter] = fmax((bf16)0, (bf16)Ci_data1[rowiter]);
                                 Ai_data2[rowiter] = fmax((bf16)0, (bf16)Ci_data2[rowiter]);
                                 Ai_data3[rowiter] = fmax((bf16)0, (bf16)Ci_data3[rowiter]);
