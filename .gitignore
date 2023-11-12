@@ -36,3 +36,7 @@ build/
 
 # Misc
 .vscode
+
+# Python
+**/__pycache__/
+*.egg-info
