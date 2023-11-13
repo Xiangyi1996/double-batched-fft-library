@@ -17,7 +17,8 @@ std::vector<sycl::event> mlp_swift_forward_4(sycl::queue &q, T const *const __re
     // reuse of B, this is in subgroups, ONLY works for 64
     // note that large grf mode requires this to be set to 32, but then this code does not work anymore
     constexpr int SG_SIZE = TN;
-    constexpr int SGS_IN_WG = q.get_device(info::device::max_work_group_size).get_info<>() / SG_SIZE; // maximum number
+    constexpr int SGS_IN_WG =
+        q.get_device().get_info<sycl::info::device::max_work_group_size>() / SG_SIZE; // maximum number
     constexpr int WIDTH = 4 * TN;
     constexpr size_t TM = 8;                                             // this may be adjusted in the future
     constexpr size_t TK = 8 * std::min<size_t>(8, 32 / (8 * sizeof(T))); // This depends on the datatype T
@@ -26,18 +27,16 @@ std::vector<sycl::event> mlp_swift_forward_4(sycl::queue &q, T const *const __re
     static_assert(OUTPUT_WIDTH == WIDTH);
 
     // One Block Row has TM rows an N columns.
-    auto e = q.submit([&](handler &cgh) {
+    auto e = q.submit([&](sycl::handler &cgh) {
         cgh.depends_on(deps);
-        local_accessor<T, 1> B(range<1>(WIDTH * WIDTH),
-                               cgh); // weights matrix. 64*64*2 byte = 8 kb. Thus, can have up to 16 WGs per Xe Core.
-        local_accessor<T, 1> Atmp(range<1>(TM * WIDTH * SGS_IN_WG),
-                                  cgh); // buffer for loading joint matrices. 8*64*64*2byte = 64kb. TODO: check if
-                                        // this is too much. If so, split in half
-        // number of SGS is given by batch_size / TM, since batch_size is the number of rows in the output
+
+        sycl::local_accessor<T, 1> B(sycl::range<1>(WIDTH * WIDTH), cgh);
+        sycl::local_accessor<T, 1> Atmp(sycl::range<1>(TM * WIDTH * SGS_IN_WG), cgh);
+
+        // number of SGS is given by M / TM, since batch_size is the number of rows in the output
         cgh.parallel_for(
-            nd_range<1>(M / TM * SG_SIZE,
-                        SGS_IN_WG * SG_SIZE), // assuming here that the number of block rows is divisable by SGS_IN_WG
-            [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
+            sycl::nd_range<1>(M / TM * SG_SIZE, SGS_IN_WG * SG_SIZE),
+            [=](sycl::nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
                 auto sg = item.get_sub_group();
 
                 T const *weights_ptr_loc = weights_ptr;
@@ -59,7 +58,7 @@ std::vector<sycl::event> mlp_swift_forward_4(sycl::queue &q, T const *const __re
                 if constexpr (!INFERENCE)
                     helpers::applyActivation(sg, A_sg_start, global_ptr<T>(intermediate_output + wg_and_sg_offset_A));
 
-                joint_matrix<sub_group, Tc, use::accumulator, TM, TN> C_block0, C_block1, C_block2,
+                joint_matrix<sycl::sub_group, Tc, use::accumulator, TM, TN> C_block0, C_block1, C_block2,
                     C_block3; // this is the only reason why this is not general
                 for (int layer = 0; layer < n_hidden_layers; layer++) {
                     // reset result matrices
@@ -80,11 +79,11 @@ std::vector<sycl::event> mlp_swift_forward_4(sycl::queue &q, T const *const __re
                     applyActivation<activation>(sg, C_block2, A_sg_start + 2 * TN);
                     applyActivation<activation>(sg, C_block3, A_sg_start + 3 * TN);
 
-                    if constexpr (!INFERENCE) {
+                    if constexpr (!INFERENCE)
                         helpers::moveMemorySG<TM, WIDTH, T>(sg, A_sg_start,
                                                             global_ptr<T>(intermediate_output + layer_offset_A));
-                    }
-                    layer_offset_A += M * WIWDTH;
+
+                    layer_offset_A += M * WIDTH;
                 }
 
                 // generate output, i.e. last GEMM

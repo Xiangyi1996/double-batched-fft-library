@@ -9,7 +9,6 @@ set(SOURCES
     kernel/forward4.cpp
     kernel/inference64.cpp
     kernel/training64.cpp
-    kernel/backward64.cpp
     SwiftNetMLP.cpp
 )
 
@@ -20,4 +19,8 @@ add_sycl_to_target(TARGET network SOURCES ${SOURCES})
 target_compile_options(network PUBLIC -qmkl)
 target_link_options(network PUBLIC -qmkl)
 target_compile_definitions(network PRIVATE -DSYCL2020_CONFORMANT_APIS)
-target_include_directories(network PUBLIC "${PROJECT_SOURCE_DIR}/include/network/")
+target_link_libraries(network PUBLIC common)
+target_include_directories(network PUBLIC 
+    "${PROJECT_SOURCE_DIR}/include/network/"
+    "${PROJECT_SOURCE_DIR}/include/"
+    )

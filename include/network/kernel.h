@@ -15,14 +15,15 @@
 
 #pragma once
 
-#include <SYCL/sycl.hpp>
+#include <sycl/sycl.hpp>
 #include <vector>
+
+#include "common.h"
 
 namespace tinydpcppnn {
 namespace kernels {
 
 using bf16 = sycl::ext::oneapi::bfloat16;
-using namespace tinydpcppnn::builtin;
 using namespace sycl::ext::oneapi::experimental::matrix;
 
 ////////////////////////////GENERAL FUNCTIONS WHICH CAN DO EVERYTHING///////////
@@ -32,51 +33,11 @@ using namespace sycl::ext::oneapi::experimental::matrix;
 
 // This is the general forward map which also doubles as inference. We use template
 // specialization for all the versions
-
-// WIDTH=1,...,15
-template <typename T, int INPUT_WIDTH, int OUTPUT_WIDTH, Activation activation, bool INFERENCE, bool SMALL>
-std::vector<sycl::event> mlp_swift_forward_1(sycl::queue &q, T const *const __restrict__ weights_ptr,
-                                           T const *const __restrict__ inputs_ptr,
-                                           T *const __restrict__ intermediate_output, const int n_hidden_layers,
-                                           const int batch_size, const std::vector<sycl::event> &deps) {
-    throw std::invalid_argument("General mlp_swfit_forward not yet implemented");
-}
-
-// WIDTH=16
-template <typename T, int INPUT_WIDTH, int OUTPUT_WIDTH, Activation activation, bool INFERENCE, bool SMALL>
-std::vector<sycl::event> mlp_swift_forward_16(sycl::queue &q, T const *const __restrict__ weights_ptr,
-                                              T const *const __restrict__ inputs_ptr,
-                                              T *const __restrict__ intermediate_output, const int n_hidden_layers,
-                                              const int batch_size, const std::vector<sycl::event> &deps) {
-    throw std::invalid_argument("General mlp_swfit_forward not yet implemented");
-}
-
-// WIDTH=32
-template <typename T, int INPUT_WIDTH, int OUTPUT_WIDTH, Activation activation, bool INFERENCE, bool SMALL>
-std::vector<sycl::event> mlp_swift_forward_32(sycl::queue &q, T const *const __restrict__ weights_ptr,
-                                              T const *const __restrict__ inputs_ptr,
-                                              T *const __restrict__ intermediate_output, const int n_hidden_layers,
-                                              const int batch_size, const std::vector<sycl::event> &deps) {
-    throw std::invalid_argument("General mlp_swfit_forward not yet implemented");
-}
-
-// WIDTH=64
-template <typename T, int INPUT_WIDTH, int OUTPUT_WIDTH, Activation activation, bool INFERENCE, bool SMALL>
-std::vector<sycl::event> mlp_swift_forward_64(sycl::queue &q, T const *const __restrict__ weights_ptr,
-                                              T const *const __restrict__ inputs_ptr,
-                                              T *const __restrict__ intermediate_output, const int n_hidden_layers,
-                                              const int batch_size, const std::vector<sycl::event> &deps) {
-    throw std::invalid_argument("General mlp_swfit_forward not yet implemented");
-}
-
-// WIDTH=128
-template <typename T, int INPUT_WIDTH, int OUTPUT_WIDTH, Activation activation, bool INFERENCE, bool SMALL>
-std::vector<sycl::event> mlp_swift_forward_128(sycl::queue &q, T const *const __restrict__ weights_ptr,
-                                               T const *const __restrict__ inputs_ptr,
-                                               T *const __restrict__ intermediate_output, const int n_hidden_layers,
-                                               const int batch_size, const std::vector<sycl::event> &deps) {
-    throw std::invalid_argument("General mlp_swfit_forward not yet implemented");
-}
-
+template <typename T, typename Tc, int INPUT_WIDTH, int OUTPUT_WIDTH, Activation activation,
+          Activation output_activation, bool INFERENCE, size_t TN>
+std::vector<sycl::event> mlp_swift_forward_4(sycl::queue &q, T const *const __restrict__ weights_ptr,
+                                             T const *const __restrict__ inputs_ptr,
+                                             T *const __restrict__ intermediate_output, const int n_hidden_layers,
+                                             const int M, const std::vector<sycl::event> &deps);
 } // namespace kernels
 } // namespace tinydpcppnn
