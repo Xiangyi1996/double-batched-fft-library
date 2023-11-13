@@ -6,9 +6,6 @@ include(CommonOptions)
 find_package(IntelSYCL REQUIRED)
 
 set(SOURCES
-    kernel/forward4.cpp
-    kernel/inference64.cpp
-    kernel/training64.cpp
     SwiftNetMLP.cpp
 )
 
