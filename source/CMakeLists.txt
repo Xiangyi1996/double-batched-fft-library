@@ -6,12 +6,12 @@ include(CommonOptions)
 #include(InstallLib)
 
 add_subdirectory(common)
+add_subdirectory(network)
 
 find_package(IntelSYCL REQUIRED)
 find_package(oneDPL REQUIRED)
 
 set(SOURCES
-    SwiftNetMLP.cpp
     network_with_encodings.cpp
 )
 # set(PUBLIC_HEADERS
@@ -30,9 +30,8 @@ add_sycl_to_target(TARGET swiftnetmlp SOURCES ${SOURCES})
 target_compile_definitions(swiftnetmlp PRIVATE -DSYCL2020_CONFORMANT_APIS)
 target_compile_options(swiftnetmlp PUBLIC -qmkl)
 target_link_options(swiftnetmlp PUBLIC -qmkl)
-target_link_libraries(swiftnetmlp PUBLIC oneDPL common)
+target_link_libraries(swiftnetmlp PUBLIC oneDPL common network)
 target_include_directories(swiftnetmlp PUBLIC "${PROJECT_SOURCE_DIR}/include/"
-    "${PROJECT_SOURCE_DIR}/include/Network/"
     "${PROJECT_SOURCE_DIR}/include/losses/"
     "${PROJECT_SOURCE_DIR}/include/Optimizers/"
 )
