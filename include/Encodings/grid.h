@@ -1068,7 +1068,6 @@ class GridEncodingTemplated : public GridEncoding<T> {
     // TODO: SYCL does not support atomic operations on half-precision data-types.
     // //
     /////////////////////////////////////////////////////////////////////////////////
-
     using grad_t = float;
 
     // #if TCNN_MIN_GPU_ARCH >= 62 || TCNN_MIN_GPU_ARCH == 60
@@ -1192,7 +1191,6 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
                      out(elem)[n_output_dims + dim] = 0;
                  }).wait();
-
             } else {
                 auto out = output->data() + num_elements * m_n_output_dims;
                 size_t size = num_elements * m_n_to_pad;

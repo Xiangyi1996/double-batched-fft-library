@@ -1810,8 +1810,14 @@ template <int WIDTH>
 std::vector<sycl::event> SwiftNetMLP<WIDTH>::inference(const DeviceMem<bf16> &input, float *const forward,
                                                        const size_t batch_size, const std::vector<sycl::event> &deps) {
     static_assert(WIDTH % 64 == 0, "Width must be multiple of 64.");
-    assert(batch_size % 64 == 0);
 
+    if ((batch_size % 16) != 0) {
+        throw std::invalid_argument("Batch size is not divisible by 16.");
+    }
+
+    if (batch_size < 512) {
+        throw std::invalid_argument("Batch size must be >= 512, but is " + std::to_string(batch_size));
+    }
     // if (m_inputs_width != WIDTH || m_output_width != WIDTH) {
     //     throw std::invalid_argument("inputs_width != WIDTH or output_width!= WIDTH is not supported");
     // }
@@ -1843,6 +1849,14 @@ template <int WIDTH>
 std::vector<sycl::event> SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16> &grads, float *const out_inter,
                                                            float const *const forward, const size_t batch_size,
                                                            const std::vector<sycl::event> &deps) {
+
+    if ((batch_size % 16) != 0) {
+        throw std::invalid_argument("Batch size is not divisible by 16.");
+    }
+
+    if (batch_size < 512) {
+        throw std::invalid_argument("Batch size must be >= 512, but is " + std::to_string(batch_size));
+    }
     // Compute activation backpropagation using parallel_for
     bf16 const *const Forwardbf16 = reinterpret_cast<const bf16 *>(forward);
     bf16 *const out_interbf16 = reinterpret_cast<bf16 *>(out_inter);

@@ -15,7 +15,7 @@ EncodingModule::EncodingModule(int input_width, std::string encoding_name,
 void EncodingModule::initialize_params(float *params_full_precision, int use_easy) { encoding->initialize_params(); }
 
 torch::Tensor EncodingModule::forward_pass(torch::Tensor input_tensor, torch::Tensor params, int use_inference) {
-    //   assert(input_tensor.sizes() == 2 &&
+    //   assert(input_tensor.sizes() == 2 &&p
     //          "Tensor length for Encoding forward is not equal to 2!");
     //   std::cout << "Input tensor sizes: " << input_tensor.sizes() << std::endl;
     int batch_size = input_tensor.sizes()[1];

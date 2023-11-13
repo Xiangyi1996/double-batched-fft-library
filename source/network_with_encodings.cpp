@@ -32,9 +32,6 @@ void NetworkWithEncoding::forward_pass(GPUMatrix<float> &input, int run_inferenc
     network->get_queue()
         .memcpy(network_output.data(), network->GetOutput(forward, batch_size), sizeof(bf16) * network_output.size())
         .wait();
-
-    network->get_queue()
-        .wait(); // TODO: why is this necessary? It doesn't work without the wait, if we don't wait for output before
 }
 
 DeviceMem<bf16> *NetworkWithEncoding::backward_pass(DeviceMem<bf16> &input_backward, DeviceMem<bf16> &grad_output,
