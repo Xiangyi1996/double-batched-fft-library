@@ -5,5 +5,5 @@
 
 #include "doctest/doctest.h"
 
-#include "L1.h"
-#include "L2.h"
+#include "l1.h"
+#include "l2.h"

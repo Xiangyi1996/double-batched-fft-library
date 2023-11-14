@@ -527,7 +527,7 @@ template <typename T> void DeviceMem<T>::initialize_uniform(queue q, double scal
 template <typename T>
 void DeviceMem<T>::initialize_xavier_unif(DeviceMem<T> &transposed, int input_width, int width, int output_width,
                                           int n_hidden, queue q) {
-    double x = sqrt(6.0 / ((double)(input_width + output_width)));
+    double x = std::sqrt(6.0 / ((double)(input_width + output_width)));
     initialize_uniform(x, transposed, input_width, width, output_width, n_hidden, q);
 }
 /**
@@ -542,7 +542,7 @@ void DeviceMem<T>::initialize_xavier_unif(DeviceMem<T> &transposed, int input_wi
  * @param q             The SYCL queue for memory operations.
  */
 template <typename T> void DeviceMem<T>::initialize_xavier_unif(int input_width, int output_width, queue q) {
-    double x = sqrt(6.0 / ((double)(input_width + output_width)));
+    double x = std::sqrt(6.0 / ((double)(input_width + output_width)));
     initialize_uniform(q, x);
 }
 /**
@@ -563,7 +563,7 @@ template <typename T> void DeviceMem<T>::initialize_xavier_unif(int input_width,
 template <typename T>
 void DeviceMem<T>::initialize_xavier_normal(DeviceMem<T> &transposed, int input_width, int width, int output_width,
                                             int n_hidden, queue q) {
-    double dev = sqrt(2.0 / ((double)(input_width + output_width)));
+    double dev = std::sqrt(2.0 / ((double)(input_width + output_width)));
     initialize_normal(dev, transposed, input_width, width, output_width, n_hidden, q);
 }
 
@@ -579,7 +579,7 @@ void DeviceMem<T>::initialize_xavier_normal(DeviceMem<T> &transposed, int input_
  * @param q             The SYCL queue for memory operations.
  */
 template <typename T> void DeviceMem<T>::initialize_xavier_normal(int input_width, int output_width, queue q) {
-    double dev = sqrt(2.0 / ((double)(input_width + output_width)));
+    double dev = std::sqrt(2.0 / ((double)(input_width + output_width)));
     initialize_normal(dev, q);
 }
 
@@ -699,7 +699,7 @@ template <typename T> void DeviceMem<T>::initialize_constant(T constant, queue q
 template <typename T>
 void DeviceMem<T>::initialize_he_normal(DeviceMem<T> &transposed, int input_width, int width, int output_width,
                                         int n_hidden, queue q) {
-    double dev = sqrt(2.0 / width);
+    double dev = std::sqrt(2.0 / width);
     initialize_normal(dev, transposed, input_width, width, output_width, n_hidden, q);
 }
 
@@ -714,7 +714,7 @@ void DeviceMem<T>::initialize_he_normal(DeviceMem<T> &transposed, int input_widt
  * @param q             The SYCL queue for memory operations.
  */
 template <typename T> void DeviceMem<T>::initialize_he_normal(int input_width, queue q) {
-    double dev = sqrt(2.0 / input_width);
+    double dev = std::sqrt(2.0 / input_width);
     initialize_normal(dev, q);
 }
 

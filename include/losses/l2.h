@@ -20,7 +20,7 @@ template <typename T> class L2Loss : public Loss<T> {
                 float *const __restrict__ values, T *const __restrict__ gradients) override {
         const float inv_n_elements = 1.0f / n_elements;
         q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
-            const int i = idx.get_id();
+            const int i = idx.get(0);
             l2_loss<T>(inv_n_elements, loss_scale, predictions[i], targets[i], values[i], gradients[i]);
         });
     }

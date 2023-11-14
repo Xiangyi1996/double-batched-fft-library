@@ -1,6 +1,6 @@
 #pragma once
 
-#include <common.h>
+#include "common.h"
 
 #include <oneapi/dpl/random>
 #include <sycl/sycl.hpp>

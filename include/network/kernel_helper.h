@@ -17,8 +17,6 @@ namespace kernels {
 namespace helpers {
 
 using namespace sycl::ext::oneapi::experimental::matrix;
-using sycl::global_ptr;
-using sycl::local_ptr;
 
 // load a submatrix row-major piece of size MxN int SLM
 template <int M, int N, typename Tsrc, typename Tdest, sycl::access::address_space AddressSpacesrc,
@@ -50,46 +48,50 @@ static inline void zeroMatrices(Group sg, joint_matrix<Group, T, Use, NumRows, N
 }
 
 template <typename Group, typename T, use Use, size_t NumRows, size_t NumCols, layout Layout, typename... Args>
-static inline void zeroMatrices(Group sg, joint_matrix<Group, T, Use, NumRows, NumCols, Layout> &matrix, Args... args) {
+static inline void zeroMatrices(Group sg, joint_matrix<Group, T, Use, NumRows, NumCols, Layout> &matrix,
+                                Args &...args) {
     joint_matrix_fill(sg, matrix, static_cast<T>(0));
     zeroMatrices(sg, args...);
 }
 
-template <int WIDTH, std::size_t K, typename Group, typename Ta, typename Tb, typename Tc, std::size_t M, std::size_t N,
+template <int WIDTH, std::size_t K, typename Group, typename Ta, typename Tb, typename Tc,
+          sycl::access::address_space AddressSpaceB, sycl::access::decorated IsDecoratedB, std::size_t M, std::size_t N,
           typename... AllC>
-static inline void MAD_1_ROW(
-    Group sg, joint_matrix<Group, Ta, use::a, M, K, layout::row_major> &mA, const local_ptr<Tb> &B,
-    joint_matrix<Group, Tc, use::accumulator, M, N, sycl::ext::oneapi::experimental::matrix::layout::dynamic> &mC) {
+static inline void MAD_1_ROW(Group sg, const joint_matrix<Group, Ta, use::a, M, K, layout::row_major> &mA,
+                             const sycl::multi_ptr<Tb, AddressSpaceB, IsDecoratedB> &B,
+                             joint_matrix<Group, Tc, use::accumulator, M, N> &mC) {
 
     constexpr int vnni_factor = std::max<int>(4 / sizeof(Tb), 1); // how many rows are consecutive elements
-    joint_matrix<Group, Tb, use::b, K, N, sycl::ext::intel::experimental::matrix::layout::packed> mB;
+    joint_matrix<Group, Tb, use::b, K, N, layout::ext_intel_packed> mB;
     joint_matrix_load(
         sg, mB, B, vnni_factor * WIDTH); // B is vnnied, which only has on impact if Tb is a datatype sized less than 4
-    mC = joint_matrix_mad(sg, mA, mB, mC);
+    joint_matrix_mad(sg, mC, mA, mB, mC);
 }
 
-template <int WIDTH, std::size_t K, typename Group, typename Ta, typename Tb, typename Tc, std::size_t M, std::size_t N,
+template <int WIDTH, std::size_t K, typename Group, typename Ta, typename Tb, typename Tc,
+          sycl::access::address_space AddressSpaceB, sycl::access::decorated IsDecoratedB, std::size_t M, std::size_t N,
           typename... AllC>
-static inline void
-MAD_1_ROW(Group sg, joint_matrix<Group, Ta, use::a, M, K, layout::row_major> &mA, const local_ptr<Tb> &B,
-          joint_matrix<Group, Tc, use::accumulator, M, N, sycl::ext::oneapi::experimental::matrix::layout::dynamic> &mC,
-          AllC &...Cs) {
+static inline void MAD_1_ROW(Group sg, const joint_matrix<Group, Ta, use::a, M, K, layout::row_major> &mA,
+                             const sycl::multi_ptr<Tb, AddressSpaceB, IsDecoratedB> &B,
+                             joint_matrix<Group, Tc, use::accumulator, M, N> &mC, AllC &...Cs) {
 
     constexpr int vnni_factor = std::max<int>(4 / sizeof(Tb), 1); // how many rows are consecutive elements
-    joint_matrix<Group, Tb, use::b, K, N, sycl::ext::intel::experimental::matrix::layout::packed> mB;
+    joint_matrix<Group, Tb, use::b, K, N, layout::ext_intel_packed> mB;
     // B is vnnied, which only has on impact if Tb is a datatype sized less than 4
     joint_matrix_load(sg, mB, B, vnni_factor * WIDTH);
-    mC = joint_matrix_mad(sg, mA, mB, mC);
-    // increment B to get next block col and call recursively on remaining C's
+    joint_matrix_mad(sg, mC, mA, mB, mC);
+
+    //  increment B to get next block col and call recursively on remaining C's
     MAD_1_ROW<WIDTH, K>(sg, mA, B + vnni_factor * N, Cs...);
 }
 
-template <int WIDTH, std::size_t K, typename Group, typename Ta, typename Tb, typename Tc, std::size_t M, std::size_t N,
+template <int WIDTH, std::size_t K, typename Group, typename Ta, typename Tb, typename Tc,
+          sycl::access::address_space AddressSpaceA, sycl::access::decorated IsDecoratedA,
+          sycl::access::address_space AddressSpaceB, sycl::access::decorated IsDecoratedB, std::size_t M, std::size_t N,
           typename... AllC>
-static inline void
-MAD_1_ROW(Group sg, const local_ptr<Ta> &A, const local_ptr<Tb> &B,
-          joint_matrix<Group, Tc, use::accumulator, M, N, sycl::ext::oneapi::experimental::matrix::layout::dynamic> &mC,
-          AllC &...Cs) {
+static inline void MAD_1_ROW(Group sg, const sycl::multi_ptr<Ta, AddressSpaceA, IsDecoratedA> &A,
+                             const sycl::multi_ptr<Tb, AddressSpaceB, IsDecoratedB> &B,
+                             joint_matrix<Group, Tc, use::accumulator, M, N> &mC, AllC &...Cs) {
 
     // First load the matrix A from slm, then call the jount matrix based version above
     joint_matrix<Group, Ta, use::a, M, K, layout::row_major> mA;
@@ -99,12 +101,13 @@ MAD_1_ROW(Group sg, const local_ptr<Ta> &A, const local_ptr<Tb> &B,
                         Cs...); // increment B to get next block col and call recursively on remaining C's
 }
 
-template <int WIDTH, std::size_t K, typename Group, typename Ta, typename Tb, typename Tc, std::size_t M, std::size_t N,
+template <int WIDTH, std::size_t K, typename Group, typename Ta, typename Tb, typename Tc,
+          sycl::access::address_space AddressSpaceA, sycl::access::decorated IsDecoratedA,
+          sycl::access::address_space AddressSpaceB, sycl::access::decorated IsDecoratedB, std::size_t M, std::size_t N,
           typename... AllC>
-static inline void
-MAD(Group sg, const local_ptr<Ta> &A, const local_ptr<Tb> &B,
-    joint_matrix<Group, Tc, use::accumulator, M, N, sycl::ext::oneapi::experimental::matrix::layout::dynamic> &mC,
-    AllC &...Cs) {
+static inline void MAD(Group sg, const sycl::multi_ptr<Ta, AddressSpaceA, IsDecoratedA> &A,
+                       const sycl::multi_ptr<Tb, AddressSpaceB, IsDecoratedB> &B,
+                       joint_matrix<Group, Tc, use::accumulator, M, N> &mC, AllC &...Cs) {
 
     for (int aiter = 0; aiter < WIDTH; aiter += K) {
         MAD_1_ROW<WIDTH, K>(sg, A + aiter, B + aiter * WIDTH, mC, Cs...);
@@ -124,7 +127,7 @@ template <Activation act, int WIDTH, typename Group, use Use, typename Tout, typ
 static inline void applyActivation(Group sg, joint_matrix<Group, Tin, Use, NumRows, NumCols, Layout> &in,
                                    sycl::multi_ptr<Tout, AddressSpace, IsDecorated> dest) {
 
-    auto data_in = sycl::ext::intel::experimental::matrix::get_wi_data(sg, in);
+    auto data_in = sycl::ext::oneapi::detail::get_wi_data(sg, in);
     for (int rowiter = 0; rowiter < data_in.length(); rowiter++) {
         activate<Tin, Tout, act>(static_cast<Tin>(data_in[rowiter]), dest[rowiter * WIDTH + sg.get_local_id()[0]]);
     }

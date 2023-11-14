@@ -52,6 +52,8 @@ forward_impl_4(sycl::queue &q, T const *const __restrict__ weights_ptr, T const 
     static_assert(INPUT_WIDTH == WIDTH);
     static_assert(OUTPUT_WIDTH == WIDTH);
 
+    std::cout << "Starting KERNEL" << std::endl;
+
     // One Block Row has TM rows an N columns.
     auto e = q.submit([&](sycl::handler &cgh) {
         cgh.depends_on(deps);
@@ -66,26 +68,38 @@ forward_impl_4(sycl::queue &q, T const *const __restrict__ weights_ptr, T const 
                 auto sg = item.get_sub_group();
 
                 T const *weights_ptr_loc = weights_ptr;
-                auto A_sg_start = local_ptr<T>(&Atmp[sg.get_group_id()[0] * WIDTH * TM]);
-                auto B_ptr = local_ptr<T>(&B[0]);
+                auto A_sg_start =
+                    Atmp.template get_multi_ptr<access::decorated::yes>() + sg.get_group_id()[0] * WIDTH * TM;
+                auto B_ptr = B.template get_multi_ptr<access::decorated::yes>();
 
                 // offset in all the data
                 const int wg_and_sg_offset_A =
                     item.get_group().get_group_id() * SGS_IN_WG * WIDTH * TM + sg.get_group_id()[0] * WIDTH * TM;
                 int layer_offset_A = M * WIDTH + wg_and_sg_offset_A;
 
-                helpers::moveMemory<WIDTH, WIDTH>(item, global_ptr<const T>(weights_ptr_loc), B_ptr);
+                helpers::moveMemory<WIDTH, WIDTH>(
+                    item,
+                    address_space_cast<access::address_space::global_space, access::decorated::yes>(weights_ptr_loc),
+                    B_ptr);
                 weights_ptr_loc += WIDTH * WIDTH; // next weight matrix
 
                 // load input in slm
-                helpers::moveMemorySG<TM, WIDTH>(sg, global_ptr<const T>(inputs_ptr + wg_and_sg_offset_A), A_sg_start);
+                helpers::moveMemorySG<TM, WIDTH>(
+                    sg,
+                    address_space_cast<access::address_space::global_space, access::decorated::yes>(inputs_ptr +
+                                                                                                    wg_and_sg_offset_A),
+                    A_sg_start);
 
                 // if not inference activate and store in intermediate output
                 if constexpr (!INFERENCE)
-                    helpers::applyActivation(sg, A_sg_start, global_ptr<T>(intermediate_output + wg_and_sg_offset_A));
+                    helpers::applyActivation<activation, TM, WIDTH>(
+                        sg, A_sg_start,
+                        address_space_cast<access::address_space::global_space, access::decorated::yes>(
+                            intermediate_output + wg_and_sg_offset_A));
 
-                joint_matrix<sycl::sub_group, Tc, use::accumulator, TM, TN> C_block0, C_block1, C_block2,
-                    C_block3; // this is the only reason why this is not general
+                // this is the only reason why this is not general
+                joint_matrix<sycl::sub_group, Tc, use::accumulator, TM, TN> C_block0, C_block1, C_block2, C_block3;
+
                 for (int layer = 0; layer < n_hidden_layers; layer++) {
                     // reset result matrices
                     helpers::zeroMatrices(sg, C_block0, C_block1, C_block2, C_block3);
@@ -97,7 +111,12 @@ forward_impl_4(sycl::queue &q, T const *const __restrict__ weights_ptr, T const 
 
                     item.barrier(sycl::access::fence_space::local_space);
                     // load next weight matrix
-                    helpers::moveMemory<WIDTH, WIDTH>(item, global_ptr<const T>(weights_ptr_loc), B_ptr);
+
+                    helpers::moveMemory<WIDTH, WIDTH>(
+                        item,
+                        address_space_cast<access::address_space::global_space, access::decorated::yes>(
+                            weights_ptr_loc),
+                        B_ptr);
 
                     // activate and save
                     helpers::applyActivation<activation, WIDTH>(sg, C_block0, A_sg_start);
@@ -106,8 +125,10 @@ forward_impl_4(sycl::queue &q, T const *const __restrict__ weights_ptr, T const 
                     helpers::applyActivation<activation, WIDTH>(sg, C_block3, A_sg_start + 3 * TN);
 
                     if constexpr (!INFERENCE)
-                        helpers::moveMemorySG<TM, WIDTH>(sg, A_sg_start,
-                                                         global_ptr<T>(intermediate_output + layer_offset_A));
+                        helpers::moveMemorySG<TM, WIDTH>(
+                            sg, A_sg_start,
+                            address_space_cast<access::address_space::global_space, access::decorated::yes>(
+                                intermediate_output + layer_offset_A));
 
                     layer_offset_A += M * WIDTH;
                 }
@@ -115,7 +136,8 @@ forward_impl_4(sycl::queue &q, T const *const __restrict__ weights_ptr, T const 
                 // generate output, i.e. last GEMM
                 helpers::zeroMatrices(sg, C_block0, C_block1, C_block2, C_block3);
 
-                item.barrier(sycl::access::fence_space::local_space); // wait for B to be loaded
+                // wait for B to be loaded
+                item.barrier(sycl::access::fence_space::local_space);
 
                 helpers::MAD<WIDTH, TK>(sg, A_sg_start, B_ptr, C_block0, C_block1, C_block2, C_block3);
 
@@ -126,7 +148,10 @@ forward_impl_4(sycl::queue &q, T const *const __restrict__ weights_ptr, T const 
                 helpers::applyActivation<output_activation, WIDTH>(sg, C_block3, A_sg_start + 3 * TN);
 
                 // save slm to HBM
-                helpers::moveMemorySG<TM, WIDTH>(sg, A_sg_start, global_ptr<T>(intermediate_output + layer_offset_A));
+                helpers::moveMemorySG<TM, WIDTH>(
+                    sg, A_sg_start,
+                    address_space_cast<access::address_space::global_space, access::decorated::yes>(
+                        intermediate_output + layer_offset_A));
             });
     });
 

@@ -69,7 +69,7 @@ template <typename T> T elt_activation_ret(Activation activation, T &elt) {
         break;
 
     case Activation::Exponential:
-        return (T)exp((float)elt);
+        return (T)std::exp((float)elt);
 
     case Activation::Sigmoid:
         return (T)(1.0f / (1.0f + expf((float)-elt)));
