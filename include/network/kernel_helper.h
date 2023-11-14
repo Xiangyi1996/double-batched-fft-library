@@ -125,8 +125,7 @@ static inline void applyActivation(Group sg, joint_matrix<Group, Tin, Use, NumRo
                                    sycl::multi_ptr<Tout, AddressSpace, IsDecorated> dest) {
 
     auto data_in = sycl::ext::intel::experimental::matrix::get_wi_data(sg, in);
-    for (int rowiter = 0; rowiter < data_in.length(); rowiter++) // should be TM in length
-    {
+    for (int rowiter = 0; rowiter < data_in.length(); rowiter++) {
         activate<Tin, Tout, act>(static_cast<Tin>(data_in[rowiter]), dest[rowiter * WIDTH + sg.get_local_id()[0]]);
     }
 }
@@ -138,8 +137,7 @@ template <Activation act, int M, int N, typename Group, typename Tout, typename 
 static inline void applyActivation(Group sg, const sycl::multi_ptr<Tin, AddressSpacesrc, IsDecoratedsrc> &src,
                                    sycl::multi_ptr<Tout, AddressSpacedest, IsDecorateddest> dest) {
 
-    for (int iter = sg.get_local_id()[0]; iter < M * N; iter += sg.get_local_range()[0]) // should be TM in length
-    {
+    for (int iter = sg.get_local_id()[0]; iter < M * N; iter += sg.get_local_range()[0]) {
         activate<Tin, Tout, act>(static_cast<Tin>(src[iter]), dest[iter]);
     }
 }
