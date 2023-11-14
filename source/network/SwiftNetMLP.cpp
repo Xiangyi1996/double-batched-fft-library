@@ -1,18 +1,8 @@
-#define TM 8
-#define TK 16
-#define TN 16
-// #define TM 8
-// #define TK 16
-// #define TN 8
-#define SKEW 0
-#define SG_SIZE 16
-// #define SG_SIZE 8
-
-// #define SMALL_BATCH_SIZES
 
 #include "SwiftNetMLP.h"
 #include "common.h"
 #include "common_device.h"
+#include "kernel.h"
 #include "mkl.h"
 #include "mkl_omp_offload.h"
 #include "oneapi/mkl.hpp"
@@ -34,8 +24,13 @@ std::vector<sycl::event> mlp_swift_fused(queue &q, bf16 const *const __restrict_
                                          bf16 *const __restrict__ intermediate_output_forward,
                                          bf16 *const __restrict__ intermediate_output_backward,
                                          const int n_hidden_layers, const int M, const std::vector<sycl::event> &deps) {
-    // reuse of B, this is in subgroups, ONLY works for 64 nor
-    // note that large grf mode requires this to be set to 32
+// reuse of B, this is in subgroups, ONLY works for 64 nor
+// note that large grf mode requires this to be set to 32
+#define TM 8
+#define TK 16
+#define TN 16
+
+#define SG_SIZE 16
     const int SGS_IN_WG = 64;
     // dimensions are M = batch_size, N = WIDTH = K = 64;
     static_assert(TK == SG_SIZE);
@@ -740,10 +735,15 @@ std::vector<sycl::event> mlp_swift_forward(queue &q, bf16 const *const __restric
                                            bf16 const *const __restrict__ inputs_ptr,
                                            bf16 *const __restrict__ intermediate_output, const int n_hidden_layers,
                                            const int batch_size, const std::vector<sycl::event> &deps) {
-    // Indicates how many joint_matrix rows (i.e. time TM actual rows) are done by one
-    // sub-group. ONLY works for = 1 right now.
-    // reuse of B, this is in subgroups, ONLY works for 64 nor
-    // note that large grf mode requires this to be set to 32
+// Indicates how many joint_matrix rows (i.e. time TM actual rows) are done by one
+// sub-group. ONLY works for = 1 right now.
+// reuse of B, this is in subgroups, ONLY works for 64 nor
+// note that large grf mode requires this to be set to 32
+#define TM 8
+#define TK 16
+#define TN 16
+
+#define SG_SIZE 16
     constexpr int SGS_IN_WG = 64;
     // dimensions are M = batch_size, N = WIDTH = K = 64;
     const int M = batch_size;
@@ -1163,6 +1163,12 @@ mlp_swiftnet_backward(queue &q, bf16 const *const __restrict__ weights_ptr, bf16
                       const std::vector<sycl::event> &deps) {
     // here, weights are already transposed and packed
     // in deltas, the last layer has already been calculated
+
+#define TM 8
+#define TK 16
+#define TN 16
+
+#define SG_SIZE 16
     constexpr int NBLOCKROWS_PER_SG = 1; // ONLY works for = 1 right now.
     constexpr int SGS_IN_WG = 64;        // reuse of B, this is in subgroups
     // dimensions are M = batch_size, N = WIDTH = K = 64;
@@ -1814,43 +1820,13 @@ std::vector<sycl::event> SwiftNetMLP<WIDTH>::inference(const DeviceMem<bf16> &in
 
     switch (m_activation) {
     case Activation::None:
-        return mlp_swift_forward<WIDTH, Activation::None, true>(m_q, m_weights_matrices.data(), input.data(),
-                                                                Forwardbf16, m_n_hidden_layers, batch_size, deps);
+        return tinydpcppnn::kernels::forward_impl_4<bf16, float, 64, 64, Activation::None, Activation::None, true, 16>(
+            m_q, m_weights_matrices.data(), input.data(), Forwardbf16, m_n_hidden_layers, batch_size, deps);
         break;
-    // case Activation::Exponential:
-    //     return mlp_swift_forward<WIDTH, Activation::Exponential, true>(
-    //         m_q, m_weights_matrices, input, Forwardbf16,
-    //         m_n_hidden_layers, m_batch_size, deps);
-    // break;
-    // case Activation::Sigmoid:
-    //     return mlp_swift_forward<WIDTH, Activation::Sigmoid, true>(
-    //         m_q, m_weights_matrices, input, Forwardbf16,
-    //         m_n_hidden_layers, m_batch_size, deps);
-    // break;
     case Activation::ReLU:
-        return mlp_swift_forward<WIDTH, Activation::ReLU, true>(m_q, m_weights_matrices.data(), input.data(),
-                                                                Forwardbf16, m_n_hidden_layers, batch_size, deps);
+        return tinydpcppnn::kernels::forward_impl_4<bf16, float, 64, 64, Activation::ReLU, Activation::None, true, 16>(
+            m_q, m_weights_matrices.data(), input.data(), Forwardbf16, m_n_hidden_layers, batch_size, deps);
         break;
-    // case Activation::LeakyReLU:
-    //     return mlp_swift_forward<WIDTH, Activation::LeakyReLU, true>(
-    //         m_q, m_weights_matrices, input, Forwardbf16,
-    //         m_n_hidden_layers, m_batch_size, deps);
-    // break;
-    // case Activation::Squareplus:
-    //     return mlp_swift_forward<WIDTH, Activation::Squareplus, true>(
-    //         m_q, m_weights_matrices, input, Forwardbf16,
-    //         m_n_hidden_layers, m_batch_size, deps);
-    // break;
-    // case Activation::Softplus:
-    //     return mlp_swift_forward<WIDTH, Activation::Softplus, true>(
-    //         m_q, m_weights_matrices, input, Forwardbf16,
-    //         m_n_hidden_layers, m_batch_size, deps);
-    // break;
-    // case Activation::Tanh:
-    //     return mlp_swift_forward<WIDTH, Activation::Tanh, true>(
-    //         m_q, m_weights_matrices, input, Forwardbf16,
-    //         m_n_hidden_layers, m_batch_size, deps);
-    // break;
     default:
         throw std::runtime_error{"Unsupported activation."};
     }

@@ -13,7 +13,6 @@
 #include "mkl.h"
 #include "mkl_omp_offload.h"
 #include "oneapi/mkl.hpp"
-#include "sgd.h"
 #include "trainer.h"
 #ifdef __SYCL_DEVICE_ONLY__
 
