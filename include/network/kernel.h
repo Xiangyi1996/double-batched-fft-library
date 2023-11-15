@@ -36,7 +36,7 @@ using namespace sycl::ext::oneapi::experimental::matrix;
 // This is the general forward map which also doubles as inference. We use template
 // specialization for all the versions
 template <typename T, typename Tc, int INPUT_WIDTH, int OUTPUT_WIDTH, Activation activation,
-          Activation output_activation, bool INFERENCE, std::size_t TN>
+          Activation output_activation, bool INFERENCE, size_t TN>
 std::vector<sycl::event>
 forward_impl_4(sycl::queue &q, T const *const __restrict__ weights_ptr, T const *const __restrict__ inputs_ptr,
                T *const __restrict__ intermediate_output, const int n_hidden_layers, const int M,
@@ -98,16 +98,16 @@ forward_impl_4(sycl::queue &q, T const *const __restrict__ weights_ptr, T const 
                             intermediate_output + wg_and_sg_offset_A));
 
                 // this is the only reason why this is not general
-                joint_matrix<sycl::sub_group, Tc, use::accumulator, TM, TN> C_block0, C_block1, C_block2, C_block3;
+                std::array<joint_matrix<sycl::sub_group, Tc, use::accumulator, TM, TN>, 4> Cs;
 
                 for (int layer = 0; layer < n_hidden_layers; layer++) {
                     // reset result matrices
-                    helpers::zeroMatrices(sg, C_block0, C_block1, C_block2, C_block3);
+                    helpers::zeroMatrices(sg, Cs);
 
                     // ensure weight matrix is loaded
                     item.barrier(sycl::access::fence_space::local_space);
 
-                    helpers::MAD<WIDTH, TK>(sg, A_sg_start, B_ptr, C_block0, C_block1, C_block2, C_block3);
+                    helpers::MAD<TK>(sg, A_sg_start, B_ptr, Cs);
 
                     item.barrier(sycl::access::fence_space::local_space);
                     // load next weight matrix
@@ -119,10 +119,7 @@ forward_impl_4(sycl::queue &q, T const *const __restrict__ weights_ptr, T const 
                         B_ptr);
 
                     // activate and save
-                    helpers::applyActivation<activation, WIDTH>(sg, C_block0, A_sg_start);
-                    helpers::applyActivation<activation, WIDTH>(sg, C_block1, A_sg_start + TN);
-                    helpers::applyActivation<activation, WIDTH>(sg, C_block2, A_sg_start + 2 * TN);
-                    helpers::applyActivation<activation, WIDTH>(sg, C_block3, A_sg_start + 3 * TN);
+                    helpers::applyActivation<activation>(sg, Cs, A_sg_start);
 
                     if constexpr (!INFERENCE)
                         helpers::moveMemorySG<TM, WIDTH>(
@@ -134,18 +131,15 @@ forward_impl_4(sycl::queue &q, T const *const __restrict__ weights_ptr, T const 
                 }
 
                 // generate output, i.e. last GEMM
-                helpers::zeroMatrices(sg, C_block0, C_block1, C_block2, C_block3);
+                helpers::zeroMatrices(sg, Cs);
 
                 // wait for B to be loaded
                 item.barrier(sycl::access::fence_space::local_space);
 
-                helpers::MAD<WIDTH, TK>(sg, A_sg_start, B_ptr, C_block0, C_block1, C_block2, C_block3);
+                helpers::MAD<TK>(sg, A_sg_start, B_ptr, Cs);
 
                 // activate and save to slm
-                helpers::applyActivation<output_activation, WIDTH>(sg, C_block0, A_sg_start);
-                helpers::applyActivation<output_activation, WIDTH>(sg, C_block1, A_sg_start + TN);
-                helpers::applyActivation<output_activation, WIDTH>(sg, C_block2, A_sg_start + 2 * TN);
-                helpers::applyActivation<output_activation, WIDTH>(sg, C_block3, A_sg_start + 3 * TN);
+                helpers::applyActivation<activation>(sg, Cs, A_sg_start);
 
                 // save slm to HBM
                 helpers::moveMemorySG<TM, WIDTH>(

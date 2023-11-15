@@ -28,8 +28,8 @@ add_library(tinydpcppnn::swiftnetmlp ALIAS swiftnetmlp)
 set_common_options(swiftnetmlp)
 add_sycl_to_target(TARGET swiftnetmlp SOURCES ${SOURCES})
 target_compile_definitions(swiftnetmlp PRIVATE -DSYCL2020_CONFORMANT_APIS)
-target_compile_options(swiftnetmlp PUBLIC -qmkl)
-target_link_options(swiftnetmlp PUBLIC -qmkl)
+target_compile_options(swiftnetmlp PUBLIC -qmkl -fsycl-targets=spir64_gen)
+target_link_options(swiftnetmlp PUBLIC -qmkl -fsycl-targets=spir64_gen -Xsycl-target-backend "-device pvc")
 target_link_libraries(swiftnetmlp PUBLIC network)
 target_include_directories(swiftnetmlp PUBLIC "${PROJECT_SOURCE_DIR}/include/"
     "${PROJECT_SOURCE_DIR}/include/losses/"

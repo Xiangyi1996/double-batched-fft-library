@@ -7,8 +7,8 @@
 
 #pragma once
 
+#include <array>
 #include <sycl/sycl.hpp>
-#include <vector>
 
 #include "common.h"
 
@@ -42,75 +42,46 @@ static inline void moveMemorySG(Group sg, const sycl::multi_ptr<Tsrc, AddressSpa
     }
 }
 
-template <typename Group, typename T, use Use, size_t NumRows, size_t NumCols, layout Layout>
-static inline void zeroMatrices(Group sg, joint_matrix<Group, T, Use, NumRows, NumCols, Layout> &matrix) {
-    joint_matrix_fill(sg, matrix, static_cast<T>(0));
+template <typename Group, typename T, use Use, size_t NumRows, size_t NumCols, layout Layout, size_t Nmats>
+static inline void zeroMatrices(Group sg,
+                                std::array<joint_matrix<Group, T, Use, NumRows, NumCols, Layout>, Nmats> &matrices) {
+#pragma unroll
+    for (auto &mat : matrices) {
+        joint_matrix_fill(sg, mat, static_cast<T>(0));
+    }
 }
 
-template <typename Group, typename T, use Use, size_t NumRows, size_t NumCols, layout Layout, typename... Args>
-static inline void zeroMatrices(Group sg, joint_matrix<Group, T, Use, NumRows, NumCols, Layout> &matrix,
-                                Args &...args) {
-    joint_matrix_fill(sg, matrix, static_cast<T>(0));
-    zeroMatrices(sg, args...);
-}
-
-template <int WIDTH, std::size_t K, typename Group, typename Ta, typename Tb, typename Tc,
-          sycl::access::address_space AddressSpaceB, sycl::access::decorated IsDecoratedB, std::size_t M, std::size_t N,
-          typename... AllC>
-static inline void MAD_1_ROW(Group sg, const joint_matrix<Group, Ta, use::a, M, K, layout::row_major> &mA,
-                             const sycl::multi_ptr<Tb, AddressSpaceB, IsDecoratedB> &B,
-                             joint_matrix<Group, Tc, use::accumulator, M, N> &mC) {
-
-    constexpr int vnni_factor = std::max<int>(4 / sizeof(Tb), 1); // how many rows are consecutive elements
-    joint_matrix<Group, Tb, use::b, K, N, layout::ext_intel_packed> mB;
-    joint_matrix_load(
-        sg, mB, B, vnni_factor * WIDTH); // B is vnnied, which only has on impact if Tb is a datatype sized less than 4
-    joint_matrix_mad(sg, mC, mA, mB, mC);
-}
-
-template <int WIDTH, std::size_t K, typename Group, typename Ta, typename Tb, typename Tc,
-          sycl::access::address_space AddressSpaceB, sycl::access::decorated IsDecoratedB, std::size_t M, std::size_t N,
-          typename... AllC>
-static inline void MAD_1_ROW(Group sg, const joint_matrix<Group, Ta, use::a, M, K, layout::row_major> &mA,
-                             const sycl::multi_ptr<Tb, AddressSpaceB, IsDecoratedB> &B,
-                             joint_matrix<Group, Tc, use::accumulator, M, N> &mC, AllC &...Cs) {
-
-    constexpr int vnni_factor = std::max<int>(4 / sizeof(Tb), 1); // how many rows are consecutive elements
-    joint_matrix<Group, Tb, use::b, K, N, layout::ext_intel_packed> mB;
-    // B is vnnied, which only has on impact if Tb is a datatype sized less than 4
-    joint_matrix_load(sg, mB, B, vnni_factor * WIDTH);
-    joint_matrix_mad(sg, mC, mA, mB, mC);
-
-    //  increment B to get next block col and call recursively on remaining C's
-    MAD_1_ROW<WIDTH, K>(sg, mA, B + vnni_factor * N, Cs...);
-}
-
-template <int WIDTH, std::size_t K, typename Group, typename Ta, typename Tb, typename Tc,
-          sycl::access::address_space AddressSpaceA, sycl::access::decorated IsDecoratedA,
-          sycl::access::address_space AddressSpaceB, sycl::access::decorated IsDecoratedB, std::size_t M, std::size_t N,
-          typename... AllC>
+template <size_t K, typename Group, typename Ta, typename Tb, typename Tc, sycl::access::address_space AddressSpaceA,
+          sycl::access::decorated IsDecoratedA, sycl::access::address_space AddressSpaceB,
+          sycl::access::decorated IsDecoratedB, size_t M, size_t N, size_t nCs>
 static inline void MAD_1_ROW(Group sg, const sycl::multi_ptr<Ta, AddressSpaceA, IsDecoratedA> &A,
                              const sycl::multi_ptr<Tb, AddressSpaceB, IsDecoratedB> &B,
-                             joint_matrix<Group, Tc, use::accumulator, M, N> &mC, AllC &...Cs) {
+                             std::array<joint_matrix<Group, Tc, use::accumulator, M, N>, nCs> &mCs) {
 
-    // First load the matrix A from slm, then call the jount matrix based version above
+    // WIDTH = nCs*N
+    //  A is not vnnied
+    constexpr int WIDTH = nCs * N;
     joint_matrix<Group, Ta, use::a, M, K, layout::row_major> mA;
-    // A is not vnnied
+    joint_matrix<Group, Tb, use::b, K, N, layout::ext_intel_packed> mB;
     joint_matrix_load(sg, mA, A, WIDTH);
-    MAD_1_ROW<WIDTH, K>(sg, mA, B, mC,
-                        Cs...); // increment B to get next block col and call recursively on remaining C's
+#pragma unroll
+    for (int iter = 0; iter < nCs; iter++) {
+        constexpr int vnni_factor = std::max<int>(1, 4 / sizeof(Tb));
+        joint_matrix_load(sg, mB, B + iter * vnni_factor * N, vnni_factor * WIDTH);
+        joint_matrix_mad(sg, mCs[iter], mA, mB, mCs[iter]);
+    }
 }
 
-template <int WIDTH, std::size_t K, typename Group, typename Ta, typename Tb, typename Tc,
-          sycl::access::address_space AddressSpaceA, sycl::access::decorated IsDecoratedA,
-          sycl::access::address_space AddressSpaceB, sycl::access::decorated IsDecoratedB, std::size_t M, std::size_t N,
-          typename... AllC>
+template <size_t K, typename Group, typename Ta, typename Tb, typename Tc, sycl::access::address_space AddressSpaceA,
+          sycl::access::decorated IsDecoratedA, sycl::access::address_space AddressSpaceB,
+          sycl::access::decorated IsDecoratedB, size_t M, size_t N, size_t nCs>
 static inline void MAD(Group sg, const sycl::multi_ptr<Ta, AddressSpaceA, IsDecoratedA> &A,
                        const sycl::multi_ptr<Tb, AddressSpaceB, IsDecoratedB> &B,
-                       joint_matrix<Group, Tc, use::accumulator, M, N> &mC, AllC &...Cs) {
+                       std::array<joint_matrix<Group, Tc, use::accumulator, M, N>, nCs> &mCs) {
 
-    for (int aiter = 0; aiter < WIDTH; aiter += K) {
-        MAD_1_ROW<WIDTH, K>(sg, A + aiter, B + aiter * WIDTH, mC, Cs...);
+    // WIDTH = nCs*N
+    for (int aiter = 0; aiter < nCs * N; aiter += K) {
+        MAD_1_ROW<K>(sg, A + aiter, B + aiter * nCs * N, mCs);
     }
 }
 
@@ -121,15 +92,19 @@ template <typename Tin, typename Tout, Activation act> inline void activate(cons
         data_out = static_cast<Tout>(std::max<Tin>(static_cast<Tin>(0), data_in));
 }
 
-template <Activation act, int WIDTH, typename Group, use Use, typename Tout, typename Tin, std::size_t NumRows,
-          std::size_t NumCols, layout Layout, sycl::access::address_space AddressSpace,
-          sycl::access::decorated IsDecorated>
-static inline void applyActivation(Group sg, joint_matrix<Group, Tin, Use, NumRows, NumCols, Layout> &in,
+template <Activation act, typename Group, use Use, typename Tout, typename Tin, size_t NumRows, size_t NumCols,
+          layout Layout, sycl::access::address_space AddressSpace, sycl::access::decorated IsDecorated, size_t nMats>
+static inline void applyActivation(Group sg,
+                                   std::array<joint_matrix<Group, Tin, Use, NumRows, NumCols, Layout>, nMats> &in,
                                    sycl::multi_ptr<Tout, AddressSpace, IsDecorated> dest) {
 
-    auto data_in = sycl::ext::oneapi::detail::get_wi_data(sg, in);
-    for (int rowiter = 0; rowiter < data_in.length(); rowiter++) {
-        activate<Tin, Tout, act>(static_cast<Tin>(data_in[rowiter]), dest[rowiter * WIDTH + sg.get_local_id()[0]]);
+    // WIDTH = NumCols*nMats;
+    for (auto matiter = 0; matiter < nMats; matiter++) {
+        auto data_in = sycl::ext::oneapi::detail::get_wi_data(sg, in[matiter]);
+        for (int rowiter = 0; rowiter < data_in.length(); rowiter++) {
+            activate<Tin, Tout, act>(static_cast<Tin>(data_in[rowiter]),
+                                     dest[rowiter * NumCols * nMats + matiter * NumCols + sg.get_local_id()[0]]);
+        }
     }
 }
 
