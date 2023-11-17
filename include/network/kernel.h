@@ -38,17 +38,18 @@ using namespace sycl::ext::oneapi::experimental::matrix;
 template <typename T, typename Tc, int INPUT_WIDTH, int WIDTH, int OUTPUT_WIDTH, Activation activation,
           Activation output_activation, bool INFERENCE, size_t TN>
 std::vector<sycl::event>
-forward_impl_4(sycl::queue &q, T const *const __restrict__ weights_ptr, T const *const __restrict__ inputs_ptr,
-               T *const __restrict__ intermediate_output, const int n_hidden_layers, const int M,
-               const std::vector<sycl::event> &deps) { // reuse of B, this is in subgroups, ONLY works for 64
+forward_impl_general(sycl::queue &q, T const *const __restrict__ weights_ptr, T const *const __restrict__ inputs_ptr,
+                     T *const __restrict__ intermediate_output, const int n_hidden_layers, const int M,
+                     const std::vector<sycl::event> &deps) { // reuse of B, this is in subgroups, ONLY works for 64
     // note that large grf mode requires this to be set to 32, but then this code does not work anymore
     constexpr int SG_SIZE = TN;
-    const int SGS_IN_WG =
-        q.get_device().get_info<sycl::info::device::max_work_group_size>() / SG_SIZE; // maximum number
-    static_assert(WIDTH % TN == 0);
-    constexpr int NC = WIDTH / TN;                                       // number of systolic C matrices in the output
     constexpr size_t TM = 8;                                             // this may be adjusted in the future
     constexpr size_t TK = 8 * std::min<size_t>(8, 32 / (8 * sizeof(T))); // This depends on the datatype T
+    const int SGS_IN_WG =
+        std::min(M / TM, q.get_device().get_info<sycl::info::device::max_work_group_size>() / SG_SIZE);
+    static_assert(WIDTH % TN == 0);
+    constexpr int NC = WIDTH / TN; // number of systolic C matrices in the output
+
     assert(M % TM == 0); // make sure there is no remainder and no out of bounds accesses
     static_assert(INPUT_WIDTH == WIDTH);
     static_assert(OUTPUT_WIDTH == WIDTH);
@@ -60,13 +61,16 @@ forward_impl_4(sycl::queue &q, T const *const __restrict__ weights_ptr, T const 
         sycl::local_accessor<T, 1> B(sycl::range<1>(WIDTH * WIDTH), cgh);
         sycl::local_accessor<T, 1> Atmp(sycl::range<1>(TM * WIDTH * SGS_IN_WG), cgh);
 
-        // number of SGS is given by M / TM, since batch_size is the number of rows in the output
         cgh.parallel_for(
             sycl::nd_range<1>(M / TM * SG_SIZE, SGS_IN_WG * SG_SIZE),
             [=](sycl::nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
                 auto sg = item.get_sub_group();
 
-                T const *weights_ptr_loc = weights_ptr;
+                auto weights_ptr_loc =
+                    address_space_cast<access::address_space::global_space, access::decorated::yes>(weights_ptr);
+                auto intermediate_output_loc =
+                    address_space_cast<access::address_space::global_space, access::decorated::yes>(
+                        intermediate_output);
                 auto A_sg_start =
                     Atmp.template get_multi_ptr<access::decorated::yes>() + sg.get_group_id()[0] * WIDTH * TM;
                 auto B_ptr = B.template get_multi_ptr<access::decorated::yes>();
@@ -76,10 +80,7 @@ forward_impl_4(sycl::queue &q, T const *const __restrict__ weights_ptr, T const 
                     item.get_group().get_group_id() * SGS_IN_WG * WIDTH * TM + sg.get_group_id()[0] * WIDTH * TM;
                 int layer_offset_A = M * WIDTH + wg_and_sg_offset_A;
 
-                helpers::moveMemory<WIDTH, WIDTH>(
-                    item,
-                    address_space_cast<access::address_space::global_space, access::decorated::yes>(weights_ptr_loc),
-                    B_ptr);
+                helpers::moveMemory<WIDTH, WIDTH>(item, weights_ptr_loc, B_ptr);
                 weights_ptr_loc += WIDTH * WIDTH; // next weight matrix
 
                 // load input in slm
@@ -91,14 +92,10 @@ forward_impl_4(sycl::queue &q, T const *const __restrict__ weights_ptr, T const 
 
                 // if not inference activate and store in intermediate output
                 if constexpr (!INFERENCE)
-                    helpers::applyActivation<activation, TM, WIDTH>(
-                        sg, A_sg_start,
-                        address_space_cast<access::address_space::global_space, access::decorated::yes>(
-                            intermediate_output + wg_and_sg_offset_A));
+                    helpers::applyActivation<activation, TM, WIDTH>(sg, A_sg_start,
+                                                                    intermediate_output_loc + wg_and_sg_offset_A);
 
-                // this is the only reason why this is not general
                 std::array<joint_matrix<sycl::sub_group, Tc, use::accumulator, TM, TN>, NC> Cs;
-
                 for (int layer = 0; layer < n_hidden_layers; layer++) {
                     // reset result matrices
                     helpers::zeroMatrices(sg, Cs);
@@ -111,20 +108,14 @@ forward_impl_4(sycl::queue &q, T const *const __restrict__ weights_ptr, T const 
                     item.barrier(sycl::access::fence_space::local_space);
                     // load next weight matrix
 
-                    helpers::moveMemory<WIDTH, WIDTH>(
-                        item,
-                        address_space_cast<access::address_space::global_space, access::decorated::yes>(
-                            weights_ptr_loc),
-                        B_ptr);
+                    helpers::moveMemory<WIDTH, WIDTH>(item, weights_ptr_loc, B_ptr);
+                    weights_ptr_loc += WIDTH * WIDTH; // next weight matrix
 
                     // activate and save
                     helpers::applyActivation<activation>(sg, Cs, A_sg_start);
 
                     if constexpr (!INFERENCE)
-                        helpers::moveMemorySG<TM, WIDTH>(
-                            sg, A_sg_start,
-                            address_space_cast<access::address_space::global_space, access::decorated::yes>(
-                                intermediate_output + layer_offset_A));
+                        helpers::moveMemorySG<TM, WIDTH>(sg, A_sg_start, intermediate_output_loc + layer_offset_A);
 
                     layer_offset_A += M * WIDTH;
                 }
@@ -141,14 +132,147 @@ forward_impl_4(sycl::queue &q, T const *const __restrict__ weights_ptr, T const 
                 helpers::applyActivation<activation>(sg, Cs, A_sg_start);
 
                 // save slm to HBM
-                helpers::moveMemorySG<TM, WIDTH>(
-                    sg, A_sg_start,
-                    address_space_cast<access::address_space::global_space, access::decorated::yes>(
-                        intermediate_output + layer_offset_A));
+                helpers::moveMemorySG<TM, WIDTH>(sg, A_sg_start, intermediate_output_loc + layer_offset_A);
             });
     });
 
     return {e};
+}
+
+template <typename T, typename Tc, int INPUT_WIDTH, int WIDTH, int OUTPUT_WIDTH, Activation activation,
+          Activation output_activation, size_t TN>
+std::vector<sycl::event> backward_impl_general(queue &q, T const *const __restrict__ weights_ptr,
+                                               T const *const __restrict__ inputs_ptr, T *const __restrict__ output_ptr,
+                                               T *const __restrict__ intermediate_output,
+                                               T const *const __restrict__ forward, const int n_hidden_layers,
+                                               const int M, const std::vector<sycl::event> &deps) {
+
+    // make sure there is no remainder and no out of bounds accesses
+    static_assert(WIDTH % TN == 0);
+    // only works for input_width == width == output_width
+    static_assert(INPUT_WIDTH == WIDTH);
+    static_assert(OUTPUT_WIDTH == WIDTH);
+
+    constexpr int SG_SIZE = TN;
+    const int SGS_IN_WG =
+        q.get_device().get_info<sycl::info::device::max_work_group_size>() / SG_SIZE; // maximum number
+
+    constexpr int NC = WIDTH / TN; // number of systolic C matrices in the output
+    constexpr size_t TM = 8;       // this may be adjusted in the future
+    assert(M % TM == 0);
+    constexpr size_t TK = 8 * std::min<size_t>(8, 32 / (8 * sizeof(T))); // This depends on the datatype T
+
+    auto e = q.submit([&](handler &cgh) {
+        cgh.depends_on(deps);
+
+        local_accessor<T, 1> B(range<1>(WIDTH * WIDTH), cgh);
+        local_accessor<T, 1> Atmp(range<1>(TM * WIDTH * SGS_IN_WG), cgh);
+
+        const int nitems = M / TM * SG_SIZE;
+        cgh.parallel_for(
+            sycl::nd_range<1>(nitems, std::min(nitems, SGS_IN_WG * SG_SIZE)),
+            [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
+                auto sg = item.get_sub_group();
+
+                auto weights_ptr_loc =
+                    address_space_cast<access::address_space::global_space, access::decorated::yes>(weights_ptr) +
+                    n_hidden_layers * WIDTH * WIDTH;
+                auto intermediate_output_loc =
+                    address_space_cast<access::address_space::global_space, access::decorated::yes>(
+                        intermediate_output);
+                const auto forward_loc =
+                    address_space_cast<access::address_space::global_space, access::decorated::yes>(forward);
+                auto A_sg_start =
+                    Atmp.template get_multi_ptr<access::decorated::yes>() + sg.get_group_id()[0] * WIDTH * TM;
+                auto B_ptr = B.template get_multi_ptr<access::decorated::yes>();
+
+                // offset in all the data
+                const int wg_and_sg_offset_A =
+                    item.get_group().get_group_id() * SGS_IN_WG * WIDTH * TM + sg.get_group_id()[0] * WIDTH * TM;
+                /// TODO: check if this is n_hidden_layers or n_hidden_layers+1
+                int layer_offset_A = n_hidden_layers * M * WIDTH + wg_and_sg_offset_A;
+
+                // Get B into slm
+                helpers::moveMemory<WIDTH, WIDTH>(item, weights_ptr_loc, B_ptr);
+                weights_ptr_loc -= WIDTH * WIDTH; // decrease weights pointer by one layer
+
+                // load input in slm
+                helpers::moveMemorySG<TM, WIDTH>(
+                    sg,
+                    address_space_cast<access::address_space::global_space, access::decorated::yes>(inputs_ptr +
+                                                                                                    wg_and_sg_offset_A),
+                    A_sg_start);
+
+                // store backward activated input to the last intermediate output
+                // note that output_activation == ReLU does not need any work since that means
+                // forward >= 0
+                if constexpr (output_activation != Activation::None && output_activation != Activation::ReLU) {
+                    helpers::applyBackwardActivation<output_activation, TM, WIDTH>(
+                        sg, A_sg_start, forward_loc + layer_offset_A, A_sg_start);
+                }
+
+                // store activated slm in intermediate output
+                helpers::moveMemorySG<TM, WIDTH>(sg, A_sg_start, intermediate_output_loc + layer_offset_A);
+
+                std::array<joint_matrix<sycl::sub_group, Tc, use::accumulator, TM, TN>, NC> Cs;
+
+                // we are also doing output->last hidden layer
+                for (int layer = n_hidden_layers; layer > 0; layer--) {
+                    layer_offset_A -= M * WIDTH;
+                    helpers::zeroMatrices(sg, Cs);
+
+                    // wait for B to be done storing
+                    item.barrier(sycl::access::fence_space::local_space);
+
+                    helpers::MAD<TK>(sg, A_sg_start, B_ptr, Cs);
+
+                    // load B for next iteration into SLM
+                    if (layer > 1) {
+                        // wait for B to de done in the MAD
+                        item.barrier(sycl::access::fence_space::local_space);
+                        helpers::moveMemory<WIDTH, WIDTH>(item, weights_ptr_loc, B_ptr);
+                        weights_ptr_loc -= WIDTH * WIDTH;
+                    }
+
+                    // If forward activation is ReLU we also do not need to do anything since all the values in forward
+                    // are >= 0
+                    helpers::applyBackwardActivation<activation == Activation::ReLU || activation == Activation::None
+                                                         ? Activation::None
+                                                         : activation>(
+                        sg, Cs,
+                        address_space_cast<access::address_space::global_space, access::decorated::yes>(forward +
+                                                                                                        layer_offset_A),
+                        A_sg_start);
+
+                    // store A slm to HBM
+                    helpers::moveMemorySG<TM, WIDTH>(
+                        sg, A_sg_start,
+                        address_space_cast<access::address_space::global_space, access::decorated::yes>(
+                            intermediate_output + layer_offset_A));
+                }
+            });
+    });
+
+    // NOTE: MKL gemm_batch is slower.
+    std::vector<sycl::event> events(n_hidden_layers + 1);
+    if constexpr (std::is_same<T, bf16>::value) { // need to cast to onemkls bf16 type.
+        for (int iter = 0; iter < n_hidden_layers + 1; iter++) {
+            events[iter] = oneapi::mkl::blas::row_major::gemm(
+                q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M, 1.0f,
+                reinterpret_cast<const oneapi::mkl::bfloat16 *>(forward) + iter * M * WIDTH, WIDTH,
+                reinterpret_cast<oneapi::mkl::bfloat16 *>(intermediate_output) + iter * M * WIDTH, WIDTH, 1.0f,
+                reinterpret_cast<oneapi::mkl::bfloat16 *>(output_ptr) + iter * WIDTH * WIDTH, WIDTH, {e});
+        }
+    } else {
+        for (int iter = 0; iter < n_hidden_layers + 1; iter++) {
+            events[iter] = oneapi::mkl::blas::row_major::gemm(
+                q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M, 1.0f,
+                forward + iter * M * WIDTH, WIDTH, intermediate_output + iter * M * WIDTH, WIDTH, 1.0f,
+                output_ptr + iter * WIDTH * WIDTH, WIDTH, {e});
+        }
+    }
+
+    return events;
 }
 
 } // namespace kernels

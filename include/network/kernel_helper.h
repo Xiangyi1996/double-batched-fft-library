@@ -92,7 +92,17 @@ template <typename Tin, typename Tout, Activation act> inline void activate(cons
         data_out = static_cast<Tout>(std::max<Tin>(static_cast<Tin>(0), data_in));
 }
 
-template <Activation act, typename Group, use Use, typename Tout, typename Tin, size_t NumRows, size_t NumCols,
+template <typename Tin, typename Tdec, typename Tout, Activation act, sycl::access::address_space AddressSpace,
+          sycl::access::decorated IsDecorated>
+inline void activateBackward(const Tin &data_in, const sycl::multi_ptr<Tdec, AddressSpace, IsDecorated> data_decision,
+                             Tout &data_out) {
+    if constexpr (act == Activation::None)
+        data_out = static_cast<Tout>(data_in);
+    else if constexpr (act == Activation::ReLU)
+        data_out = data_decision[0] > static_cast<Tout>(0) ? static_cast<Tout>(data_in) : static_cast<Tout>(0);
+}
+
+template <Activation act, typename Group, use Use, typename Tin, typename Tout, size_t NumRows, size_t NumCols,
           layout Layout, sycl::access::address_space AddressSpace, sycl::access::decorated IsDecorated, size_t nMats>
 static inline void applyActivation(Group sg,
                                    std::array<joint_matrix<Group, Tin, Use, NumRows, NumCols, Layout>, nMats> &in,
@@ -108,8 +118,7 @@ static inline void applyActivation(Group sg,
     }
 }
 
-// row stride >= NumCols!
-template <Activation act, int M, int N, typename Group, typename Tout, typename Tin,
+template <Activation act, int M, int N, typename Group, typename Tin, typename Tout,
           sycl::access::address_space AddressSpacesrc, sycl::access::decorated IsDecoratedsrc,
           sycl::access::address_space AddressSpacedest, sycl::access::decorated IsDecorateddest>
 static inline void applyActivation(Group sg, const sycl::multi_ptr<Tin, AddressSpacesrc, IsDecoratedsrc> &src,
@@ -117,6 +126,40 @@ static inline void applyActivation(Group sg, const sycl::multi_ptr<Tin, AddressS
 
     for (int iter = sg.get_local_id()[0]; iter < M * N; iter += sg.get_local_range()[0]) {
         activate<Tin, Tout, act>(static_cast<Tin>(src[iter]), dest[iter]);
+    }
+}
+
+template <Activation act, typename Group, use Use, typename Tin, typename Tdec, typename Tout, size_t NumRows,
+          size_t NumCols, layout Layout, sycl::access::address_space AddressSpacedecision,
+          sycl::access::decorated IsDecorateddecision, sycl::access::address_space AddressSpace,
+          sycl::access::decorated IsDecorated, size_t nMats>
+static inline void
+applyBackwardActivation(Group sg, std::array<joint_matrix<Group, Tin, Use, NumRows, NumCols, Layout>, nMats> &in,
+                        const sycl::multi_ptr<Tdec, AddressSpacedecision, IsDecorateddecision> decision_values,
+                        sycl::multi_ptr<Tout, AddressSpace, IsDecorated> dest) {
+
+    // WIDTH = NumCols*nMats;
+    for (auto matiter = 0; matiter < nMats; matiter++) {
+        auto data_in = sycl::ext::oneapi::detail::get_wi_data(sg, in[matiter]);
+        for (int rowiter = 0; rowiter < data_in.length(); rowiter++) {
+            const size_t offset = rowiter * NumCols * nMats + matiter * NumCols + sg.get_local_id()[0];
+            activateBackward<Tin, Tdec, Tout, act>(static_cast<Tin>(data_in[rowiter]), decision_values + offset,
+                                                   dest[offset]);
+        }
+    }
+}
+
+template <Activation act, int M, int N, typename Group, typename Tin, typename Tdec, typename Tout,
+          sycl::access::address_space AddressSpacesrc, sycl::access::decorated IsDecoratedsrc,
+          sycl::access::address_space AddressSpacedecision, sycl::access::decorated IsDecorateddecision,
+          sycl::access::address_space AddressSpacedest, sycl::access::decorated IsDecorateddest>
+static inline void
+applyBackwardActivation(Group sg, const sycl::multi_ptr<Tin, AddressSpacesrc, IsDecoratedsrc> &src,
+                        const sycl::multi_ptr<Tout, AddressSpacedecision, IsDecorateddecision> decision_values,
+                        sycl::multi_ptr<Tout, AddressSpacedest, IsDecorateddest> dest) {
+
+    for (int iter = sg.get_local_id()[0]; iter < M * N; iter += sg.get_local_range()[0]) {
+        activateBackward<Tin, Tdec, Tout, act>(static_cast<Tin>(src[iter]), decision_values + iter, dest[iter]);
     }
 }
 

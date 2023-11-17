@@ -10,7 +10,9 @@
 using bf16 = sycl::ext::oneapi::bfloat16;
 using namespace tinydpcppnn::kernels::helpers;
 
-///TODO: consolidate the MAD_1_ROW cases into 1 TEST_CASE with multiple SUBCASES
+/// TODO: consolidate the MAD_1_ROW cases into 1 TEST_CASE with multiple SUBCASES
+/// TODO: write tests for backward activation
+/// TODO: Use  == doctest::Approx(8.0f).epsilon(1e-4) instead of abs() <
 
 TEST_CASE("MoveMemory") {
 
@@ -36,16 +38,16 @@ TEST_CASE("MoveMemory") {
         Q.submit([&](sycl::handler &cgh) {
              sycl::local_accessor<bf16, 1> slm(sycl::range<1>(nElems), cgh);
 
-             cgh.parallel_for(
-                 sycl::nd_range<1>(2 * SG_SIZE, SG_SIZE),
-                 [=](sycl::nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
-                     moveMemory<M, N>(
-                         item, sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(in),
-                         slm.template get_multi_ptr<sycl::access::decorated::yes>());
-                     moveMemory<M, N>(
-                         item, slm.template get_multi_ptr<sycl::access::decorated::yes>(),
-                         sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(out));
-                 });
+             cgh.parallel_for(sycl::nd_range<1>(2 * SG_SIZE, SG_SIZE),
+                              [=](sycl::nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
+                                  moveMemory<M, N>(item,
+                                                   sycl::address_space_cast<sycl::access::address_space::global_space,
+                                                                            sycl::access::decorated::yes>(in),
+                                                   slm.template get_multi_ptr<sycl::access::decorated::yes>());
+                                  moveMemory<M, N>(item, slm.template get_multi_ptr<sycl::access::decorated::yes>(),
+                                                   sycl::address_space_cast<sycl::access::address_space::global_space,
+                                                                            sycl::access::decorated::yes>(out));
+                              });
          }).wait();
 
         std::vector<bf16> out_host(nElems);
@@ -62,7 +64,6 @@ TEST_CASE("MoveMemory") {
 
 TEST_CASE("MoveMemorySG") {
     using namespace sycl::ext::oneapi::experimental::matrix;
-    
 
     sycl::queue Q;
     try {
@@ -91,17 +92,16 @@ TEST_CASE("MoveMemorySG") {
                  sycl::nd_range<1>(2 * SG_SIZE, SG_SIZE),
                  [=](sycl::nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
                      auto sg = item.get_sub_group();
-                     const int offset = TM * N * sg.get_group_id()[0] + TM * N * sg.get_group_range()[0] * item.get_group().get_group_id();
-                     moveMemorySG<TM, N>(
-                         sg,
-                         sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(
-                             in + offset),
-                         slm.template get_multi_ptr<sycl::access::decorated::yes>() + offset);
+                     const int offset = TM * N * sg.get_group_id()[0] +
+                                        TM * N * sg.get_group_range()[0] * item.get_group().get_group_id();
+                     moveMemorySG<TM, N>(sg,
+                                         sycl::address_space_cast<sycl::access::address_space::global_space,
+                                                                  sycl::access::decorated::yes>(in + offset),
+                                         slm.template get_multi_ptr<sycl::access::decorated::yes>() + offset);
 
-                     moveMemorySG<TM, N>(
-                         sg, slm.template get_multi_ptr<sycl::access::decorated::yes>() + offset,
-                         sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(
-                             out + offset));
+                     moveMemorySG<TM, N>(sg, slm.template get_multi_ptr<sycl::access::decorated::yes>() + offset,
+                                         sycl::address_space_cast<sycl::access::address_space::global_space,
+                                                                  sycl::access::decorated::yes>(out + offset));
                  });
          }).wait();
 
@@ -109,7 +109,7 @@ TEST_CASE("MoveMemorySG") {
         Q.memcpy(out_host.data(), out, out_host.size() * sizeof(bf16)).wait();
 
         for (int iter = 0; iter < nElems; iter++) {
-            CHECK(std::abs(static_cast<float>(out_host[iter]) - static_cast<float>(val)) < 0.001 );
+            CHECK(std::abs(static_cast<float>(out_host[iter]) - static_cast<float>(val)) < 0.001);
         }
 
         sycl::free(in, Q);
@@ -118,7 +118,7 @@ TEST_CASE("MoveMemorySG") {
 }
 
 TEST_CASE("activate") {
-    
+
     SUBCASE("host none") {
         const bf16 inval = -0.12;
         float outval = 0;
@@ -145,47 +145,40 @@ TEST_CASE("activate") {
         return;
     }
 
-    float * out = sycl::malloc_device<float>(1, Q);
+    float *out = sycl::malloc_device<float>(1, Q);
     float out_host;
 
     SUBCASE("device none") {
         Q.parallel_for(1, [=](auto item) {
-
-            const bf16 inval = -0.12;
-            float outval = 0;
-            activate<bf16, float, Activation::None>(inval, outval);
-            out[0] = outval;
-
-        }).wait();
+             const bf16 inval = -0.12;
+             float outval = 0;
+             activate<bf16, float, Activation::None>(inval, outval);
+             out[0] = outval;
+         }).wait();
 
         Q.memcpy(&out_host, out, sizeof(float)).wait();
 
         CHECK(out_host == doctest::Approx(-0.12).epsilon(0.01));
     }
 
-
     SUBCASE("device relu") {
         Q.parallel_for(1, [=](auto item) {
-
-            bf16 inval = -0.12;
-            float outval = 1;
-            activate<bf16, float, Activation::ReLU>(inval, outval);
-            out[0] = outval;
-
-        }).wait();
+             bf16 inval = -0.12;
+             float outval = 1;
+             activate<bf16, float, Activation::ReLU>(inval, outval);
+             out[0] = outval;
+         }).wait();
 
         Q.memcpy(&out_host, out, sizeof(float)).wait();
 
         CHECK(out_host == 0);
 
         Q.parallel_for(1, [=](auto item) {
-
-            bf16 inval = 0.12;
-            float outval = 1;
-            activate<bf16, float, Activation::ReLU>(inval, outval);
-            out[0] = outval;
-
-        }).wait();
+             bf16 inval = 0.12;
+             float outval = 1;
+             activate<bf16, float, Activation::ReLU>(inval, outval);
+             out[0] = outval;
+         }).wait();
 
         Q.memcpy(&out_host, out, sizeof(float)).wait();
 
@@ -224,8 +217,10 @@ TEST_CASE("joint_matrix_mad") {
         joint_matrix_fill(item.get_sub_group(), mB, 0.5);
         joint_matrix_mad(item.get_sub_group(), mC, mA, mB, mC);
         auto sg = item.get_sub_group();
-        joint_matrix_store(sg, mC, sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(out),
-                           16, layout::row_major);
+        joint_matrix_store(
+            sg, mC,
+            sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(out), 16,
+            layout::row_major);
     });
 
     Q.wait();
@@ -233,7 +228,7 @@ TEST_CASE("joint_matrix_mad") {
     Q.memcpy(result.data(), out, 8 * 16 * sizeof(float)).wait();
 
     for (int i = 0; i < 8 * 16; i++) {
-        CHECK((result[i] - 8.0f) < 1e-4);
+        CHECK(result[i] == doctest::Approx(8.0f).epsilon(1e-4));
     }
 
     sycl::free(out, Q);
@@ -258,20 +253,23 @@ TEST_CASE("tinydpcppnn::kernels::helpers::zeroMatrices 1") {
         joint_matrix_fill(item.get_sub_group(), mCs[0], 1.0f);
         joint_matrix_fill(item.get_sub_group(), mCs[1], 1.0f);
 
-        joint_matrix_store(sg, mCs[0],
-                           sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(out), 32,
-                           layout::row_major);
-        joint_matrix_store(sg, mCs[1],
-                           sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(out + 16),
-                           32, layout::row_major);
+        joint_matrix_store(
+            sg, mCs[0],
+            sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(out), 32,
+            layout::row_major);
+        joint_matrix_store(
+            sg, mCs[1],
+            sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(out + 16),
+            32, layout::row_major);
 
         // now everything in out should be 1
 
         zeroMatrices(sg, mCs);
 
-        joint_matrix_store(sg, mCs[0],
-                           sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(out), 32,
-                           layout::row_major);
+        joint_matrix_store(
+            sg, mCs[0],
+            sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(out), 32,
+            layout::row_major);
 
         // now the first one in out should be 0
     });
@@ -317,9 +315,10 @@ TEST_CASE("tinydpcppnn::kernels::helpers::MAD_1_ROW 1") {
             sg, sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(in),
             sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(in), mCs);
 
-        joint_matrix_store(sg, mCs[0],
-                           sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(out), 16,
-                           layout::row_major);
+        joint_matrix_store(
+            sg, mCs[0],
+            sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(out), 16,
+            layout::row_major);
     });
 
     Q.wait();
@@ -336,7 +335,6 @@ TEST_CASE("tinydpcppnn::kernels::helpers::MAD_1_ROW 1") {
 
 TEST_CASE("tinydpcppnn::kernels::helpers::MAD_1_ROW 2") {
     using namespace sycl::ext::oneapi::experimental::matrix;
-    
 
     sycl::queue Q;
     try {
@@ -367,12 +365,14 @@ TEST_CASE("tinydpcppnn::kernels::helpers::MAD_1_ROW 2") {
             sg, sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::no>(inA),
             sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::no>(inB), mCs);
 
-        joint_matrix_store(sg, mCs[0],
-                           sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(out), 32,
-                           layout::row_major);
-        joint_matrix_store(sg, mCs[1],
-                           sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(out + 16),
-                           32, layout::row_major);
+        joint_matrix_store(
+            sg, mCs[0],
+            sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(out), 32,
+            layout::row_major);
+        joint_matrix_store(
+            sg, mCs[1],
+            sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(out + 16),
+            32, layout::row_major);
     });
 
     Q.wait();
@@ -424,12 +424,14 @@ TEST_CASE("tinydpcppnn::kernels::helpers::MAD 1") {
             sg, sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::no>(inA),
             sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::no>(inB), mCs);
 
-        joint_matrix_store(sg, mCs[0],
-                           sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(out), 32,
-                           layout::row_major);
-        joint_matrix_store(sg, mCs[1],
-                           sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(out + 16),
-                           32, layout::row_major);
+        joint_matrix_store(
+            sg, mCs[0],
+            sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(out), 32,
+            layout::row_major);
+        joint_matrix_store(
+            sg, mCs[1],
+            sycl::address_space_cast<sycl::access::address_space::global_space, sycl::access::decorated::yes>(out + 16),
+            32, layout::row_major);
     });
 
     Q.wait();

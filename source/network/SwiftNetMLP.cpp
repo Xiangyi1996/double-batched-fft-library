@@ -242,8 +242,7 @@ std::vector<sycl::event> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16> 
                                                           const std::vector<sycl::event> &deps) {
     // Static assertion and assertion checks
     static_assert(WIDTH % 16 == 0, "Width must be a multiple of 64.");
-
-    if ((batch_size % 16) != 0) throw std::invalid_argument("Batch size is not divisible by 16.");
+    if ((batch_size % 8) != 0) throw std::invalid_argument("Batch size is not divisible by 8.");
 
     // this is necessary for backward pass
     // Get a pointer to the weights matrices data
@@ -252,15 +251,17 @@ std::vector<sycl::event> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16> 
     // Perform forward pass based on activation function
     switch (m_activation) {
     case Activation::None:
-        return tinydpcppnn::kernels::forward_impl_4<bf16, float, WIDTH, WIDTH, WIDTH, Activation::None, Activation::None, false, 16>(
+        return tinydpcppnn::kernels::forward_impl_general<bf16, float, WIDTH, WIDTH, WIDTH, Activation::None,
+                                                          Activation::None, false, 16>(
             m_q, m_weights_matrices.data(), input.data(), Forwardbf16, m_n_hidden_layers, batch_size, deps);
         break;
     case Activation::ReLU:
-        return tinydpcppnn::kernels::forward_impl_4<bf16, float, WIDTH, WIDTH, WIDTH, Activation::ReLU, Activation::None, false, 16>(
+        return tinydpcppnn::kernels::forward_impl_general<bf16, float, WIDTH, WIDTH, WIDTH, Activation::ReLU,
+                                                          Activation::None, false, 16>(
             m_q, m_weights_matrices.data(), input.data(), Forwardbf16, m_n_hidden_layers, batch_size, deps);
         break;
     default:
-        return {};
+        throw std::invalid_argument("Activation not supported in forward pass");
     }
 }
 
@@ -274,17 +275,20 @@ std::vector<sycl::event> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16> 
 template <int WIDTH>
 std::vector<sycl::event> SwiftNetMLP<WIDTH>::inference(const DeviceMem<bf16> &input, float *const forward,
                                                        const size_t batch_size, const std::vector<sycl::event> &deps) {
-    static_assert(WIDTH % 16 == 0, "Width must be multiple of 64.");
+    static_assert(WIDTH % 16 == 0, "Width must be multiple of 16.");
+    if ((batch_size % 8) != 0) throw std::invalid_argument("Batch size is not divisible by 8.");
 
     bf16 *const Forwardbf16 = reinterpret_cast<bf16 *>(forward);
 
     switch (m_activation) {
     case Activation::None:
-        return tinydpcppnn::kernels::forward_impl_4<bf16, float, WIDTH, WIDTH, WIDTH, Activation::None, Activation::None, true, 16>(
+        return tinydpcppnn::kernels::forward_impl_general<bf16, float, WIDTH, WIDTH, WIDTH, Activation::None,
+                                                          Activation::None, true, 16>(
             m_q, m_weights_matrices.data(), input.data(), Forwardbf16, m_n_hidden_layers, batch_size, deps);
         break;
     case Activation::ReLU:
-        return tinydpcppnn::kernels::forward_impl_4<bf16, float, WIDTH, WIDTH, WIDTH, Activation::ReLU, Activation::None, true, 16>(
+        return tinydpcppnn::kernels::forward_impl_general<bf16, float, WIDTH, WIDTH, WIDTH, Activation::ReLU,
+                                                          Activation::None, true, 16>(
             m_q, m_weights_matrices.data(), input.data(), Forwardbf16, m_n_hidden_layers, batch_size, deps);
         break;
     default:
@@ -309,45 +313,22 @@ std::vector<sycl::event> SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16>
 
     // Choose appropriate mlp_swiftnet_backward based on activation
     // We are onyl doinh output_activation==none right now
-    // switch (m_activation) {
-    // case Activation::None:
-    //     return mlp_swiftnet_backward<WIDTH, Activation::None>(m_q, m_weightsT_matrices.data(), grads.data(),
-    //                                                           m_grads_matrices.data(), out_interbf16, Forwardbf16,
-    //                                                           m_n_hidden_matrices, batch_size, deps);
-    //     break;
-    // case Activation::ReLU:
-    //     return mlp_swiftnet_backward<WIDTH, Activation::ReLU>(m_q, m_weightsT_matrices.data(), grads.data(),
-    //                                                           m_grads_matrices.data(), out_interbf16, Forwardbf16,
-    //                                                           m_n_hidden_matrices, batch_size, deps);
-    //     break;
-    // // case Activation::LeakyReLU:
-    // // return mlp_swiftnet_backward<WIDTH, Activation::LeakyReLU>(
-    // //     m_q, m_weightsT_matrices, grads, m_grads_matrices,
-    // //     out_interbf16, Forwardbf16,
-    // //    m_n_hidden_matrices, m_batch_size,deps);
-    // //     break;
-    // // case Activation::Exponential:
-    // // return mlp_swiftnet_backward<WIDTH, Activation::Exponential>(
-    // //     m_q, m_weightsT_matrices, grads, m_grads_matrices,
-    // //     out_interbf16, Forwardbf16,
-    // //     m_n_hidden_matrices, m_batch_size,deps);
-    // //     break;
-    // // case Activation::Sigmoid:
-    // // return mlp_swiftnet_backward<WIDTH, Activation::Sigmoid>(
-    // //     m_q, m_weightsT_matrices, grads, m_grads_matrices,
-    // //     out_interbf16, Forwardbf16,
-    // //     m_n_hidden_matrices, m_batch_size,deps);
-    // //     break;
-    // // case Activation::Tanh:
-    // // return mlp_swiftnet_backward<WIDTH, Activation::Tanh>(
-    // //     m_q, m_weightsT_matrices, grads, m_grads_matrices,
-    // //     out_interbf16, Forwardbf16,
-    // //     m_n_hidden_matrices, m_batch_size,deps);
-    // //     break;
-    // default:
-    //     return {};
-    // }
-    return {};
+    switch (m_activation) {
+    case Activation::None:
+        return tinydpcppnn::kernels::backward_impl_general<bf16, float, WIDTH, WIDTH, WIDTH, Activation::None,
+                                                           Activation::None, 16>(
+            m_q, m_weightsT_matrices.data(), grads.data(), m_grads_matrices.data(), out_interbf16, Forwardbf16,
+            m_n_hidden_layers, batch_size, deps);
+        break;
+    case Activation::ReLU:
+        return tinydpcppnn::kernels::backward_impl_general<bf16, float, WIDTH, WIDTH, WIDTH, Activation::ReLU,
+                                                           Activation::None, 16>(
+            m_q, m_weightsT_matrices.data(), grads.data(), m_grads_matrices.data(), out_interbf16, Forwardbf16,
+            m_n_hidden_layers, batch_size, deps);
+
+    default:
+        throw std::invalid_argument("Activation not yet implemented in backward_pass");
+    }
 }
 
 template <int WIDTH>
@@ -358,6 +339,8 @@ std::vector<sycl::event> SwiftNetMLP<WIDTH>::training(const DeviceMem<bf16> &inp
     // Compute activation backpropagation using parallel_for
     bf16 *const intermediate_output_forwardbf16 = reinterpret_cast<bf16 *>(intermediate_output_forward);
     bf16 *const intermediate_output_backwardbf16 = reinterpret_cast<bf16 *>(intermediate_output_backward);
+
+    throw std::invalid_argument("Trainign not yet implemented again.");
 
     // return mlp_swift_fused<WIDTH, Activation::ReLU, Activation::None>(
     //     m_q, m_weights_matrices.data(), m_weightsT_matrices.data(),
