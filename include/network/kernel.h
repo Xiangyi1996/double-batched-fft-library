@@ -28,6 +28,45 @@ namespace kernels {
 using bf16 = sycl::ext::oneapi::bfloat16;
 using namespace sycl::ext::oneapi::experimental::matrix;
 
+template <typename T, typename Tc, int INPUT_WIDTH, int WIDTH, int OUTPUT_WIDTH, size_t TN>
+inline std::vector<sycl::event>
+batchedGEMM_naive(sycl::queue &q, T *const __restrict__ output_ptr, T const *const __restrict__ intermediate_forward,
+                  T const *const __restrict__ intermediate_backward, const int n_hidden_layers, const int M,
+                  const std::vector<sycl::event> &deps) {
+    constexpr int SG_SIZE = TN;
+    auto e = q.submit([&](sycl::handler &cgh) {
+        cgh.depends_on(deps);
+
+        cgh.parallel_for(sycl::nd_range<2>(sycl::range<2>(n_hidden_layers + 1, WIDTH * WIDTH),
+                                           sycl::range<2>(1, std::min(1024, WIDTH * WIDTH))),
+                         [=](sycl::nd_item<2> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
+                             const int matrix = item.get_global_id(0);
+                             const int element = item.get_global_id(1);
+                             const int row = element / WIDTH;
+                             const int col = element % WIDTH;
+
+                             Tc tmp_out = static_cast<Tc>(0);
+                             T const *intermediate_forward_loc = intermediate_forward + matrix * M * WIDTH + row;
+                             T const *intermediate_backward_loc = intermediate_backward + matrix * M * WIDTH + col;
+                             for (int i = 0; i < M; i++) {
+                                 tmp_out += static_cast<Tc>(*intermediate_forward_loc) *
+                                            static_cast<Tc>(*intermediate_backward_loc);
+                                 intermediate_forward_loc += WIDTH;
+                                 intermediate_backward_loc += WIDTH;
+                             }
+                             T *const output_ptr_loc = output_ptr + WIDTH * WIDTH * matrix + element;
+                             *output_ptr_loc = static_cast<T>(tmp_out);
+                         });
+    });
+    // auto e =
+    //     q.parallel_for((n_hidden_layers + 1) * WIDTH * WIDTH, [=](auto item) [[intel::reqd_sub_group_size(SG_SIZE)]]
+    //     {
+    //         output_ptr[item.get_id()] = static_cast<T>(1.23);
+    //     });
+
+    return {e};
+}
+
 ////////////////////////////GENERAL FUNCTIONS WHICH CAN DO EVERYTHING///////////
 
 // Todo: May want to remove some of the template parameters of these functions and
@@ -37,11 +76,10 @@ using namespace sycl::ext::oneapi::experimental::matrix;
 // specialization for all the versions
 template <typename T, typename Tc, int INPUT_WIDTH, int WIDTH, int OUTPUT_WIDTH, Activation activation,
           Activation output_activation, bool INFERENCE, size_t TN>
-std::vector<sycl::event>
-forward_impl_general(sycl::queue &q, T const *const __restrict__ weights_ptr, T const *const __restrict__ inputs_ptr,
-                     T *const __restrict__ intermediate_output, const int n_hidden_layers, const int M,
-                     const std::vector<sycl::event> &deps) { // reuse of B, this is in subgroups, ONLY works for 64
-    // note that large grf mode requires this to be set to 32, but then this code does not work anymore
+std::vector<sycl::event> forward_impl_general(sycl::queue &q, T const *const __restrict__ weights_ptr,
+                                              T const *const __restrict__ inputs_ptr,
+                                              T *const __restrict__ intermediate_output, const int n_hidden_layers,
+                                              const int M, const std::vector<sycl::event> &deps) {
     constexpr int SG_SIZE = TN;
     constexpr size_t TM = 8;                                             // this may be adjusted in the future
     constexpr size_t TK = 8 * std::min<size_t>(8, 32 / (8 * sizeof(T))); // This depends on the datatype T
@@ -129,7 +167,7 @@ forward_impl_general(sycl::queue &q, T const *const __restrict__ weights_ptr, T 
                 helpers::MAD<TK>(sg, A_sg_start, B_ptr, Cs);
 
                 // activate and save to slm
-                helpers::applyActivation<activation>(sg, Cs, A_sg_start);
+                helpers::applyActivation<output_activation>(sg, Cs, A_sg_start);
 
                 // save slm to HBM
                 helpers::moveMemorySG<TM, WIDTH>(sg, A_sg_start, intermediate_output_loc + layer_offset_A);
@@ -208,14 +246,13 @@ std::vector<sycl::event> backward_impl_general(queue &q, T const *const __restri
                 // forward >= 0
                 if constexpr (output_activation != Activation::None && output_activation != Activation::ReLU) {
                     helpers::applyBackwardActivation<output_activation, TM, WIDTH>(
-                        sg, A_sg_start, forward_loc + layer_offset_A, A_sg_start);
+                        sg, A_sg_start, forward_loc + layer_offset_A + M * WIDTH, A_sg_start);
                 }
 
                 // store activated slm in intermediate output
                 helpers::moveMemorySG<TM, WIDTH>(sg, A_sg_start, intermediate_output_loc + layer_offset_A);
 
                 std::array<joint_matrix<sycl::sub_group, Tc, use::accumulator, TM, TN>, NC> Cs;
-
                 // we are also doing output->last hidden layer
                 for (int layer = n_hidden_layers; layer > 0; layer--) {
                     layer_offset_A -= M * WIDTH;
@@ -238,41 +275,38 @@ std::vector<sycl::event> backward_impl_general(queue &q, T const *const __restri
                     // are >= 0
                     helpers::applyBackwardActivation<activation == Activation::ReLU || activation == Activation::None
                                                          ? Activation::None
-                                                         : activation>(
-                        sg, Cs,
-                        address_space_cast<access::address_space::global_space, access::decorated::yes>(forward +
-                                                                                                        layer_offset_A),
-                        A_sg_start);
+                                                         : activation>(sg, Cs, forward_loc + layer_offset_A + M * WIDTH,
+                                                                       A_sg_start);
 
                     // store A slm to HBM
-                    helpers::moveMemorySG<TM, WIDTH>(
-                        sg, A_sg_start,
-                        address_space_cast<access::address_space::global_space, access::decorated::yes>(
-                            intermediate_output + layer_offset_A));
+                    helpers::moveMemorySG<TM, WIDTH>(sg, A_sg_start, intermediate_output_loc + layer_offset_A);
                 }
             });
     });
 
-    // NOTE: MKL gemm_batch is slower.
-    std::vector<sycl::event> events(n_hidden_layers + 1);
-    if constexpr (std::is_same<T, bf16>::value) { // need to cast to onemkls bf16 type.
-        for (int iter = 0; iter < n_hidden_layers + 1; iter++) {
-            events[iter] = oneapi::mkl::blas::row_major::gemm(
-                q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M, 1.0f,
-                reinterpret_cast<const oneapi::mkl::bfloat16 *>(forward) + iter * M * WIDTH, WIDTH,
-                reinterpret_cast<oneapi::mkl::bfloat16 *>(intermediate_output) + iter * M * WIDTH, WIDTH, 1.0f,
-                reinterpret_cast<oneapi::mkl::bfloat16 *>(output_ptr) + iter * WIDTH * WIDTH, WIDTH, {e});
-        }
-    } else {
-        for (int iter = 0; iter < n_hidden_layers + 1; iter++) {
-            events[iter] = oneapi::mkl::blas::row_major::gemm(
-                q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M, 1.0f,
-                forward + iter * M * WIDTH, WIDTH, intermediate_output + iter * M * WIDTH, WIDTH, 1.0f,
-                output_ptr + iter * WIDTH * WIDTH, WIDTH, {e});
-        }
-    }
+    // // NOTE: MKL gemm_batch is slower.
+    // std::vector<sycl::event> events(n_hidden_layers + 1);
+    // if constexpr (std::is_same<T, bf16>::value) { // need to cast to onemkls bf16 type.
+    //     for (int iter = 0; iter < n_hidden_layers + 1; iter++) {
+    //         events[iter] = oneapi::mkl::blas::row_major::gemm(
+    //             q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M, 1.0f,
+    //             reinterpret_cast<const oneapi::mkl::bfloat16 *>(forward) + iter * M * WIDTH, WIDTH,
+    //             reinterpret_cast<oneapi::mkl::bfloat16 *>(intermediate_output) + iter * M * WIDTH, WIDTH, 1.0f,
+    //             reinterpret_cast<oneapi::mkl::bfloat16 *>(output_ptr) + iter * WIDTH * WIDTH, WIDTH, {e});
+    //     }
+    // } else {
+    //     throw std::invalid_argument("Untested code path.");
+    //     for (int iter = 0; iter < n_hidden_layers + 1; iter++) {
+    //         events[iter] = oneapi::mkl::blas::row_major::gemm(
+    //             q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M, 1.0,
+    //             forward + iter * M * WIDTH, WIDTH, intermediate_output + iter * M * WIDTH, WIDTH, 1.0,
+    //             output_ptr + iter * WIDTH * WIDTH, WIDTH, {e});
+    //     }
+    // }
+    // return events;
 
-    return events;
+    return batchedGEMM_naive<T, Tc, INPUT_WIDTH, WIDTH, OUTPUT_WIDTH, TN>(q, output_ptr, forward, intermediate_output,
+                                                                          n_hidden_layers, M, {e});
 }
 
 } // namespace kernels

@@ -99,7 +99,7 @@ inline void activateBackward(const Tin &data_in, const sycl::multi_ptr<Tdec, Add
     if constexpr (act == Activation::None)
         data_out = static_cast<Tout>(data_in);
     else if constexpr (act == Activation::ReLU)
-        data_out = data_decision[0] > static_cast<Tout>(0) ? static_cast<Tout>(data_in) : static_cast<Tout>(0);
+        data_out = static_cast<Tout>(data_decision[0] > static_cast<Tdec>(0) ? data_in : 0);
 }
 
 template <Activation act, typename Group, use Use, typename Tin, typename Tout, size_t NumRows, size_t NumCols,

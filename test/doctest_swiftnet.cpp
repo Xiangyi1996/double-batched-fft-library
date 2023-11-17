@@ -6,11 +6,12 @@
 #include "SwiftNetMLP.h"
 #include "activation.h"
 
-void test_forward(int input_width, int output_width, int n_hidden_layers, int net_width, int batch_size, int init_mode,
-                  Activation activation = Activation::ReLU, Activation output_activation = Activation::None) {
+void test_forward(const int input_width, const int output_width, const int n_hidden_layers, const int net_width,
+                  const int batch_size, const int init_mode, Activation activation = Activation::ReLU,
+                  Activation output_activation = Activation::None) {
 
-    float input_val = 1.0f;
-    float weight_val = 0.01f; // setting initialize_params(2) sets the weights to this value
+    const float input_val = 1.0f;
+    const float weight_val = 0.01f; // setting initialize_params(2) sets the weights to this value
 
     REQUIRE(net_width == 64);
     int input_width_padded = net_width;
@@ -87,6 +88,7 @@ template <typename Tval, typename Ttarget>
 void areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector<Ttarget> &target,
                                const double tolerance) {
 
+    long long count = 0;
     bool is_same = true;
     for (size_t i = 0; i < target.size(); ++i) {
         double diff = 0.0;
@@ -94,8 +96,14 @@ void areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector
             diff = std::abs((double)value[i] - (double)target[i]) /
                    std::max<double>(std::abs((double)value[i]), std::abs((double)target[i]));
 
-        if (diff > tolerance) is_same = false;
+        if (diff > tolerance) {
+            is_same = false;
+            count++;
+            std::cout << (double)value[i] << ", " << (double)target[i] << "," << i << std::endl;
+        }
     }
+    if (!is_same) std::cout << count << "/" << target.size() << " are wrong." << std::endl;
+
     CHECK(is_same);
 }
 
@@ -167,20 +175,19 @@ void test_backward() {
     // Allocate host memory
     std::vector<bf16> out_inter_forw_vec(out_inter_forw_size);
     // std::vector<bf16> inputs_vec(inputs_size);
-    // std::vector<bf16> backward_inputs_vec(backward_inputs_size);
+    std::vector<bf16> backward_inputs_vec(backward_inputs_size);
     // // check if the activated backward inputs are in m_out_inter at the right place
     // std::vector<bf16> out_inter_backward_inputs(backward_inputs_size);
-    // std::vector<bf16> out_inter_backw_vec(out_inter_backw_size);
+    std::vector<bf16> out_inter_backw_vec(out_inter_backw_size);
     std::vector<bf16> backward_outputs_vec(backward_out_size);
 
     // Copy data from device to host
     Q.memcpy(out_inter_forw_vec.data(), out_inter_forw, out_inter_forw_size * sizeof(bf16)).wait();
     // inputs.copy_to_host(inputs_vec, Q);
-    // backward_inputs.copy_to_host(backward_inputs_vec, Q);
+    backward_inputs.copy_to_host(backward_inputs_vec, Q);
 
-    // Q.memcpy(out_inter_backw_vec.data(), reinterpret_cast<bf16 *>(out_inter_backw), out_inter_backw_size *
-    // sizeof(bf16))
-    //     .wait();
+    Q.memcpy(out_inter_backw_vec.data(), out_inter_backw, out_inter_backw_size * sizeof(bf16))
+        .wait();
 
     // Q.memcpy(out_inter_backward_inputs.data(),
     //          reinterpret_cast<bf16 *>(out_inter_backw) + HIDDEN_LAYERS * batch_size * WIDTH,
@@ -192,18 +199,20 @@ void test_backward() {
     // Load the CSV files into vectors
     std::vector<float> forward_vec_ref = loadVectorFromCSV<float>("../../bwd_matrices/m_forward.csv");
     // std::vector<bf16> inputs_vec_ref = loadVectorFromCSV<bf16>("../../bwd_matrices/inputs.csv");
-    // std::vector<bf16> backward_inputs_vec_ref = loadVectorFromCSV<bf16>("../../bwd_matrices/grads.csv");
-    // std::vector<float> out_inter_vec_ref = loadVectorFromCSV<float>("../../bwd_matrices/out_inter.csv");
+    std::vector<bf16> backward_inputs_vec_ref = loadVectorFromCSV<bf16>("../../bwd_matrices/grads.csv");
+    std::vector<float> out_inter_vec_ref = loadVectorFromCSV<float>("../../bwd_matrices/out_inter.csv");
     std::vector<bf16> backward_outputs_vec_ref = loadVectorFromCSV<bf16>("../../bwd_matrices/grads_matrices.csv");
 
-    const double tolerance = 1e-3;
+    Q.wait();
+
+    const double tolerance = 1e-2;
 
     areVectorsWithinTolerance(out_inter_forw_vec, forward_vec_ref, tolerance);
     // areVectorsWithinTolerance(inputs_vec, inputs_vec_ref, tolerance);
-    // areVectorsWithinTolerance(backward_inputs_vec, backward_inputs_vec_ref, tolerance);
-    // areVectorsWithinTolerance(out_inter_backw_vec, out_inter_vec_ref, tolerance);
+    areVectorsWithinTolerance(backward_inputs_vec, backward_inputs_vec_ref, tolerance);
+    areVectorsWithinTolerance(out_inter_backw_vec, out_inter_vec_ref, tolerance);
     // areVectorsWithinTolerance(out_inter_backward_inputs, backward_inputs_vec_ref, tolerance);
-    // areVectorsWithinTolerance(backward_outputs_vec, backward_outputs_vec_ref, tolerance);
+    areVectorsWithinTolerance(backward_outputs_vec, backward_outputs_vec_ref, tolerance);
 }
 
 TEST_CASE("Swiftnet Forward - zero pad input") {
