@@ -35,7 +35,7 @@ using namespace sycl::ext::oneapi::experimental::matrix;
 
 // This is the general forward map which also doubles as inference. We use template
 // specialization for all the versions
-template <typename T, typename Tc, int INPUT_WIDTH, int OUTPUT_WIDTH, Activation activation,
+template <typename T, typename Tc, int INPUT_WIDTH, int WIDTH, int OUTPUT_WIDTH, Activation activation,
           Activation output_activation, bool INFERENCE, size_t TN>
 std::vector<sycl::event>
 forward_impl_4(sycl::queue &q, T const *const __restrict__ weights_ptr, T const *const __restrict__ inputs_ptr,
@@ -45,14 +45,13 @@ forward_impl_4(sycl::queue &q, T const *const __restrict__ weights_ptr, T const 
     constexpr int SG_SIZE = TN;
     const int SGS_IN_WG =
         q.get_device().get_info<sycl::info::device::max_work_group_size>() / SG_SIZE; // maximum number
-    constexpr int WIDTH = 4 * TN;
+    static_assert(WIDTH % TN == 0);
+    constexpr int NC = WIDTH / TN;                                       // number of systolic C matrices in the output
     constexpr size_t TM = 8;                                             // this may be adjusted in the future
     constexpr size_t TK = 8 * std::min<size_t>(8, 32 / (8 * sizeof(T))); // This depends on the datatype T
     assert(M % TM == 0); // make sure there is no remainder and no out of bounds accesses
     static_assert(INPUT_WIDTH == WIDTH);
     static_assert(OUTPUT_WIDTH == WIDTH);
-
-    std::cout << "Starting KERNEL" << std::endl;
 
     // One Block Row has TM rows an N columns.
     auto e = q.submit([&](sycl::handler &cgh) {
@@ -98,7 +97,7 @@ forward_impl_4(sycl::queue &q, T const *const __restrict__ weights_ptr, T const 
                             intermediate_output + wg_and_sg_offset_A));
 
                 // this is the only reason why this is not general
-                std::array<joint_matrix<sycl::sub_group, Tc, use::accumulator, TM, TN>, 4> Cs;
+                std::array<joint_matrix<sycl::sub_group, Tc, use::accumulator, TM, TN>, NC> Cs;
 
                 for (int layer = 0; layer < n_hidden_layers; layer++) {
                     // reset result matrices

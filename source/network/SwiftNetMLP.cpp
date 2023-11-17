@@ -252,11 +252,11 @@ std::vector<sycl::event> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16> 
     // Perform forward pass based on activation function
     switch (m_activation) {
     case Activation::None:
-        return tinydpcppnn::kernels::forward_impl_4<bf16, float, 64, 64, Activation::None, Activation::None, false, 16>(
+        return tinydpcppnn::kernels::forward_impl_4<bf16, float, WIDTH, WIDTH, WIDTH, Activation::None, Activation::None, false, 16>(
             m_q, m_weights_matrices.data(), input.data(), Forwardbf16, m_n_hidden_layers, batch_size, deps);
         break;
     case Activation::ReLU:
-        return tinydpcppnn::kernels::forward_impl_4<bf16, float, 64, 64, Activation::ReLU, Activation::None, false, 16>(
+        return tinydpcppnn::kernels::forward_impl_4<bf16, float, WIDTH, WIDTH, WIDTH, Activation::ReLU, Activation::None, false, 16>(
             m_q, m_weights_matrices.data(), input.data(), Forwardbf16, m_n_hidden_layers, batch_size, deps);
         break;
     default:
@@ -280,11 +280,11 @@ std::vector<sycl::event> SwiftNetMLP<WIDTH>::inference(const DeviceMem<bf16> &in
 
     switch (m_activation) {
     case Activation::None:
-        return tinydpcppnn::kernels::forward_impl_4<bf16, float, 64, 64, Activation::None, Activation::None, true, 16>(
+        return tinydpcppnn::kernels::forward_impl_4<bf16, float, WIDTH, WIDTH, WIDTH, Activation::None, Activation::None, true, 16>(
             m_q, m_weights_matrices.data(), input.data(), Forwardbf16, m_n_hidden_layers, batch_size, deps);
         break;
     case Activation::ReLU:
-        return tinydpcppnn::kernels::forward_impl_4<bf16, float, 64, 64, Activation::ReLU, Activation::None, true, 16>(
+        return tinydpcppnn::kernels::forward_impl_4<bf16, float, WIDTH, WIDTH, WIDTH, Activation::ReLU, Activation::None, true, 16>(
             m_q, m_weights_matrices.data(), input.data(), Forwardbf16, m_n_hidden_layers, batch_size, deps);
         break;
     default:
