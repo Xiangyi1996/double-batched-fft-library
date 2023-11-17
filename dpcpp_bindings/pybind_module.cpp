@@ -57,10 +57,6 @@ class Module {
 
 Module create_network_module(const int width, int input_width, int output_width, int n_hidden_layers,
                              Activation activation, Activation output_activation, std::string device_name) {
-    //   tnn::SwiftNetModule* network_module = new tnn::SwiftNetModule(
-    //       width, input_width, output_width, n_hidden_layers, activation,
-    //       output_activation, batch_size, device_name);
-
     std::unordered_map<std::string, std::string> encoding_config = {
         {"n_dims_to_encode", std::to_string(input_width)}, {"scale", "1.0"}, {"offset", "0.0"}};
 

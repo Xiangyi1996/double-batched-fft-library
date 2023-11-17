@@ -19,7 +19,7 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 void test_network_with_encoding() {
     // SWIFTNET
     const int batch_size = 512;
-    const int output_width = 2;
+    const int output_width = 64;
     const int m_n_hidden_layers = HIDDEN_LAYERS;
 
     GPUMatrix<float> input(INPUT_WIDTH, batch_size);
@@ -49,14 +49,6 @@ void test_network_with_encoding() {
     std::vector<bf16> fwd(batch_size * (INPUT_WIDTH + OUTPUT_WIDTH_PADDED + NET_WIDTH * m_n_hidden_layers));
     q.memcpy(fwd.data(), reinterpret_cast<bf16 const *const>(forward), sizeof(bf16) * fwd.size()).wait();
 
-    // std::vector<bf16> out(batch_size * (OUTPUT_WIDTH_PADDED));
-
-    // network_output.copy_to_host(out, q);
-    // q.wait();
-    // for (int j = 0; j < out.size(); j++) {
-    //     std::cout << "out, " << j << ": " << out[j] << std::endl;
-    // }
-
     for (int j = 0; j < fwd.size(); j++) {
         if (j % (512 * 64) == 0) {
             std::cout << "__________________________" << std::endl;
@@ -64,6 +56,12 @@ void test_network_with_encoding() {
         std::cout << "fwd, " << j << ": " << fwd[j] << std::endl;
     }
 
+    std::vector<bf16> out(batch_size * (OUTPUT_WIDTH_PADDED));
+
+    network_output.copy_to_host(out, q);
+    for (int j = 0; j < out.size(); j++) {
+        std::cout << "out, " << j << ": " << static_cast<float>(out[j]) << std::endl;
+    }
     network.free_memory();
 }
 

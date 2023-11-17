@@ -105,9 +105,11 @@ For validating that the forward and backward passes are calculated correctly, ru
 To build the tiny-nn librairy, you can clone the github repo on your machine and put your code in the source folder.
 Then you can build the library using :
 
-```sh
-user$ source /opt/intel/oneapi/setvars.sh intel64
-user$ make <options>
+```
+source /usr/share/modules/init/profile.sh && module load intel/oneapi/2023.2.1 && module load intel-comp-rt/agama-ci-devel/682.16 && module load cmake/3.26.0 && module load intel/dpl/2022.2.0
+mkdir build && cd build/
+cmake -DBUILD_TEST=YES -DoneDPL_DIR=/opt/intel/oneapi/dpl/2022.2.0/lib/cmake/oneDPL/ ..
+make 
 ```
 
 where <options> can be dg2 or pvc depending on the hardware you want to build for.

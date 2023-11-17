@@ -1,0 +1,2 @@
+/usr/bin/ar qc libswiftnetmlp.a CMakeFiles/swiftnetmlp.dir/SwiftNetMLP.cpp.o CMakeFiles/swiftnetmlp.dir/network_with_encodings.cpp.o
+/usr/bin/ranlib libswiftnetmlp.a

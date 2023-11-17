@@ -718,7 +718,7 @@ template <typename T> void DeviceMem<T>::initialize_he_normal(int input_width, q
     initialize_normal(dev, q);
 }
 
-template <typename T> void DeviceMem<T>::zero_pad_input(int input_width, int input_width_padded, int width, queue q) {
+template <typename T> void DeviceMem<T>::zero_pad_input(int input_width, int input_width_padded, int width, queue &q) {
     auto p = m_data;
 
     q.parallel_for<>(range<1>(input_width_padded * width), [=](id<1> idx) {
@@ -737,7 +737,7 @@ template <typename T> void DeviceMem<T>::zero_pad_input(int input_width, int inp
 
 template <typename T>
 void DeviceMem<T>::zero_pad_output(int output_width, int input_width_padded, int width, int output_width_padded,
-                                   int n_hidden, queue q) {
+                                   int n_hidden, queue &q) {
     auto p = m_data;
 
     // q.parallel_for<>(range<1>(width * output_width_padded), [=](id<1> idx) {

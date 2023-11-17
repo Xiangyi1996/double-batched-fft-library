@@ -14,6 +14,7 @@
 #include "common_host.h"
 
 using namespace sycl;
+using bf16 = sycl::ext::oneapi::bfloat16;
 
 #define DEBUG_GUARD_SIZE 0
 
@@ -314,9 +315,9 @@ template <typename T> class DeviceMem {
     void initialize_arange(queue q);
 
     void allocate_memory(size_t n_bytes);
-    void zero_pad_input(int input_width, int input_width_padded, int width, queue q);
+    void zero_pad_input(int input_width, int input_width_padded, int width, queue &q);
     void zero_pad_output(int output_width, int input_width_padded, int width, int output_width_padded, int n_hidden,
-                         queue q);
+                         queue &q);
 };
 
 /// TODO: this can be a sub struct of the Arena

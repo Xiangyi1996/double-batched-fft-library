@@ -307,6 +307,14 @@ template <int WIDTH>
 std::vector<sycl::event> SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16> &grads, float *const out_inter,
                                                            float const *const forward, const size_t batch_size,
                                                            const std::vector<sycl::event> &deps) {
+
+    if ((batch_size % 16) != 0) {
+        throw std::invalid_argument("Batch size is not divisible by 16.");
+    }
+
+    if (batch_size < 512) {
+        throw std::invalid_argument("Batch size must be >= 512, but is " + std::to_string(batch_size));
+    }
     // Compute activation backpropagation using parallel_for
     bf16 const *const Forwardbf16 = reinterpret_cast<const bf16 *>(forward);
     bf16 *const out_interbf16 = reinterpret_cast<bf16 *>(out_inter);
