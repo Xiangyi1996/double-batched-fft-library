@@ -1,7 +1,6 @@
 // Copyright (C) 2023 Intel Corporation
 // SPDX-License-Identifier: BSD-3-Clause
 
-#include "doctest/doctest.h"
 #include <CL/sycl.hpp>
 #include <chrono>
 #include <cmath>
@@ -28,10 +27,10 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 // #define INCLUDE_COOLDOWN
 #define TEST_TRAINING
 // #define CHECK_RESULTS
-// #define TEST_INFERENCE
+#define TEST_INFERENCE
 // #define DEBUG_OUTPUT
 
-void start_training(const int WIDTH = 64, const int input_width = 64, const int output_width = 64,
+void start_training(const int WIDTH = 64, const int input_width = 5, const int output_width = 1,
                     const int m_n_hidden_layers = 4) {
 
     // SWIFTNET
@@ -41,10 +40,7 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
     // Fourth step: train the model by sampling the above image and optimizing
     // relative squared error using Adam.
     // Experimental not sure how many batch sizes are possible
-    std::vector<uint32_t> batch_sizes = {
-        /*1 << 29, 1 << 28, 1 << 27, 1 << 26, 1 << 25, 1 << 24, 1 << 23, 1 << 22,*/
-        /*1 << 21 , 1 << 20, 1 << 19, 1 << 18, 1 << 17, 1 << 16, 1 << 15, 1 << 14, 1<<13, 1<<12, 1<<11, 1<<10,*/ 1
-        << 9};
+    std::vector<uint32_t> batch_sizes = {1 << 14};
     std::string method = "SwiftNet";
     nlohmann::json bench_result;
     bench_result[method] = nlohmann::json::array();
@@ -107,11 +103,12 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
             q.wait(); // wait for init vals.
 
             // Various constants for the network and optimization
-            uint32_t n_iterations = 250;
-            // uint32_t n_iterations = std::max(1000 * (1 << 18) / batch_size, 250u);
+            uint32_t n_iterations = std::max(1000 * (1 << 18) / batch_size, 250u);
+
             uint32_t n_iterations_warmup = n_iterations / 2;
 
             auto begin = std::chrono::steady_clock::now();
+            auto begin_total = std::chrono::steady_clock::now();
 
             float tmp_loss = 0;
             uint32_t tmp_loss_counter = 0;
@@ -162,6 +159,12 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
                 }
             }
             q.wait();
+
+            std::chrono::steady_clock::time_point end_total = std::chrono::steady_clock::now();
+            auto microseconds_total =
+                std::chrono::duration_cast<std::chrono::microseconds>(end_total - begin_total).count();
+            std::cout << "Training Time for " << n_iterations << " iterations: " << microseconds_total
+                      << "microseconds." << std::endl;
 
             mean_training_throughput /= (double)mean_counter;
 
@@ -322,6 +325,7 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
 #pragma omp barrier
 
             begin = std::chrono::steady_clock::now();
+            begin_total = std::chrono::steady_clock::now();
 
             // Inference benchmark
             mean_counter = 0;
@@ -336,8 +340,9 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
                     begin_time_inference = std::chrono::steady_clock::now(); // start measuring after warmup
 
                 // Inference step
-                dependencies =
-                    train.training_step(inputs, output, target, grads, losses, scale, WIDTH, 1, dependencies);
+                // dependencies =
+                // train.training_step(inputs, output, target, grads, losses, scale, WIDTH, 1, dependencies);
+                dependencies = train.training_step(inputs, losses, 1, out_inter_forw, out_inter_backw, batch_size);
 
                 // Debug outputs
                 if (i % print_interval == 0) {
@@ -357,6 +362,12 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
                 }
             }
             q.wait();
+
+            end_total = std::chrono::steady_clock::now();
+            microseconds_total = std::chrono::duration_cast<std::chrono::microseconds>(end_total - begin_total).count();
+            std::cout << "Inference Time for " << n_iterations << " iterations: " << microseconds_total
+                      << "microseconds." << std::endl;
+
             auto end_time_inference = std::chrono::steady_clock::now();
             double elapsed_time_inference =
                 std::chrono::duration_cast<std::chrono::nanoseconds>(end_time_inference - begin_time_inference).count();
@@ -435,8 +446,7 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
 
         if (world_rank == 0) {
             std::string json_string = bench_result.dump(4);
-            std::ofstream out{std::string("bench_result_ours") + std::to_string(omp_get_thread_num()) +
-                              std::string(".json")};
+            std::ofstream out{std::string("../benchmarks/results/benchmark_pinns.json")};
             out << json_string;
         }
     }
@@ -444,4 +454,7 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
     MPI_Finalize();
 }
 
-TEST_CASE("tinydpcppnn::encoding Fwd test") { start_training(); }
+int main() {
+    start_training();
+    return 0;
+}

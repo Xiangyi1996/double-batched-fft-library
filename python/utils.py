@@ -1,6 +1,8 @@
 import numpy as np
-import torch
-import intel_extension_for_pytorch  # required for tinyn_nn (SwiftNet inside)
+
+# import torch
+
+# import intel_extension_for_pytorch  # required for tinyn_nn (SwiftNet inside)
 
 from mlp import MLP
 from modules import NetworkWithInputEncoding

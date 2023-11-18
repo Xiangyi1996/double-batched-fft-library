@@ -137,6 +137,23 @@ TEST_CASE("tinydpcppnn::encoding Spherical Harmonics") {
     }
 }
 
+// std::vector<float> loadCSV(const std::string &filename) {
+//     std::vector<float> data;
+//     std::ifstream file(filename);
+
+//     if (file.is_open()) {
+//         std::string line;
+//         while (std::getline(file, line)) {
+//             float value;
+//             std::istringstream iss(line);
+//             iss >> value;
+//             data.push_back(value);
+//         }
+//         file.close();
+//     }
+//     return data;
+// }
+
 TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
     SUBCASE("Not padded") {
         // SWIFTNET
@@ -186,6 +203,19 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         DeviceMem<float> params_full_precision(network->n_params(), q);
         // std::cout << "N params: " << params_full_precision.size() << std::endl;
         params_full_precision.initialize_arange(q);
+        // std::vector<float> params = loadCSV("params.csv");
+        // std::vector<float> input_ref = loadCSV("input.csv");
+
+        // std::cout << "Params ref size: " << params.size() << ", grid size: " << network->n_params() << std::endl;
+
+        // params_full_precision.copy_from_host(params, q);
+        // input_float.copy_from_host(input_ref, q);
+
+        // // Print the loaded data
+        // for (const auto &value : params) {
+        //     std::cout << value << std::endl;
+        // }
+
         //   network->initialize_params(params_full_precision.data());
         network->set_params(params_full_precision.data(), params_full_precision.data(), nullptr);
         //   std::unordered_map<std::string, std::string> encoding = {
@@ -198,6 +228,7 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         // std::cout << "About to fwd" << std::endl;
         std::unique_ptr<Context> model_ctx = network->forward_impl(&q, input, &output_float);
         q.wait();
+
         // std::cout << "out width: " << network->output_width() << std::endl;
         // std::cout << "Out2" << std::endl;
         // output_float.print();

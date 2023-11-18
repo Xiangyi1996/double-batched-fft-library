@@ -190,28 +190,47 @@ template <int WIDTH> void SwiftNetMLP<WIDTH>::save_to_file(std::string filename)
  */
 template <int WIDTH> void SwiftNetMLP<WIDTH>::load_from_file(std::string filename) {
     // Open the file for reading
-    std::ifstream file;
-    file.open(filename);
-    std::string line;
+    // std::ifstream file;
+    // file.open(filename);
+    // std::string line;
 
     // Read parameters from the file
-    file >> m_inputs_width;
-    file >> m_net_width;
-    file >> m_output_width;
-    file >> m_n_hidden_layers;
-    file >> m_n_hidden_matrices;
+    // file >> m_inputs_width;
+    // file >> m_net_width;
+    // file >> m_output_width;
+    // file >> m_n_hidden_layers;
+    // file >> m_n_hidden_matrices;
 
     // Read each value from the file and set it as a bf16 value in weights
     // matrices
-    for (int i = 0; i < m_weights_matrices.size(); i++) {
-        float x;
-        file >> x;
-        m_weights_matrices.data()[i] = bf16(x);
+    std::vector<bf16> data_vec;
+    std::ifstream file(filename);
+
+    if (!file.is_open()) {
+        std::cerr << "Error opening file: " << filename << std::endl;
     }
 
-    // Close the file
+    std::string line;
+    while (std::getline(file, line)) {
+        try {
+            float value = std::stod(line);
+            data_vec.push_back((bf16)(value));
+        } catch (const std::invalid_argument &e) {
+            std::cerr << "Invalid argument: " << e.what() << std::endl;
+        } catch (const std::out_of_range &e) {
+            std::cerr << "Out of range: " << e.what() << std::endl;
+        }
+    }
+
     file.close();
 
+    if (m_weights_matrices.size() != data_vec.size()) {
+        std::string errorMessage = "m_weights_matrices.size() " + std::to_string(m_weights_matrices.size()) +
+                                   " is not equal loaded size: " + std::to_string(data_vec.size());
+        throw std::runtime_error(errorMessage);
+    }
+    m_weights_matrices.copy_from_host(data_vec, m_q);
+    m_q.wait();
     // Make the weights matrices transposed using the transposed weights matrices
     m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width_padded, m_net_width, m_output_width,
                                        m_n_hidden_matrices, m_q);

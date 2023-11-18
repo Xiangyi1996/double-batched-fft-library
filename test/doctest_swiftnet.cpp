@@ -5,6 +5,7 @@
 
 #include "SwiftNetMLP.h"
 #include "activation.h"
+#include "result_check.h"
 
 void test_forward(const int input_width, const int output_width, const int n_hidden_layers, const int net_width,
                   const int batch_size, const int init_mode, Activation activation = Activation::ReLU,
@@ -84,50 +85,6 @@ void test_forward(const int input_width, const int output_width, const int n_hid
     network_input.free_mem(q);
 }
 
-template <typename Tval, typename Ttarget>
-void areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector<Ttarget> &target,
-                               const double tolerance) {
-
-    long long count = 0;
-    bool is_same = true;
-    for (size_t i = 0; i < target.size(); ++i) {
-        double diff = 0.0;
-        if ((double)value[i] != 0.0 || (double)target[i] != 0.0)
-            diff = std::abs((double)value[i] - (double)target[i]) /
-                   std::max<double>(std::abs((double)value[i]), std::abs((double)target[i]));
-
-        if (diff > tolerance) {
-            is_same = false;
-            count++;
-            std::cout << (double)value[i] << ", " << (double)target[i] << "," << i << std::endl;
-        }
-    }
-    if (!is_same) std::cout << count << "/" << target.size() << " are wrong." << std::endl;
-
-    CHECK(is_same);
-}
-
-template <typename T> std::vector<T> loadVectorFromCSV(const std::string &filename) {
-    std::vector<T> data;
-    std::ifstream file(filename);
-
-    if (!file.is_open()) {
-        std::cerr << "Failed to open the file for reading: " << filename << std::endl;
-        return data;
-    }
-
-    std::string line;
-    while (std::getline(file, line)) {
-        std::istringstream ss(line);
-        std::string token;
-        while (std::getline(ss, token, ',')) {
-            data.push_back(static_cast<T>(std::stof(token)));
-        }
-    }
-
-    return data;
-}
-
 void test_backward() {
 
     const int batch_size = 128;
@@ -186,8 +143,7 @@ void test_backward() {
     // inputs.copy_to_host(inputs_vec, Q);
     backward_inputs.copy_to_host(backward_inputs_vec, Q);
 
-    Q.memcpy(out_inter_backw_vec.data(), out_inter_backw, out_inter_backw_size * sizeof(bf16))
-        .wait();
+    Q.memcpy(out_inter_backw_vec.data(), out_inter_backw, out_inter_backw_size * sizeof(bf16)).wait();
 
     // Q.memcpy(out_inter_backward_inputs.data(),
     //          reinterpret_cast<bf16 *>(out_inter_backw) + HIDDEN_LAYERS * batch_size * WIDTH,

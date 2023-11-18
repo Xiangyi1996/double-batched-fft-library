@@ -45,7 +45,7 @@ DeviceMem<bf16> *NetworkWithEncoding::backward_pass(DeviceMem<bf16> &input_backw
     float *out_inter = malloc_device<float>(batch_size * net_width * (n_hidden_matrices), m_q);
 
     /// Note CB: do we need grad_output or input_backward here as first parameter?
-    network->backward_pass(input_backward, out_inter, forward, batch_size, {});
+    network->backward_pass(grad_output, out_inter, forward, batch_size, {});
 
     return (network->get_grads_matrices());
 }

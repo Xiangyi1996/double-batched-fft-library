@@ -1,6 +1,50 @@
 #include "gpu_matrix.h"
 
-bool areVectorsWithinTolerance(const std::vector<float> &value, const std::vector<float> &target, float tolerance,
+template <typename Tval, typename Ttarget>
+void areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector<Ttarget> &target,
+                               const double tolerance) {
+
+    long long count = 0;
+    bool is_same = true;
+    for (size_t i = 0; i < target.size(); ++i) {
+        double diff = 0.0;
+        if ((double)value[i] != 0.0 || (double)target[i] != 0.0)
+            diff = std::abs((double)value[i] - (double)target[i]) /
+                   std::max<double>(std::abs((double)value[i]), std::abs((double)target[i]));
+
+        if (diff > tolerance) {
+            is_same = false;
+            count++;
+            std::cout << (double)value[i] << ", " << (double)target[i] << "," << i << std::endl;
+        }
+    }
+    if (!is_same) std::cout << count << "/" << target.size() << " are wrong." << std::endl;
+
+    // CHECK(is_same);
+}
+
+template <typename T> std::vector<T> loadVectorFromCSV(const std::string &filename) {
+    std::vector<T> data;
+    std::ifstream file(filename);
+
+    if (!file.is_open()) {
+        std::cerr << "Failed to open the file for reading: " << filename << std::endl;
+        return data;
+    }
+
+    std::string line;
+    while (std::getline(file, line)) {
+        std::istringstream ss(line);
+        std::string token;
+        while (std::getline(ss, token, ',')) {
+            data.push_back(static_cast<T>(std::stof(token)));
+        }
+    }
+
+    return data;
+}
+
+bool areVectorsWithinTolerance(const std::vector<bf16> &value, const std::vector<float> &target, float tolerance,
                                int output_width) {
     //   assert(a.size() == b.size());  // Ensure vectors have the same length
 
@@ -8,7 +52,7 @@ bool areVectorsWithinTolerance(const std::vector<float> &value, const std::vecto
     bool allWithinTolerance = true;
 
     for (size_t i = 0; i < value.size(); ++i) {
-        float diff = std::abs(value[i] - target[i % output_width]);
+        float diff = std::abs((float)value[i] - target[i % output_width]);
         // std::cout << "Checking idx: " << i << std::endl;
         total_values_checked++;
         if (diff > tolerance) {
