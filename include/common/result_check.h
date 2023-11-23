@@ -1,7 +1,7 @@
 #include "gpu_matrix.h"
 
 template <typename Tval, typename Ttarget>
-void areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector<Ttarget> &target,
+bool areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector<Ttarget> &target,
                                const double tolerance) {
 
     long long count = 0;
@@ -15,12 +15,13 @@ void areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector
         if (diff > tolerance) {
             is_same = false;
             count++;
-            std::cout << (double)value[i] << ", " << (double)target[i] << "," << i << std::endl;
+            std::cout << "At " << i << ", Val: " << (double)value[i] << ", target: " << (double)target[i] << std::endl;
         }
     }
     if (!is_same) std::cout << count << "/" << target.size() << " are wrong." << std::endl;
 
     // CHECK(is_same);
+    return is_same;
 }
 
 template <typename T> std::vector<T> loadVectorFromCSV(const std::string &filename) {
@@ -28,8 +29,7 @@ template <typename T> std::vector<T> loadVectorFromCSV(const std::string &filena
     std::ifstream file(filename);
 
     if (!file.is_open()) {
-        std::cerr << "Failed to open the file for reading: " << filename << std::endl;
-        return data;
+        throw std::invalid_argument("Failed to open the file for reading: " + filename);
     }
 
     std::string line;
