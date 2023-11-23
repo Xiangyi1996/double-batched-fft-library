@@ -7,6 +7,7 @@
 
 #include "activation.h"
 #include "network_with_encodings.h"
+#include "result_check.h"
 
 using namespace sycl;
 using namespace sycl::ext::oneapi::experimental::matrix;
@@ -16,38 +17,14 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 #define OUTPUT_WIDTH_PADDED 64
 #define HIDDEN_LAYERS 1
 #define NET_WIDTH 64
-std::vector<float> loadCSV(const std::string &filename) {
-    std::vector<float> data;
-    std::ifstream file(filename);
-
-    if (file.is_open()) {
-        std::string line;
-        while (std::getline(file, line)) {
-            float value;
-            std::istringstream iss(line);
-            iss >> value;
-            data.push_back(value);
-        }
-        file.close();
-    }
-    return data;
-}
-
-void saveCSV(const std::string &filename, const std::vector<float> &data) {
-    std::ofstream file(filename);
-
-    if (file.is_open()) {
-        for (const auto &value : data) {
-            file << value << std::endl;
-        }
-        file.close();
-    }
-}
 
 void test_network_with_encoding() {
+    int use_encoding = 1;
     // const int WIDTH = 64;
     const int input_width = 64;
-    const int output_width = 64;
+    const int output_width = 1;
+
+    const int output_width_padded = WIDTH; // we pad the remainder to 0
     const int m_n_hidden_layers = 1;
     int batch_size = 8;
 
@@ -74,14 +51,13 @@ void test_network_with_encoding() {
     SwiftNetMLP<64> network =
         SwiftNetMLP<64>(q, input_width, output_width, m_n_hidden_layers, Activation::ReLU, Activation::None);
     q.wait(); // wait for init netweork
-    network.load_from_file("network_params.csv");
-    // network.initialize_params(2);
+    // network.load_from_file("network_params.csv");
+    network.initialize_params(2);
 
     q.wait(); // wait for init vals.
-    const size_t out_inter_forw_size = batch_size * (input_width + output_width + WIDTH * m_n_hidden_layers);
+    const size_t out_inter_forw_size = batch_size * (input_width + output_width_padded + WIDTH * m_n_hidden_layers);
 
     float *out_inter_forw = sycl::malloc_device<float>(out_inter_forw_size, q);
-
     // load weights, infer image first before benchmark
     DeviceMem<float> input_encoding_dm(encoding_input_width * batch_size, q);
     input_encoding_dm.initialize_constant(1.0f, q);
@@ -92,39 +68,42 @@ void test_network_with_encoding() {
     GPUMatrix<float> output_encoding(output_encoding_dm.data(), input_width, batch_size);
     GridEncoding<float> *encoding = create_grid_encoding<float>(encoding_input_width, encoding_json);
 
-    std::vector<float> params = loadCSV("encoding_params.csv");
-    // std::vector<float> input_ref = loadCSV("input.csv");
+    std::vector<float> params =
+        loadVectorFromCSV<float>("../test/ref_values/network_with_grid_encoding/encoding_params.csv");
+    std::vector<float> input_ref = loadVectorFromCSV<float>("../test/ref_values/network_with_grid_encoding/input.csv");
     DeviceMem<float> params_full_precision(encoding->n_params(), q);
+    if (use_encoding) {
 
-    std::cout << "Params ref size: " << params.size() << ", grid size: " << encoding->n_params() << std::endl;
-    // std::cout << "Input ref size: " << input_ref.size() << ", input size: " << inputs.size() << std::endl;
-    params_full_precision.copy_from_host(params, q);
-    // input_encoding_dm.copy_from_host(input_ref, q);
-    // std::cout << "Input: " << std::endl;
-    input_encoding.print();
+        std::cout << "Params ref size: " << params.size() << ", grid size: " << encoding->n_params() << std::endl;
+        // std::cout << "Input ref size: " << input_ref.size() << ", input size: " << inputs.size() << std::endl;
+        params_full_precision.copy_from_host(params, q);
+        // input_encoding_dm.copy_from_host(input_ref, q);
+        // std::cout << "Input: " << std::endl;
+        input_encoding.print();
 
-    // params_full_precision.initialize_arange(q);
+        // params_full_precision.initialize_arange(q);
 
-    // encoding->set_padded_output_width(input_width);
-    encoding->set_params(params_full_precision.data(), params_full_precision.data(), nullptr);
+        // encoding->set_padded_output_width(input_width);
+        encoding->set_params(params_full_precision.data(), params_full_precision.data(), nullptr);
 
-    std::unique_ptr<Context> model_ctx = encoding->forward_impl(&q1, input_encoding, &output_encoding);
-    q1.wait();
-    std::cout << "Output: " << output_encoding.n_elements() << std::endl;
-    output_encoding.print();
+        std::unique_ptr<Context> model_ctx = encoding->forward_impl(&q1, input_encoding, &output_encoding);
+        q1.wait();
+        std::cout << "Output: " << output_encoding.n_elements() << std::endl;
+        output_encoding.print();
 
-    inputs.set_values(output_encoding.n_elements(), output_encoding.data(), q);
-    std::cout << "Input: " << inputs.size() << std::endl;
+        inputs.set_values(output_encoding.n_elements(), output_encoding.data(), q);
+        std::cout << "Input: " << inputs.size() << std::endl;
 
-    std::vector<bf16> inputs_vec(input_width * batch_size);
+        std::vector<bf16> inputs_vec(input_width * batch_size);
 
-    q.memcpy(inputs_vec.data(), inputs.data(), sizeof(bf16) * inputs_vec.size()).wait();
+        q.memcpy(inputs_vec.data(), inputs.data(), sizeof(bf16) * inputs_vec.size()).wait();
 
-    for (int i = 0; i < inputs_vec.size(); i++) {
-        std::cout << "i: " << inputs_vec[i] << std::endl;
+        for (int i = 0; i < inputs_vec.size(); i++) {
+            std::cout << "i: " << inputs_vec[i] << std::endl;
+        }
+
+        q1.wait();
     }
-
-    q1.wait();
     std::cout << "inference: " << std::endl;
 
     network.inference(inputs, out_inter_forw, batch_size, {});
@@ -137,7 +116,7 @@ void test_network_with_encoding() {
     std::cout << "Output: " << out_vec.size() << std::endl;
 
     for (int i = 0; i < out_vec.size(); i++) {
-        if (i >= batch_size * (input_width + WIDTH * m_n_hidden_layers)) {
+        if (i >= batch_size * (input_width + WIDTH * m_n_hidden_layers) && (out_vec[i] != 0)) {
             std::cout << i << ": " << out_vec[i] << std::endl;
         }
     }
@@ -207,8 +186,8 @@ void test_network_with_encoding() {
 
 //     // GridEncoding<float> *encoding = create_grid_encoding<float>(encoding_input_width, encoding_json);
 
-//     // std::vector<float> params = loadCSV("encoding_params.csv");
-//     // // std::vector<float> input_ref = loadCSV("input.csv");
+//     // std::vector<float> params = loadVectorFromCSV("encoding_params.csv");
+//     // // std::vector<float> input_ref = loadVectorFromCSV("input.csv");
 //     // DeviceMem<float> params_full_precision(encoding->n_params(), q);
 
 //     // std::cout << "Params ref size: " << params.size() << ", grid size: " << encoding->n_params() << std::endl;

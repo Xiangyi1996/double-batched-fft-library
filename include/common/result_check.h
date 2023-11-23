@@ -44,6 +44,17 @@ template <typename T> std::vector<T> loadVectorFromCSV(const std::string &filena
     return data;
 }
 
+void saveCSV(const std::string &filename, const std::vector<float> &data) {
+    std::ofstream file(filename);
+
+    if (file.is_open()) {
+        for (const auto &value : data) {
+            file << value << std::endl;
+        }
+        file.close();
+    }
+}
+
 bool areVectorsWithinTolerance(const std::vector<bf16> &value, const std::vector<float> &target, float tolerance,
                                int output_width) {
     //   assert(a.size() == b.size());  // Ensure vectors have the same length

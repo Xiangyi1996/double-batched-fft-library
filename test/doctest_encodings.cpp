@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include "doctest/doctest.h"
+#include "result_check.h"
 #include <iostream>
 #include <vector>
 
@@ -137,23 +138,6 @@ TEST_CASE("tinydpcppnn::encoding Spherical Harmonics") {
     }
 }
 
-// std::vector<float> loadCSV(const std::string &filename) {
-//     std::vector<float> data;
-//     std::ifstream file(filename);
-
-//     if (file.is_open()) {
-//         std::string line;
-//         while (std::getline(file, line)) {
-//             float value;
-//             std::istringstream iss(line);
-//             iss >> value;
-//             data.push_back(value);
-//         }
-//         file.close();
-//     }
-//     return data;
-// }
-
 TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
     SUBCASE("Not padded") {
         // SWIFTNET
@@ -169,23 +153,6 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
 
         output_float.initialize_constant(0.0f);
 
-        // std::cout << "In" << std::endl;
-        // input.print();
-        // std::cout << "Out" << std::endl;
-        // output_float.print();
-
-        // Define the parameters for creating IdentityEncoding
-        // std::unordered_map<std::string, std::string> encoding = {
-        //     {"n_dims_to_encode", std::to_string(input_width)},
-        //     {"otype", "Grid"},
-        //     {"type", "Hash"},
-        //     {"n_levels", "16"},
-        //     {"n_features_per_level", "2"},
-        //     {"log2_hashmap_size", "19"},
-        //     {"base_resolution", "16"},
-        //     {"per_level_scale", "2.0"},
-        // };
-
         json encoding_json = {
             {"n_dims_to_encode", std::to_string(input_width)},
             {"otype", "Grid"},
@@ -198,40 +165,15 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         };
 
         GridEncoding<float> *network = create_grid_encoding<float>(input_width, encoding_json);
-        // Encoding<float> *network = create_encoding<float>("Grid", encoding);
-        // std::cout << "N params: " << network->n_params() << std::endl;
+
         DeviceMem<float> params_full_precision(network->n_params(), q);
-        // std::cout << "N params: " << params_full_precision.size() << std::endl;
+
         params_full_precision.initialize_arange(q);
-        // std::vector<float> params = loadCSV("params.csv");
-        // std::vector<float> input_ref = loadCSV("input.csv");
 
-        // std::cout << "Params ref size: " << params.size() << ", grid size: " << network->n_params() << std::endl;
-
-        // params_full_precision.copy_from_host(params, q);
-        // input_float.copy_from_host(input_ref, q);
-
-        // // Print the loaded data
-        // for (const auto &value : params) {
-        //     std::cout << value << std::endl;
-        // }
-
-        //   network->initialize_params(params_full_precision.data());
         network->set_params(params_full_precision.data(), params_full_precision.data(), nullptr);
-        //   std::unordered_map<std::string, std::string> encoding = {
-        //       {"n_dims_to_encode", std::to_string(INPUT_WIDTH)},
-        //       {"degree", std::to_string(DEGREE)}};
-        //   Encoding<bf16>* network =
-        //       create_encoding<bf16>(INPUT_WIDTH, "SphericalHarmonics",
-        // encoding);
-        //   network->set_padded_output_width(OUTPUT_WIDTH);
-        // std::cout << "About to fwd" << std::endl;
+
         std::unique_ptr<Context> model_ctx = network->forward_impl(&q, input, &output_float);
         q.wait();
-
-        // std::cout << "out width: " << network->output_width() << std::endl;
-        // std::cout << "Out2" << std::endl;
-        // output_float.print();
 
         CHECK(check_output_non_zero(output_float));
 
@@ -245,6 +187,70 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
 
         // Check if the actual vector is equal to the expected vector within the tolerance
         for (size_t i = 0; i < out.size(); ++i) {
+            CHECK(std::abs(reference_out[i] - out[i]) < epsilon);
+        }
+    }
+    SUBCASE("Check results loaded") {
+        // SWIFTNET
+        int input_width = 2;
+        const int batch_size = 8;
+        queue q;
+        DeviceMem<float> input_float(input_width * batch_size, q);
+        input_float.initialize_constant(0.0f, q);
+        GPUMatrix<float> input(input_float.data(), input_width, batch_size);
+
+        GPUMatrix<float> output_float(32, batch_size);
+
+        output_float.initialize_constant(0.0f);
+
+        json encoding_json = {
+            {"n_dims_to_encode", std::to_string(input_width)},
+            {"otype", "Grid"},
+            {"type", "Hash"},
+            {"n_levels", 16},
+            {"n_features_per_level", 2},
+            {"log2_hashmap_size", 15},
+            {"base_resolution", 16},
+            {"per_level_scale", 1.5},
+        };
+
+        GridEncoding<float> *network = create_grid_encoding<float>(input_width, encoding_json);
+        // Encoding<float> *network = create_encoding<float>("Grid", encoding);
+        // std::cout << "N params: " << network->n_params() << std::endl;
+        DeviceMem<float> params_full_precision(network->n_params(), q);
+
+        std::vector<float> params =
+            loadVectorFromCSV<float>("../test/ref_values/network_with_grid_encoding/encoding_params.csv");
+        std::vector<float> input_ref =
+            loadVectorFromCSV<float>("../test/ref_values/network_with_grid_encoding/input.csv");
+        std::cout << "Loaded n_params: " << params.size() << ", encoding n_params: " << network->n_params()
+                  << std::endl;
+        CHECK(params.size() == network->n_params());
+
+        params_full_precision.copy_from_host(params, q);
+        input_float.copy_from_host(input_ref, q);
+
+        network->set_params(params_full_precision.data(), params_full_precision.data(), nullptr);
+
+        // std::cout << "In" << std::endl;
+        // input.print();
+        std::unique_ptr<Context> model_ctx = network->forward_impl(&q, input, &output_float);
+        q.wait();
+
+        // std::cout << "Out" << std::endl;
+        // output_float.print();
+
+        CHECK(check_output_non_zero(output_float));
+
+        std::vector<float> out = output_float.to_cpu_vector();
+        std::vector<float> reference_out =
+            loadVectorFromCSV<float>("../test/ref_values/network_with_grid_encoding/encoding_output.csv");
+
+        double epsilon = 1e-4; // Set the tolerance for floating-point comparisons
+
+        // Check if the actual vector is equal to the expected vector within the tolerance
+        for (size_t i = 0; i < out.size(); ++i) {
+            // std::cout << i << ", ref:" << reference_out[i] << ", val: " << out[i] << std::endl;
             CHECK(std::abs(reference_out[i] - out[i]) < epsilon);
         }
     }
