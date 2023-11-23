@@ -220,9 +220,9 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         DeviceMem<float> params_full_precision(network->n_params(), q);
 
         std::vector<float> params =
-            loadVectorFromCSV<float>("../test/ref_values/network_with_grid_encoding/encoding_params.csv");
+            loadVectorFromCSV<float>("../test/ref_values/network_with_grid_encoding/full/encoding_params.csv");
         std::vector<float> input_ref =
-            loadVectorFromCSV<float>("../test/ref_values/network_with_grid_encoding/input.csv");
+            loadVectorFromCSV<float>("../test/ref_values/network_with_grid_encoding/full/input.csv");
         std::cout << "Loaded n_params: " << params.size() << ", encoding n_params: " << network->n_params()
                   << std::endl;
         CHECK(params.size() == network->n_params());
@@ -244,7 +244,7 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
 
         std::vector<float> out = output_float.to_cpu_vector();
         std::vector<float> reference_out =
-            loadVectorFromCSV<float>("../test/ref_values/network_with_grid_encoding/encoding_output.csv");
+            loadVectorFromCSV<float>("../test/ref_values/network_with_grid_encoding/full/encoding_output.csv");
 
         double epsilon = 1e-4; // Set the tolerance for floating-point comparisons
 

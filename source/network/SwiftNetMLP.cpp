@@ -244,9 +244,9 @@ template <int WIDTH> void SwiftNetMLP<WIDTH>::load_from_file(std::string filenam
 
             weights_packed[toPackedLayoutCoord(i + j * WIDTH, WIDTH, WIDTH)] = data_vec[idx];
         } else if ((idx >= m_inputs_width_padded * WIDTH) &&
-                   (idx < m_inputs_width_padded * WIDTH + m_n_hidden_layers * WIDTH * WIDTH)) {
+                   (idx < m_inputs_width_padded * WIDTH + (m_n_hidden_layers - 1) * WIDTH * WIDTH)) {
             int layer = (idx - m_inputs_width_padded * WIDTH) / (WIDTH * WIDTH);
-            // std::cout << "idx: " << idx << ", middle and last layer " << layer << std::endl;
+            // std::cout << "idx: " << idx << ", middle layer " << layer << std::endl;
             int mat_offset = (idx - (m_inputs_width_padded * WIDTH + layer * WIDTH * WIDTH)) % (WIDTH * WIDTH);
             // std::cout << "Mat offset: " << mat_offset << ", at idx: " << idx << ", and layer " << layer << std::endl;
             i = mat_offset / WIDTH; // rows
@@ -254,20 +254,19 @@ template <int WIDTH> void SwiftNetMLP<WIDTH>::load_from_file(std::string filenam
 
             weights_packed[m_inputs_width_padded * WIDTH + layer * WIDTH * WIDTH +
                            toPackedLayoutCoord(i + j * WIDTH, WIDTH, WIDTH)] = data_vec[idx];
+        } else {
+            // std::cout << "idx: " << idx << ", last layer " << std::endl;
+            int mat_offset = (idx - m_inputs_width_padded * WIDTH - (m_n_hidden_layers - 1) * WIDTH * WIDTH) %
+                             (WIDTH * m_output_width_padded);
+            i = mat_offset / WIDTH; // rows
+            j = mat_offset % WIDTH; // cols
+            // std::cout << "Writing to "
+            //           << m_inputs_width_padded * WIDTH + (m_n_hidden_layers - 1) * WIDTH * WIDTH +
+            //                  toPackedLayoutCoord(i + j * WIDTH, WIDTH, WIDTH)
+            //           << " at idx: " << idx << std::endl;
+            weights_packed[m_inputs_width_padded * WIDTH + (m_n_hidden_layers - 1) * WIDTH * WIDTH +
+                           toPackedLayoutCoord(i + j * WIDTH, WIDTH, WIDTH)] = data_vec[idx];
         }
-        // else if (idx >= m_inputs_width_padded * WIDTH + m_n_hidden_layers * WIDTH * WIDTH) {
-        //     std::cout << "idx: " << idx << ", last layer " << std::endl;
-        //     int mat_offset = (idx - m_inputs_width_padded * WIDTH - m_n_hidden_layers * WIDTH * WIDTH) %
-        //                      (WIDTH * m_output_width_padded);
-        //     i = mat_offset / WIDTH; // rows
-        //     j = mat_offset % WIDTH; // cols
-        //     std::cout << "Writing to "
-        //               << m_inputs_width_padded * WIDTH + m_n_hidden_layers * WIDTH * WIDTH +
-        //                      toPackedLayoutCoord(i + j * WIDTH, WIDTH, WIDTH)
-        //               << " at idx: " << idx << std::endl;
-        //     weights_packed[m_inputs_width_padded * WIDTH + m_n_hidden_layers * WIDTH * WIDTH +
-        //                    toPackedLayoutCoord(i + j * WIDTH, WIDTH, WIDTH)] = data_vec[idx];
-        // }
     }
 
     m_weights_matrices.copy_from_host(weights_packed, m_q);

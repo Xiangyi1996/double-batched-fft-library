@@ -1,4 +1,23 @@
 #include "gpu_matrix.h"
+// #include <cstdlib>
+// #include <ctime>
+// #include <fstream>
+// #include <iostream>
+#include <vector>
+
+void saveImageToPGM(const std::string &filename, int width, int height, const std::vector<unsigned char> &image) {
+    // Create and open the output file
+    std::ofstream outputFile(filename, std::ios::out | std::ios::binary);
+
+    // Write PGM header
+    outputFile << "P5\n" << width << " " << height << "\n255\n";
+
+    // Write the image data to the file
+    outputFile.write(reinterpret_cast<const char *>(image.data()), image.size());
+
+    // Close the file
+    outputFile.close();
+}
 
 template <typename Tval, typename Ttarget>
 bool areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector<Ttarget> &target,

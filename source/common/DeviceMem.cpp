@@ -216,7 +216,7 @@ template <typename T> void DeviceMem<T>::copy_to_host(std::vector<T> &data, queu
  */
 template <typename T> void DeviceMem<T>::set_values(int size, float *array, queue &q) {
     auto local_m_data = m_data;
-    q.parallel_for<>(range<1>(size), [=](id<1> idx) { local_m_data[idx] = (bf16)(array[idx]); }).wait();
+    q.parallel_for<>(range<1>(size), [=](id<1> idx) { local_m_data[idx] = (T)(array[idx]); }).wait();
 }
 
 /**

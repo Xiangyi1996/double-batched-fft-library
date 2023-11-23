@@ -9,7 +9,7 @@ find_package(IntelSYCL REQUIRED)
 
 add_executable(benchmark-image benchmark_image_compression.cpp)
 add_sycl_to_target(TARGET benchmark-image SOURCES benchmark_image_compression.cpp)
-target_link_libraries(benchmark-image PRIVATE swiftnetmlp)
+target_link_libraries(benchmark-image PRIVATE swiftnetmlp )
 
 # add_executable(benchmark-nerf benchmark_nerf.cpp)
 # add_sycl_to_target(TARGET benchmark-nerf SOURCES benchmark_nerf.cpp)
