@@ -31,33 +31,33 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 // #define TEST_INFERENCE
 // #define DEBUG_OUTPUT
 
-std::vector<float> loadCSV(const std::string &filename) {
-    std::vector<float> data;
-    std::ifstream file(filename);
+// std::vector<float> loadCSV(const std::string &filename) {
+//     std::vector<float> data;
+//     std::ifstream file(filename);
 
-    if (file.is_open()) {
-        std::string line;
-        while (std::getline(file, line)) {
-            float value;
-            std::istringstream iss(line);
-            iss >> value;
-            data.push_back(value);
-        }
-        file.close();
-    }
-    return data;
-}
+//     if (file.is_open()) {
+//         std::string line;
+//         while (std::getline(file, line)) {
+//             float value;
+//             std::istringstream iss(line);
+//             iss >> value;
+//             data.push_back(value);
+//         }
+//         file.close();
+//     }
+//     return data;
+// }
 
-void saveCSV(const std::string &filename, const std::vector<float> &data) {
-    std::ofstream file(filename);
+// void saveCSV(const std::string &filename, const std::vector<float> &data) {
+//     std::ofstream file(filename);
 
-    if (file.is_open()) {
-        for (const auto &value : data) {
-            file << value << std::endl;
-        }
-        file.close();
-    }
-}
+//     if (file.is_open()) {
+//         for (const auto &value : data) {
+//             file << value << std::endl;
+//         }
+//         file.close();
+//     }
+// }
 
 void start_training(const int WIDTH = 64, const int input_width = 64, const int output_width = 1,
                     const int m_n_hidden_layers = 4) {

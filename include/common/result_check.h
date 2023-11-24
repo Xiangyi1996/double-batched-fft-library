@@ -55,6 +55,23 @@ void saveCSV(const std::string &filename, const std::vector<float> &data) {
     }
 }
 
+std::vector<float> loadCSV(const std::string &filename) {
+    std::vector<float> data;
+    std::ifstream file(filename);
+
+    if (file.is_open()) {
+        std::string line;
+        while (std::getline(file, line)) {
+            float value;
+            std::istringstream iss(line);
+            iss >> value;
+            data.push_back(value);
+        }
+        file.close();
+    }
+    return data;
+}
+
 bool areVectorsWithinTolerance(const std::vector<bf16> &value, const std::vector<float> &target, float tolerance,
                                int output_width) {
     //   assert(a.size() == b.size());  // Ensure vectors have the same length
