@@ -12,8 +12,8 @@ list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 
 include(CMakeDependentOption)
 
-option(BUILD_TEST "Build tests in 'test' directory" OFF)
-option(BUILD_PYBIND "Build pybindings in 'dpcpp_bindings' directory" ON)
+option(BUILD_TEST "Build tests in 'test' directory" ON)
+option(BUILD_PYBIND "Build pybindings in 'dpcpp_bindings' directory" OFF)
 
 message(WARNING "cmake build system is still WIP.")
 
@@ -30,7 +30,6 @@ if(BUILD_PYBIND)
 
     # Include Pybind11
     add_subdirectory(extern/pybind11)
-
     add_subdirectory(dpcpp_bindings)
 endif()
 
