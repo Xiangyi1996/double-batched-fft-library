@@ -1,0 +1,69 @@
+{
+    "SwiftNet": [
+        {
+            "batch_size": 4194304,
+            "inference_throughput": 200828726.45564616,
+            "training_throughput": 4696526.040498328
+        },
+        {
+            "batch_size": 2097152,
+            "inference_throughput": 200891124.99356464,
+            "training_throughput": 4766300.068070498
+        },
+        {
+            "batch_size": 1048576,
+            "inference_throughput": 200720935.564112,
+            "training_throughput": 5086642.65598957
+        },
+        {
+            "batch_size": 524288,
+            "inference_throughput": 201753792.7535246,
+            "training_throughput": 5261076.414242471
+        },
+        {
+            "batch_size": 262144,
+            "inference_throughput": 204505913.65088788,
+            "training_throughput": 5606192.890792312
+        },
+        {
+            "batch_size": 131072,
+            "inference_throughput": 203636797.9167374,
+            "training_throughput": 7994883.311769711
+        },
+        {
+            "batch_size": 65536,
+            "inference_throughput": 202268613.99676603,
+            "training_throughput": 8629341.149289213
+        },
+        {
+            "batch_size": 32768,
+            "inference_throughput": 199775602.38702655,
+            "training_throughput": 8541071.442391252
+        },
+        {
+            "batch_size": 16384,
+            "inference_throughput": 194543434.7775088,
+            "training_throughput": 8463343.3453749
+        },
+        {
+            "batch_size": 8192,
+            "inference_throughput": 187125130.86880296,
+            "training_throughput": 8562469.115982423
+        },
+        {
+            "batch_size": 4096,
+            "inference_throughput": 181441539.71603215,
+            "training_throughput": 8277080.917095592
+        },
+        {
+            "batch_size": 2048,
+            "inference_throughput": 173293581.1821739,
+            "training_throughput": 6360535.295284009
+        },
+        {
+            "batch_size": 1024,
+            "inference_throughput": 94089548.45774797,
+            "training_throughput": 3254895.4528945163
+        }
+    ]
+}

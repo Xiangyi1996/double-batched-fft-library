@@ -1,8 +1,10 @@
 import numpy as np
 import torch
+
 import intel_extension_for_pytorch  # required for SwiftNet
 import pytest
 import time
+
 from utils import create_models
 import csv
 

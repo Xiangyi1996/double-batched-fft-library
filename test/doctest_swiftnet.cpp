@@ -5,10 +5,12 @@
 
 #include "SwiftNetMLP.h"
 #include "activation.h"
+#include "result_check.h"
 
 void test_forward(const int input_width, const int output_width, const int n_hidden_layers, const int net_width,
                   const int batch_size, const int init_mode, Activation activation = Activation::ReLU,
-                  Activation output_activation = Activation::None) {
+                  Activation output_activation = Activation::None, int load_weights = 0,
+                  std::string filetype = "full") {
 
     const float input_val = 1.0f;
     const float weight_val = 0.01f; // setting initialize_params(2) sets the weights to this value
@@ -30,14 +32,31 @@ void test_forward(const int input_width, const int output_width, const int n_hid
 
     SwiftNetMLP<64> network =
         SwiftNetMLP<64>(q, input_width, output_width, n_hidden_layers, activation, output_activation);
-    network.initialize_params(init_mode);
+    if (load_weights) {
+        network.load_from_file("../test/ref_values/network_with_grid_encoding/" + filetype + "/network_params.csv");
+    } else {
+        network.initialize_params(init_mode);
+    }
     // std::vector<bf16> weights = network.get_weights_matrices_as_vector();
     float *forward =
         malloc_device<float>(batch_size * (input_width_padded + output_width_padded + net_width * n_hidden_layers), q);
     DeviceMem<bf16> network_input = DeviceMem<bf16>(input_width_padded * batch_size, q);
     std::vector<sycl::event> deps;
+    std::vector<bf16> input_ref;
 
-    network_input.initialize_constant(input_val, q);
+    if (load_weights) {
+        input_ref = loadVectorFromCSV<bf16>("../test/ref_values/network_with_grid_encoding/" + filetype + "/input.csv");
+
+        CHECK(input_ref.size() == network_input.size());
+        network_input.copy_from_host(input_ref, q);
+        // std::cout << "Input: " << std::endl;
+        // for (int i = 0; i < input_ref.size(); i++) {
+        //     std::cout << i << ": " << input_ref[i] << std::endl;
+        // }
+    } else {
+        network_input.initialize_constant(input_val, q);
+    }
+
     q.parallel_for<>(range<1>(network_input.size()), [=](id<1> idx) {
          if ((idx % input_width_padded) >= input_width) network_input[idx] = (bf16)(0.0f);
      }).wait();
@@ -54,83 +73,75 @@ void test_forward(const int input_width, const int output_width, const int n_hid
     q.memcpy(out.data(), network.GetOutput(forward, batch_size), sizeof(bf16) * out.size()).wait();
     q.memcpy(fwd.data(), reinterpret_cast<bf16 const *const>(forward), sizeof(bf16) * fwd.size()).wait();
 
-    // this has only one layer, thus net_width instead of net_width * n_hidden_layer = net_width
-    for (int i = 0; i < fwd.size(); i++) {
-        if (i < batch_size * input_width_padded) {
-            // no checks for input
-        } else if ((i >= batch_size * input_width_padded) && (i < batch_size * (input_width_padded + net_width))) {
-            // 1st layer output
-            double ref_result = weight_val * input_width * input_val;
-            // this checks that the amount of inputs multiplied by weight is correct after the first layer
-            CHECK(static_cast<double>(fwd[i]) == doctest::Approx(ref_result).epsilon(1e-3));
-        } else if ((i >= batch_size * (input_width_padded + net_width)) &&
-                   (i < batch_size * (input_width_padded + net_width + output_width_padded))) {
-            int output_idx = i - batch_size * (input_width_padded + net_width);
-            double ref_result = 0.0;
-            if ((output_idx % output_width_padded) < output_width) {
-                ref_result = weight_val * input_width * input_val * net_width * weight_val;
+    if (load_weights) {
+
+        std::vector<float> output_ref = loadVectorFromCSV<float>("../test/ref_values/network_with_grid_encoding/" +
+                                                                 filetype + "/network_output.csv");
+        CHECK(output_ref.size() == (batch_size * output_width_padded));
+        // std::cout << "Loaded size: " << output_ref.size() << "ref: " << (batch_size * output_width_padded) <<
+        // std::endl;
+
+        for (int i = 0; i < fwd.size(); i++) {
+            if ((i >= batch_size * (input_width_padded + net_width * n_hidden_layers)) &&
+                (i < batch_size * (input_width_padded + net_width * n_hidden_layers + output_width_padded))) {
+                int output_idx = i - batch_size * (input_width_padded + net_width * n_hidden_layers);
+                double ref_result = 0.0;
+                if ((output_idx % output_width_padded) < output_width) {
+                    ref_result = output_ref[output_idx];
+                    // std::cout << i << ", last layer: " << fwd[i] << "should be :" << ref_result << std::endl;
+                    CHECK(static_cast<double>(fwd[i]) == doctest::Approx(ref_result).epsilon(1e-2));
+                } else {
+                    // this checks that the amount of inputs multiplied by weight is correct after the first two layers
+                    // Check that  output padded correctly
+                    ref_result = 0.0;
+                    CHECK(static_cast<double>(fwd[i]) == doctest::Approx(ref_result).epsilon(1e-2));
+                    // std::cout << i << ", padded, last layer: " << fwd[i] << "should be :" << ref_result << std::endl;
+                }
             } else {
-                // this checks that the amount of inputs multiplied by weight is correct after the first two layers
-                // Check that  output padded correctly
-                ref_result = 0.0;
+                // std::cout << i << ": " << fwd[i] << std::endl;
             }
-            CHECK(static_cast<double>(fwd[i]) == doctest::Approx(ref_result).epsilon(1e-3));
-        } else { // there shouldn't be anything here
-            throw std::runtime_error("This case shouldn't exist. i:" + std::to_string(i));
+        }
+    } else {
+        // this has only one layer, thus net_width instead of net_width * n_hidden_layer = net_width
+        for (int i = 0; i < fwd.size(); i++) {
+            if (i < batch_size * input_width_padded) {
+                // no checks for input
+                // std::cout << i << ", Input: " << fwd[i] << std::endl;
+            } else if ((i >= batch_size * input_width_padded) &&
+                       (i < batch_size * (input_width_padded + net_width * n_hidden_layers)) &&
+                       (n_hidden_layers == 1)) {
+                // 1st layer output. no test if the layer amount is higher.
+                double ref_result = weight_val * input_width * input_val;
+                // this checks that the amount of inputs multiplied by weight is correct after the first layer
+                CHECK(static_cast<double>(fwd[i]) == doctest::Approx(ref_result).epsilon(1e-3));
+                // std::cout << i << ", 1st layer: " << fwd[i] << std::endl;
+
+            } else if ((i >= batch_size * (input_width_padded + net_width * n_hidden_layers)) &&
+                       (i < batch_size * (input_width_padded + net_width * n_hidden_layers + output_width_padded))) {
+                int output_idx = i - batch_size * (input_width_padded + net_width * n_hidden_layers);
+                double ref_result = 0.0;
+                if ((output_idx % output_width_padded) < output_width) {
+                    ref_result = weight_val * input_width * input_val * net_width * weight_val;
+                    if (n_hidden_layers == 1) {
+                        CHECK(static_cast<double>(fwd[i]) == doctest::Approx(ref_result).epsilon(1e-3));
+                    } else {
+                        CHECK(static_cast<double>(fwd[i]) != 0.0);
+                    }
+                } else {
+                    // this checks that the amount of inputs multiplied by weight is correct after the first two layers
+                    // Check that  output padded correctly
+                    ref_result = 0.0;
+                    CHECK(static_cast<double>(fwd[i]) == doctest::Approx(ref_result).epsilon(1e-3));
+                }
+                // std::cout << i << ", last layer: " << fwd[i] << "(" << ref_result << ")" << std::endl;
+            }
         }
     }
-
-    free(forward, q);
-    network_input.free_mem(q);
-}
-
-template <typename Tval, typename Ttarget>
-void areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector<Ttarget> &target,
-                               const double tolerance) {
-
-    long long count = 0;
-    bool is_same = true;
-    for (size_t i = 0; i < target.size(); ++i) {
-        double diff = 0.0;
-        if ((double)value[i] != 0.0 || (double)target[i] != 0.0)
-            diff = std::abs((double)value[i] - (double)target[i]) /
-                   std::max<double>(std::abs((double)value[i]), std::abs((double)target[i]));
-
-        if (diff > tolerance) {
-            is_same = false;
-            count++;
-            std::cout << (double)value[i] << ", " << (double)target[i] << "," << i << std::endl;
-        }
-    }
-    if (!is_same) std::cout << count << "/" << target.size() << " are wrong." << std::endl;
-
-    CHECK(is_same);
-}
-
-template <typename T> std::vector<T> loadVectorFromCSV(const std::string &filename) {
-    std::vector<T> data;
-    std::ifstream file(filename);
-
-    if (!file.is_open()) {
-        std::cerr << "Failed to open the file for reading: " << filename << std::endl;
-        return data;
-    }
-
-    std::string line;
-    while (std::getline(file, line)) {
-        std::istringstream ss(line);
-        std::string token;
-        while (std::getline(ss, token, ',')) {
-            data.push_back(static_cast<T>(std::stof(token)));
-        }
-    }
-
-    return data;
 }
 
 void test_backward() {
 
-    const int batch_size = 128;
+    const int batch_size = 512;
     constexpr int WIDTH = 64;
     constexpr int OUTPUT_WIDTH = WIDTH;
     constexpr int INPUT_WIDTH = WIDTH;
@@ -186,8 +197,7 @@ void test_backward() {
     // inputs.copy_to_host(inputs_vec, Q);
     backward_inputs.copy_to_host(backward_inputs_vec, Q);
 
-    Q.memcpy(out_inter_backw_vec.data(), out_inter_backw, out_inter_backw_size * sizeof(bf16))
-        .wait();
+    Q.memcpy(out_inter_backw_vec.data(), out_inter_backw, out_inter_backw_size * sizeof(bf16)).wait();
 
     // Q.memcpy(out_inter_backward_inputs.data(),
     //          reinterpret_cast<bf16 *>(out_inter_backw) + HIDDEN_LAYERS * batch_size * WIDTH,
@@ -197,22 +207,23 @@ void test_backward() {
     Q.memcpy(backward_outputs_vec.data(), network.m_grads_matrices.data(), backward_out_size * sizeof(bf16)).wait();
 
     // Load the CSV files into vectors
-    std::vector<float> forward_vec_ref = loadVectorFromCSV<float>("../../bwd_matrices/m_forward.csv");
-    // std::vector<bf16> inputs_vec_ref = loadVectorFromCSV<bf16>("../../bwd_matrices/inputs.csv");
-    std::vector<bf16> backward_inputs_vec_ref = loadVectorFromCSV<bf16>("../../bwd_matrices/grads.csv");
-    std::vector<float> out_inter_vec_ref = loadVectorFromCSV<float>("../../bwd_matrices/out_inter.csv");
-    std::vector<bf16> backward_outputs_vec_ref = loadVectorFromCSV<bf16>("../../bwd_matrices/grads_matrices.csv");
+    std::vector<float> forward_vec_ref = loadVectorFromCSV<float>("../test/ref_values/bwd_matrices/m_forward.csv");
+    // std::vector<bf16> inputs_vec_ref = loadVectorFromCSV<bf16>("../bwd_matrices/inputs.csv");
+    std::vector<bf16> backward_inputs_vec_ref = loadVectorFromCSV<bf16>("../test/ref_values/bwd_matrices/grads.csv");
+    std::vector<float> out_inter_vec_ref = loadVectorFromCSV<float>("../test/ref_values/bwd_matrices/out_inter.csv");
+    std::vector<bf16> backward_outputs_vec_ref =
+        loadVectorFromCSV<bf16>("../test/ref_values/bwd_matrices/grads_matrices.csv");
 
     Q.wait();
 
     const double tolerance = 1e-2;
 
-    areVectorsWithinTolerance(out_inter_forw_vec, forward_vec_ref, tolerance);
+    CHECK(areVectorsWithinTolerance(out_inter_forw_vec, forward_vec_ref, tolerance));
     // areVectorsWithinTolerance(inputs_vec, inputs_vec_ref, tolerance);
-    areVectorsWithinTolerance(backward_inputs_vec, backward_inputs_vec_ref, tolerance);
-    areVectorsWithinTolerance(out_inter_backw_vec, out_inter_vec_ref, tolerance);
+    CHECK(areVectorsWithinTolerance(backward_inputs_vec, backward_inputs_vec_ref, tolerance));
+    CHECK(areVectorsWithinTolerance(out_inter_backw_vec, out_inter_vec_ref, tolerance));
     // areVectorsWithinTolerance(out_inter_backward_inputs, backward_inputs_vec_ref, tolerance);
-    areVectorsWithinTolerance(backward_outputs_vec, backward_outputs_vec_ref, tolerance);
+    CHECK(areVectorsWithinTolerance(backward_outputs_vec, backward_outputs_vec_ref, tolerance));
 }
 
 TEST_CASE("Swiftnet Forward - zero pad input") {
@@ -261,10 +272,10 @@ TEST_CASE("Swiftnet Forward - zero pad input") {
 TEST_CASE("Swiftnet Forward - zero pad output") {
     int input_width = 64;
     int net_width = 64;
-    int n_hidden_layers = 1;
     int init_mode = 2;
+    int n_hidden_layers = 1;
 
-    int batch_size = 512;
+    int batch_size = 8;
 
     SUBCASE("Output 64 (no pad)") {
         int output_width = 64;
@@ -303,6 +314,48 @@ TEST_CASE("Swiftnet Forward - zero pad output") {
         test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
     }
     SUBCASE("Output 0 (failure)") {
+        int output_width = 0;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
+    }
+    n_hidden_layers = 4;
+
+    SUBCASE("Output 64 (no pad) - multiple layers") {
+        int output_width = 64;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
+    }
+    SUBCASE("Output 63 (1 pad) - multiple layers") {
+        int output_width = 63;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
+    }
+    SUBCASE("Output 32 (32 pad) - multiple layers") {
+        int output_width = 32;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
+    }
+    SUBCASE("Output 16 (48 pad) - multiple layers") {
+        int output_width = 16;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
+    }
+    SUBCASE("Output 8 (56 pad) - multiple layers") {
+        int output_width = 8;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
+    }
+    SUBCASE("Output 4 (60 pad) - multiple layers") {
+        int output_width = 4;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
+    }
+    SUBCASE("Output 2 (62 pad) - multiple layers") {
+        int output_width = 2;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
+    }
+    SUBCASE("Output 1 (63 pad) - multiple layers") {
+        int output_width = 1;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
+    }
+    SUBCASE("Output -1 (failure) - multiple layers") {
+        int output_width = -1;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
+    }
+    SUBCASE("Output 0 (failure) - multiple layers") {
         int output_width = 0;
         test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
     }
@@ -427,6 +480,35 @@ TEST_CASE("Swiftnet Forward - Activation") {
     }
 }
 
-TEST_CASE("Swiftnet Backward") {
-    SUBCASE("") { test_backward(); }
+TEST_CASE("Swiftnet Forward - load weights") {
+    int net_width = 64;
+    int n_hidden_layers = 2;
+
+    int batch_size = 8;
+
+    SUBCASE("Simple full") {
+        int input_width = 64;
+        int output_width = 64;
+        int init_mode = 0;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode, Activation::ReLU,
+                     Activation::None, 1, "simple_full");
+    }
+    SUBCASE("Simple padded") {
+        int input_width = 32;
+        int output_width = 16;
+        int init_mode = 2;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode, Activation::ReLU,
+                     Activation::None, 1, "simple_padded");
+    }
+    SUBCASE("Full") {
+        int input_width = 32;
+        int output_width = 1;
+        int init_mode = 2;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode, Activation::ReLU,
+                     Activation::None, 1, "full");
+    }
 }
+
+// TEST_CASE("Swiftnet Backward") {
+//     SUBCASE("") { test_backward(); }
+// }

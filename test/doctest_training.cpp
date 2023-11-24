@@ -11,7 +11,6 @@
 #include <thread>
 #include <vector>
 
-#include "L2.h"
 #include "SwiftNetMLP.h"
 #include "activation.h"
 #include "common.h"
@@ -20,7 +19,6 @@
 #include "mpi.h"
 #include "oneapi/mkl.hpp"
 #include "result_check.h"
-#include "sgd.h"
 #include "trainer.h"
 
 using namespace sycl;
@@ -29,14 +27,13 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 
 // #define INCLUDE_COOLDOWN
 #define TEST_TRAINING
+// #define CHECK_RESULTS
 // #define TEST_INFERENCE
 // #define DEBUG_OUTPUT
 
-#define INPUT_WIDTH 64
-#define OUTPUT_WIDTH 64
-#define HIDDEN_LAYERS 4
+void start_training(const int WIDTH = 64, const int input_width = 64, const int output_width = 64,
+                    const int m_n_hidden_layers = 4) {
 
-void start_training() {
     // SWIFTNET
     MPI_Init(NULL, NULL);
     int world_rank;
@@ -46,14 +43,11 @@ void start_training() {
     // Experimental not sure how many batch sizes are possible
     std::vector<uint32_t> batch_sizes = {
         /*1 << 29, 1 << 28, 1 << 27, 1 << 26, 1 << 25, 1 << 24, 1 << 23, 1 << 22,*/
-        1 << 21 /*, 1 << 20, 1 << 19, 1 << 18, 1 << 17, 1 << 16, 1 << 15, 1 << 14, 1<<13, 1<<12, 1<<11, 1<<10, 1<<9*/};
+        /*1 << 21 , 1 << 20, 1 << 19, 1 << 18, 1 << 17, 1 << 16, 1 << 15, 1 << 14, 1<<13, 1<<12, 1<<11, 1<<10,*/ 1
+        << 9};
     std::string method = "SwiftNet";
     nlohmann::json bench_result;
     bench_result[method] = nlohmann::json::array();
-
-    const int output_width = OUTPUT_WIDTH;
-    const int WIDTH = 64;
-    const int m_n_hidden_layers = HIDDEN_LAYERS;
 
     const float scale = 1.0f;
 
@@ -78,24 +72,22 @@ void start_training() {
         const int dev_id = omp_get_thread_num();
         sycl::queue q(C, SubDevices[dev_id]);
 
-        L2Loss loss;
-        SGDOptimizer optim = SGDOptimizer(OUTPUT_WIDTH, m_n_hidden_layers, 1e-3f, 1e-8f);
-
         for (uint32_t batch_size : batch_sizes) {
             std::cout << "Batch size 2^" << std::log2(batch_size) << std::endl;
 
-            DeviceMem<bf16> inputs(INPUT_WIDTH * batch_size, q);
+            DeviceMem<bf16> inputs(input_width * batch_size, q);
             DeviceMem<float> output(batch_size * output_width, q);
             DeviceMem<bf16> target(batch_size * output_width, q);
             DeviceMem<bf16> grads(batch_size * output_width, q);
             DeviceMem<bf16> losses(batch_size * output_width, q);
 
-            SwiftNetMLP<64> network = SwiftNetMLP<64>(q, INPUT_WIDTH, output_width, m_n_hidden_layers, Activation::ReLU,
-                                                      Activation::None, batch_size);
+            // need a factory here for different widths
+            SwiftNetMLP<64> network =
+                SwiftNetMLP<64>(q, input_width, output_width, m_n_hidden_layers, Activation::ReLU, Activation::None);
 
             q.wait(); // wait for init netweork
 
-            Trainer train(network, loss, optim);
+            Trainer train(network);
 
             train.initialize_params(1);
 
@@ -105,10 +97,18 @@ void start_training() {
             grads.initialize_constant(0, q);
             losses.initialize_constant(0, q);
 
+            const size_t out_inter_forw_size = batch_size * (input_width + output_width + WIDTH * m_n_hidden_layers);
+
+            const size_t out_inter_backw_size = batch_size * WIDTH * (m_n_hidden_layers + 1);
+
+            float *out_inter_forw = sycl::malloc_device<float>(out_inter_forw_size, Q);
+            float *out_inter_backw = sycl::malloc_device<float>(out_inter_backw_size, Q);
+
             q.wait(); // wait for init vals.
 
             // Various constants for the network and optimization
-            uint32_t n_iterations = std::max(1000 * (1 << 18) / batch_size, 250u);
+            uint32_t n_iterations = 250;
+            // uint32_t n_iterations = std::max(1000 * (1 << 18) / batch_size, 250u);
             uint32_t n_iterations_warmup = n_iterations / 2;
 
             auto begin = std::chrono::steady_clock::now();
@@ -132,8 +132,7 @@ void start_training() {
                 bool print_loss = i % print_interval == 0;
 
                 for (uint32_t j = 0; j < STEPS_INCREMENT; ++j) {
-                    dependencies =
-                        train.training_step(inputs, output, target, grads, losses, scale, WIDTH, 0, dependencies);
+                    dependencies = train.training_step(inputs, losses, 0, out_inter_forw, out_inter_backw, batch_size);
 
                     if (j == STEPS_INCREMENT - 1) {
                         tmp_loss += 0;
@@ -193,8 +192,8 @@ void start_training() {
             // Sanity check: we run with aranged weights and 4 layers and 0.001 as
             // input. Values generated from test_compare_torch_dpcpp.py and saved in
             // python/dpcpp.csv (bf16 vals). python/torch.csv is float vals
-            std::vector<float> fwd(batch_size * (INPUT_WIDTH + OUTPUT_WIDTH + WIDTH * m_n_hidden_layers));
-            q.memcpy(fwd.data(), network.m_forward, fwd.size() * sizeof(float));
+            std::vector<float> fwd(out_inter_forw_size);
+            q.memcpy(fwd.data(), out_inter_forw, fwd.size() * sizeof(float));
             q.wait();
 
             std::vector<bf16> grads_vec(network.m_grads_matrices.size());
@@ -252,7 +251,7 @@ void start_training() {
             // for (int i_g = 0; i_g < grads_vec.size(); i_g++) {
             //   std::cout << i_g << ": " << grads_vec[i_g] << std::endl;
             // }
-
+#ifdef CHECK_RESULTS
             std::vector<std::vector<float>> targetGrads = readTargetVectorsFromFile("../python/torch_grads.csv", ',');
 
             // get every layer from fwd:
@@ -267,28 +266,30 @@ void start_training() {
                 size_t end_idx_grads;
 
                 if (i == 0) { // input bf16? or float?
-                    layer_size = INPUT_WIDTH;
+                    layer_size = input_width;
                     start_idx = 0;
-                    end_idx = INPUT_WIDTH * batch_size;
+                    end_idx = input_width * batch_size;
 
-                    grads_layer_size = WIDTH * INPUT_WIDTH;
+                    grads_layer_size = WIDTH * input_width;
                     start_idx_grads = 0;
-                    end_idx_grads = WIDTH * INPUT_WIDTH;
+                    end_idx_grads = WIDTH * input_width;
                 } else if (i == m_n_hidden_layers + 1) { // output in float
                     std::cout << "For output layer (out): ";
                     // through layers between bf16 and float)
                     std::vector<bf16> out(batch_size * WIDTH);
-                    q.memcpy(out.data(), network.GetOutput(), sizeof(bf16) * out.size()).wait();
-                    areVectorsWithinTolerance(out, targetVectors[i], 2 * tolerance);
+                    q.memcpy(out.data(), network.GetOutput(out_inter_forw, batch_size), sizeof(bf16) * out.size())
+                        .wait();
+                    areVectorsWithinTolerance(out, targetVectors[i], 2 * tolerance, output_width);
+
                     continue;
                 } else {
                     layer_size = WIDTH;
-                    start_idx = (INPUT_WIDTH + WIDTH * (i - 1)) * batch_size;
-                    end_idx = (INPUT_WIDTH + WIDTH * (i)) * batch_size;
+                    start_idx = (input_width + WIDTH * (i - 1)) * batch_size;
+                    end_idx = (input_width + WIDTH * (i)) * batch_size;
 
                     grads_layer_size = WIDTH * WIDTH;
-                    start_idx_grads = WIDTH * INPUT_WIDTH + (WIDTH * WIDTH) * (i - 1);
-                    end_idx_grads = WIDTH * INPUT_WIDTH + (WIDTH * WIDTH) * (i);
+                    start_idx_grads = WIDTH * input_width + (WIDTH * WIDTH) * (i - 1);
+                    end_idx_grads = WIDTH * input_width + (WIDTH * WIDTH) * (i);
                 }
 
                 std::vector<bf16> layer(batch_size * layer_size);
@@ -302,7 +303,7 @@ void start_training() {
 
                 std::cout << "Layer " << i << ", start_idx: " << start_idx << ", end_idx: " << end_idx << ". ";
 
-                areVectorsWithinTolerance(layer, targetVectors[i], tolerance);
+                areVectorsWithinTolerance(layer, targetVectors[i], tolerance, output_width);
 
                 //   std::cout << "Grads Layer " << i << ", start_idx: " <<
                 //   start_idx_grads
@@ -310,6 +311,8 @@ void start_training() {
 
                 // areVectorsWithinTolerance(layer_grads, targetGrads[i], tolerance);
             }
+#endif // CHECK_RESULTS
+
 #endif // TEST_TRAINING
 
 #ifdef INCLUDE_COOLDOWN
@@ -400,6 +403,7 @@ void start_training() {
 
 #pragma omp barrier
 
+#ifdef CHECK_RESULTS
             std::vector<bf16> outbf16(batch_size * WIDTH, 0);
             q.memcpy(outbf16.data(),
                      reinterpret_cast<bf16 *>(network.m_forward) + WIDTH * batch_size * (m_n_hidden_layers + 1),
@@ -408,7 +412,7 @@ void start_training() {
             areVectorsWithinTolerance(outbf16, targetVectors.back(), tolerance * 2);
             // accumulated tolerance for last layer due to
             // accumulated error between bf16 and float
-
+#endif // CHECK_RESULTS
 #endif // TEST_INFERENCE
             q.wait();
             inputs.free_mem(q);

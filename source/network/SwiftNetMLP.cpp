@@ -190,28 +190,89 @@ template <int WIDTH> void SwiftNetMLP<WIDTH>::save_to_file(std::string filename)
  */
 template <int WIDTH> void SwiftNetMLP<WIDTH>::load_from_file(std::string filename) {
     // Open the file for reading
-    std::ifstream file;
-    file.open(filename);
-    std::string line;
+    // std::ifstream file;
+    // file.open(filename);
+    // std::string line;
 
     // Read parameters from the file
-    file >> m_inputs_width;
-    file >> m_net_width;
-    file >> m_output_width;
-    file >> m_n_hidden_layers;
-    file >> m_n_hidden_matrices;
+    // file >> m_inputs_width;
+    // file >> m_net_width;
+    // file >> m_output_width;
+    // file >> m_n_hidden_layers;
+    // file >> m_n_hidden_matrices;
 
     // Read each value from the file and set it as a bf16 value in weights
     // matrices
-    for (int i = 0; i < m_weights_matrices.size(); i++) {
-        float x;
-        file >> x;
-        m_weights_matrices.data()[i] = bf16(x);
+    std::vector<bf16> data_vec;
+    std::ifstream file(filename);
+
+    if (!file.is_open()) {
+        std::cerr << "Error opening file: " << filename << std::endl;
     }
 
-    // Close the file
+    std::string line;
+    while (std::getline(file, line)) {
+        try {
+            float value = std::stod(line);
+            data_vec.push_back((bf16)(value));
+        } catch (const std::invalid_argument &e) {
+            std::cerr << "Invalid argument: " << e.what() << std::endl;
+        } catch (const std::out_of_range &e) {
+            std::cerr << "Out of range: " << e.what() << std::endl;
+        }
+    }
+
     file.close();
 
+    if (m_weights_matrices.size() != data_vec.size()) {
+        std::string errorMessage = "m_weights_matrices.size() " + std::to_string(m_weights_matrices.size()) +
+                                   " is not equal loaded size: " + std::to_string(data_vec.size());
+        throw std::runtime_error(errorMessage);
+    }
+
+    std::vector<bf16> weights_packed(data_vec.size(), 0.0);
+
+    for (int idx = 0; idx < weights_packed.size(); idx++) {
+        int i = 0;
+        int j = 0;
+        // int mat_offset = 0;
+        if (idx < m_inputs_width_padded * WIDTH) {
+            // std::cout << "idx: " << idx << ", input" << std::endl;
+
+            i = idx / WIDTH; // rows
+            j = idx % WIDTH; // cols
+
+            weights_packed[toPackedLayoutCoord(i + j * WIDTH, WIDTH, WIDTH)] = data_vec[idx];
+        } else if ((idx >= m_inputs_width_padded * WIDTH) &&
+                   (idx < m_inputs_width_padded * WIDTH + m_n_hidden_layers * WIDTH * WIDTH)) {
+            int layer = (idx - m_inputs_width_padded * WIDTH) / (WIDTH * WIDTH);
+            // std::cout << "idx: " << idx << ", middle and last layer " << layer << std::endl;
+            int mat_offset = (idx - (m_inputs_width_padded * WIDTH + layer * WIDTH * WIDTH)) % (WIDTH * WIDTH);
+            // std::cout << "Mat offset: " << mat_offset << ", at idx: " << idx << ", and layer " << layer << std::endl;
+            i = mat_offset / WIDTH; // rows
+            j = mat_offset % WIDTH; // cols
+
+            weights_packed[m_inputs_width_padded * WIDTH + layer * WIDTH * WIDTH +
+                           toPackedLayoutCoord(i + j * WIDTH, WIDTH, WIDTH)] = data_vec[idx];
+        }
+        // else if (idx >= m_inputs_width_padded * WIDTH + m_n_hidden_layers * WIDTH * WIDTH) {
+        //     std::cout << "idx: " << idx << ", last layer " << std::endl;
+        //     int mat_offset = (idx - m_inputs_width_padded * WIDTH - m_n_hidden_layers * WIDTH * WIDTH) %
+        //                      (WIDTH * m_output_width_padded);
+        //     i = mat_offset / WIDTH; // rows
+        //     j = mat_offset % WIDTH; // cols
+        //     std::cout << "Writing to "
+        //               << m_inputs_width_padded * WIDTH + m_n_hidden_layers * WIDTH * WIDTH +
+        //                      toPackedLayoutCoord(i + j * WIDTH, WIDTH, WIDTH)
+        //               << " at idx: " << idx << std::endl;
+        //     weights_packed[m_inputs_width_padded * WIDTH + m_n_hidden_layers * WIDTH * WIDTH +
+        //                    toPackedLayoutCoord(i + j * WIDTH, WIDTH, WIDTH)] = data_vec[idx];
+        // }
+    }
+
+    m_weights_matrices.copy_from_host(weights_packed, m_q);
+    // m_weights_matrices.copy_from_host(data_vec, m_q);
+    m_q.wait();
     // Make the weights matrices transposed using the transposed weights matrices
     m_weights_matrices.make_transposed(m_weightsT_matrices, m_inputs_width_padded, m_net_width, m_output_width,
                                        m_n_hidden_matrices, m_q);
@@ -307,14 +368,15 @@ template <int WIDTH>
 std::vector<sycl::event> SwiftNetMLP<WIDTH>::backward_pass(const DeviceMem<bf16> &grads, float *const out_inter,
                                                            float const *const forward, const size_t batch_size,
                                                            const std::vector<sycl::event> &deps) {
+    if ((batch_size % 8) != 0) throw std::invalid_argument("Batch size is not divisible by 8.");
 
-    if ((batch_size % 16) != 0) {
-        throw std::invalid_argument("Batch size is not divisible by 16.");
-    }
+    // if ((batch_size % 16) != 0) {
+    //     throw std::invalid_argument("Batch size is not divisible by 16.");
+    // }
 
-    if (batch_size < 512) {
-        throw std::invalid_argument("Batch size must be >= 512, but is " + std::to_string(batch_size));
-    }
+    // if (batch_size < 512) {
+    //     throw std::invalid_argument("Batch size must be >= 512, but is " + std::to_string(batch_size));
+    // }
     // Compute activation backpropagation using parallel_for
     bf16 const *const Forwardbf16 = reinterpret_cast<const bf16 *>(forward);
     bf16 *const out_interbf16 = reinterpret_cast<bf16 *>(out_inter);
