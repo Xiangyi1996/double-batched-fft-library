@@ -1198,6 +1198,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
                 q->parallel_for(sycl::range<1>(size), [=](size_t i) { out[i] = 0; }).wait();
             }
         }
+        q->wait();
 
         // Idea: each block only takes care of _one_ hash level (but may iterate
         // over multiple input elements). This way, only one level of the hashmap
@@ -1274,6 +1275,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
             });
             q->wait();
         }
+        q->wait();
 
         return forward;
     }

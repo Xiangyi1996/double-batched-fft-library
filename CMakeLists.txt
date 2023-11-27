@@ -27,6 +27,7 @@ if(BUILD_TEST)
 endif()
 
 if(BUILD_BENCHMARK)
+
     add_subdirectory(benchmarks)
 endif()
 

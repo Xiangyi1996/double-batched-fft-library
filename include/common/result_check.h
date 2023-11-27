@@ -1,4 +1,23 @@
 #include "gpu_matrix.h"
+// #include <cstdlib>
+// #include <ctime>
+// #include <fstream>
+// #include <iostream>
+#include <vector>
+
+void saveImageToPGM(const std::string &filename, int width, int height, const std::vector<unsigned char> &image) {
+    // Create and open the output file
+    std::ofstream outputFile(filename, std::ios::out | std::ios::binary);
+
+    // Write PGM header
+    outputFile << "P5\n" << width << " " << height << "\n255\n";
+
+    // Write the image data to the file
+    outputFile.write(reinterpret_cast<const char *>(image.data()), image.size());
+
+    // Close the file
+    outputFile.close();
+}
 
 template <typename Tval, typename Ttarget>
 bool areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector<Ttarget> &target,
@@ -53,6 +72,23 @@ void saveCSV(const std::string &filename, const std::vector<float> &data) {
         }
         file.close();
     }
+}
+
+std::vector<float> loadCSV(const std::string &filename) {
+    std::vector<float> data;
+    std::ifstream file(filename);
+
+    if (file.is_open()) {
+        std::string line;
+        while (std::getline(file, line)) {
+            float value;
+            std::istringstream iss(line);
+            iss >> value;
+            data.push_back(value);
+        }
+        file.close();
+    }
+    return data;
 }
 
 bool areVectorsWithinTolerance(const std::vector<bf16> &value, const std::vector<float> &target, float tolerance,
