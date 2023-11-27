@@ -80,17 +80,22 @@ std::vector<sycl::event> forward_impl_general(sycl::queue &q, T const *const __r
                                               T const *const __restrict__ inputs_ptr,
                                               T *const __restrict__ intermediate_output, const int n_hidden_layers,
                                               const int M, const std::vector<sycl::event> &deps) {
-    constexpr int SG_SIZE = TN;
-    constexpr size_t TM = 8;                                             // this may be adjusted in the future
-    constexpr size_t TK = 8 * std::min<size_t>(8, 32 / (8 * sizeof(T))); // This depends on the datatype T
-    const int SGS_IN_WG =
-        std::min(M / TM, q.get_device().get_info<sycl::info::device::max_work_group_size>() / SG_SIZE);
-    static_assert(WIDTH % TN == 0);
-    constexpr int NC = WIDTH / TN; // number of systolic C matrices in the output
 
-    assert(M % TM == 0); // make sure there is no remainder and no out of bounds accesses
     static_assert(INPUT_WIDTH == WIDTH);
     static_assert(OUTPUT_WIDTH == WIDTH);
+    static_assert(WIDTH % TN == 0);
+
+    constexpr int SG_SIZE = TN;
+    constexpr size_t TM = 8;
+    assert(M % TM == 0); // make sure there is no remainder and no out of bounds accesses // this may be adjusted in the
+                         // future
+    constexpr size_t TK = 8 * std::min<size_t>(8, 32 / (8 * sizeof(T))); // This depends on the datatype T
+    int SGS_IN_WG = std::min(M / TM, q.get_device().get_info<sycl::info::device::max_work_group_size>() / SG_SIZE);
+    while (M / TM % SGS_IN_WG != 0) {
+        SGS_IN_WG--;
+    }
+    if (SGS_IN_WG <= 0) throw std::logic_error("Number of SGS per WG cannot be less than 1");
+    constexpr int NC = WIDTH / TN; // number of systolic C matrices in the output
 
     // One Block Row has TM rows an N columns.
     auto e = q.submit([&](sycl::handler &cgh) {
@@ -192,8 +197,11 @@ std::vector<sycl::event> backward_impl_general(queue &q, T const *const __restri
     static_assert(OUTPUT_WIDTH == WIDTH);
 
     constexpr int SG_SIZE = TN;
-    const int SGS_IN_WG =
-        q.get_device().get_info<sycl::info::device::max_work_group_size>() / SG_SIZE; // maximum number
+    int SGS_IN_WG = std::min(M / TM, q.get_device().get_info<sycl::info::device::max_work_group_size>() / SG_SIZE);
+    while (M / TM % SGS_IN_WG != 0) {
+        SGS_IN_WG--;
+    }
+    if (SGS_IN_WG <= 0) throw std::logic_error("Number of SGS per WG cannot be less than 1");
 
     constexpr int NC = WIDTH / TN; // number of systolic C matrices in the output
     constexpr size_t TM = 8;       // this may be adjusted in the future
@@ -206,9 +214,9 @@ std::vector<sycl::event> backward_impl_general(queue &q, T const *const __restri
         local_accessor<T, 1> B(range<1>(WIDTH * WIDTH), cgh);
         local_accessor<T, 1> Atmp(range<1>(TM * WIDTH * SGS_IN_WG), cgh);
 
-        const int nitems = M / TM * SG_SIZE;
+        const int nitems = ;
         cgh.parallel_for(
-            sycl::nd_range<1>(nitems, std::min(nitems, SGS_IN_WG * SG_SIZE)),
+            sycl::nd_range<1>(M / TM * SG_SIZE, SGS_IN_WG * SG_SIZE),
             [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
                 auto sg = item.get_sub_group();
 
