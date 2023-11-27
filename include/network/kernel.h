@@ -197,16 +197,22 @@ std::vector<sycl::event> backward_impl_general(queue &q, T const *const __restri
     static_assert(OUTPUT_WIDTH == WIDTH);
 
     constexpr int SG_SIZE = TN;
+    // this may be adjusted in the future in dpendence of M
+    constexpr size_t TM = 8;
     int SGS_IN_WG = std::min(M / TM, q.get_device().get_info<sycl::info::device::max_work_group_size>() / SG_SIZE);
+    /// TODO: say we use M/TM = 65. Then this results in WG=1 SG and too many slm load of B.
+    /// Better: Use max size WGs and return those which are larger than M/TM. But
+    /// requires special care for the loading of B
     while (M / TM % SGS_IN_WG != 0) {
         SGS_IN_WG--;
     }
     if (SGS_IN_WG <= 0) throw std::logic_error("Number of SGS per WG cannot be less than 1");
 
-    constexpr int NC = WIDTH / TN; // number of systolic C matrices in the output
-    constexpr size_t TM = 8;       // this may be adjusted in the future
+    // number of systolic C matrices in the output
+    constexpr int NC = WIDTH / TN;
     assert(M % TM == 0);
-    constexpr size_t TK = 8 * std::min<size_t>(8, 32 / (8 * sizeof(T))); // This depends on the datatype T
+    // TK depends on the datatype T
+    constexpr size_t TK = 8 * std::min<size_t>(8, 32 / (8 * sizeof(T)));
 
     auto e = q.submit([&](handler &cgh) {
         cgh.depends_on(deps);
@@ -214,7 +220,6 @@ std::vector<sycl::event> backward_impl_general(queue &q, T const *const __restri
         local_accessor<T, 1> B(range<1>(WIDTH * WIDTH), cgh);
         local_accessor<T, 1> Atmp(range<1>(TM * WIDTH * SGS_IN_WG), cgh);
 
-        const int nitems = ;
         cgh.parallel_for(
             sycl::nd_range<1>(M / TM * SG_SIZE, SGS_IN_WG * SG_SIZE),
             [=](nd_item<1> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
