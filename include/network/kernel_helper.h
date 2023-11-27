@@ -25,9 +25,16 @@ template <int M, int N, typename Tsrc, typename Tdest, sycl::access::address_spa
 static inline void moveMemory(sycl::nd_item<1> &item, const sycl::multi_ptr<Tsrc, AddressSpacesrc, IsDecoratedsrc> &src,
                               sycl::multi_ptr<Tdest, AddressSpacedest, IsDecorateddest> dest) {
 
-    for (int iter = item.get_local_linear_id(); iter < M * N; iter += item.get_local_range(0)) {
-        dest[iter] = static_cast<Tdest>(src[iter]);
-    }
+    if constexpr (sizeof(Tdest) == 4 && sizeof(Tsrc) == 4)
+        for (int iter = item.get_local_linear_id(); iter < M * N; iter += item.get_local_range(0)) {
+            item.get_sub_group().store(dest + iter, static_cast<Tdest>(item.get_sub_group().load(src + iter)));
+        }
+    else if constexpr (sizeof(Tdest) == 2 && sizeof(Tsrc) == 2)
+        for (int iter = item.get_local_linear_id(); iter < M * N; iter += 2 * item.get_local_range(0)) {
+            item.get_sub_group().store(
+                address_space_cast<AddressSpacedest, IsDecorateddest>((uint32_t *)&dest[iter]),
+                item.get_sub_group().load(address_space_cast<AddressSpacesrc, IsDecoratedsrc>((uint32_t *)&src[iter])));
+        }
 }
 
 // load a submatrix row-major piece of size MxN int SLM, sub-group by sub-group
@@ -37,8 +44,37 @@ template <int M, int N, typename Tsrc, typename Tdest, typename Group, sycl::acc
 static inline void moveMemorySG(Group sg, const sycl::multi_ptr<Tsrc, AddressSpacesrc, IsDecoratedsrc> &src,
                                 sycl::multi_ptr<Tdest, AddressSpacedest, IsDecorateddest> dest) {
 
-    for (int iter = sg.get_local_id()[0]; iter < M * N; iter += sg.get_local_range()[0]) {
-        dest[iter] = static_cast<Tdest>(src[iter]);
+    if constexpr (sizeof(Tdest) == 4 && sizeof(Tsrc) == 4)
+        for (int iter = sg.get_local_id()[0]; iter < M * N; iter += sg.get_local_range()[0]) {
+            dest[iter] = static_cast<Tdest>(src[iter]);
+        }
+    else if constexpr (sizeof(Tdest) == 2 && sizeof(Tsrc) == 2)
+        for (int iter = sg.get_local_id()[0]; iter < M * N; iter += 2 * sg.get_local_range()[0]) {
+            sg.store(address_space_cast<AddressSpacedest, IsDecorateddest>((uint32_t *)&dest[iter]),
+                     sg.load(address_space_cast<AddressSpacesrc, IsDecoratedsrc>((uint32_t *)&src[iter])));
+        }
+}
+
+template <int WIDTH, typename T, typename Group, sycl::access::address_space AddressSpace,
+          sycl::access::decorated IsDecorated, use Use, layout Layout, size_t nMats, size_t TM, size_t TN>
+static inline void moveMemorySG(Group sg, sycl::multi_ptr<T, AddressSpace, IsDecorated> src,
+                                std::array<joint_matrix<Group, T, Use, TM, TN, Layout>, nMats> &mDest) {
+
+    static_assert(nMats * TN == WIDTH);
+    static_assert(Layout == layout::row_major);
+    for (int iter = 0; iter < nMats; iter++) {
+        joint_matrix_load(sg, mDest[iter], src + iter * TN, WIDTH);
+    }
+}
+
+template <int WIDTH, typename Tsrc, typename Tdest, typename Group, sycl::access::address_space AddressSpace,
+          sycl::access::decorated IsDecorated, use Use, layout Layout, size_t nMats, size_t TM, size_t TN>
+static inline void moveMemorySG(Group sg, const std::array<joint_matrix<Group, Tsrc, Use, TM, TN, Layout>, nMats> &mSrc,
+                                sycl::multi_ptr<Tdest, AddressSpace, IsDecorated> dest) {
+
+    static_assert(nMats * TN == WIDTH);
+    for (int iter = 0; iter < nMats; iter++) {
+        sycl::ext::intel::experimental::matrix::joint_matrix_store(sg, mSrc[iter], dest + iter * TN, WIDTH);
     }
 }
 
@@ -60,14 +96,13 @@ static inline void MAD_1_ROW(Group sg, const sycl::multi_ptr<Ta, AddressSpaceA, 
 
     // WIDTH = nCs*N
     //  A is not vnnied
-    constexpr int WIDTH = nCs * N;
     joint_matrix<Group, Ta, use::a, M, K, layout::row_major> mA;
     joint_matrix<Group, Tb, use::b, K, N, layout::ext_intel_packed> mB;
-    joint_matrix_load(sg, mA, A, WIDTH);
+    joint_matrix_load(sg, mA, A, nCs * N);
 #pragma unroll
     for (int iter = 0; iter < nCs; iter++) {
         constexpr int vnni_factor = std::max<int>(1, 4 / sizeof(Tb));
-        joint_matrix_load(sg, mB, B + iter * vnni_factor * N, vnni_factor * WIDTH);
+        joint_matrix_load(sg, mB, B + iter * vnni_factor * N, vnni_factor * nCs * N);
         joint_matrix_mad(sg, mCs[iter], mA, mB, mCs[iter]);
     }
 }
@@ -85,11 +120,35 @@ static inline void MAD(Group sg, const sycl::multi_ptr<Ta, AddressSpaceA, IsDeco
     }
 }
 
+template <size_t K, typename Group, typename Ta, typename Tb, typename Tc, layout LayoutA,
+          sycl::access::address_space AddressSpaceB, sycl::access::decorated IsDecoratedB, size_t M, size_t N,
+          size_t nAs, size_t nCs>
+static inline void MAD(Group sg, const std::array<joint_matrix<Group, Ta, use::a, M, K, LayoutA>, nAs> &mAs,
+                       const sycl::multi_ptr<Tb, AddressSpaceB, IsDecoratedB> &B,
+                       std::array<joint_matrix<Group, Tc, use::accumulator, M, N>, nCs> &mCs) {
+
+    // WIDTH = nCs*N
+    //  A is not vnnied
+
+    constexpr int vnni_factor_times_N = std::max<int>(1, 4 / sizeof(Tb)) * N;
+    constexpr int offset_row = vnni_factor_times_N * nCs;
+
+    // #pragma collapse 2 unroll
+    for (int iterA = 0; iterA < nAs; iterA++) {
+        for (int iter = 0; iter < nCs; iter++) {
+
+            joint_matrix<Group, Tb, use::b, K, N, layout::ext_intel_packed> mB;
+            joint_matrix_load(sg, mB, B + iter * vnni_factor_times_N + iterA * N * nCs * M, offset_row);
+            joint_matrix_mad(sg, mCs[iter], mAs[iterA], mB, mCs[iter]);
+        }
+    }
+}
+
 template <typename Tin, typename Tout, Activation act> inline void activate(const Tin &data_in, Tout &data_out) {
     if constexpr (act == Activation::None)
         data_out = static_cast<Tout>(data_in);
     else if constexpr (act == Activation::ReLU)
-        data_out = static_cast<Tout>(std::max<Tin>(static_cast<Tin>(0), data_in));
+        data_out = data_in > static_cast<Tin>(0) ? static_cast<Tout>(data_in) : static_cast<Tout>(0);
 }
 
 template <typename Tin, typename Tdec, typename Tout, Activation act, sycl::access::address_space AddressSpace,
@@ -100,6 +159,26 @@ inline void activateBackward(const Tin &data_in, const sycl::multi_ptr<Tdec, Add
         data_out = static_cast<Tout>(data_in);
     else if constexpr (act == Activation::ReLU)
         data_out = static_cast<Tout>(data_decision[0] > static_cast<Tdec>(0) ? data_in : 0);
+}
+
+/// TODO: generalize this in case in and dest dimensions do not coincide. If that is the case, go over SLM... or
+/// something like that
+template <Activation act, typename Group, use UseIn, use UseOut, typename Tin, typename Tout, size_t NumRows,
+          size_t NumCols, layout LayoutIn, layout LayoutOut, size_t nMats>
+static inline void
+applyActivation(Group sg, std::array<joint_matrix<Group, Tin, UseIn, NumRows, NumCols, LayoutIn>, nMats> &in,
+                std::array<joint_matrix<Group, Tout, UseOut, NumRows, NumCols, LayoutOut>, nMats> &dest) {
+
+    // WIDTH = NumCols*nMats;
+    for (auto matiter = 0; matiter < nMats; matiter++) {
+        auto data_in = sycl::ext::oneapi::detail::get_wi_data(sg, in[matiter]);
+        auto data_out = sycl::ext::oneapi::detail::get_wi_data(sg, dest[matiter]);
+        for (int rowiter = 0; rowiter < data_in.length(); rowiter++) {
+            Tout tmp;
+            activate<Tin, Tout, act>(static_cast<Tin>(data_in[rowiter]), tmp);
+            data_out[rowiter] = tmp;
+        }
+    }
 }
 
 template <Activation act, typename Group, use Use, typename Tin, typename Tout, size_t NumRows, size_t NumCols,

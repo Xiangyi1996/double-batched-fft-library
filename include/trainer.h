@@ -8,13 +8,14 @@ class Trainer {
     Trainer(Network &network) { m_network = &network; }
 
     std::vector<sycl::event> training_step(DeviceMem<bf16> &input, DeviceMem<bf16> &losses, int run_inference,
-                                           float *out_inter_forw, float *out_inter_backw, int batch_size) {
+                                           float *out_inter_forw, float *out_inter_backw, int batch_size,
+                                           const std::vector<sycl::event> &dependencies) {
 
         if (run_inference) {
-            return m_network->inference(input, out_inter_forw, batch_size, {});
+            return m_network->inference(input, out_inter_forw, batch_size, dependencies);
         } else {
             // return m_network->training(input, target, m_network->m_forward, m_network->m_out_inter, deps);
-            auto deps = m_network->forward_pass(input, out_inter_forw, batch_size, {});
+            auto deps = m_network->forward_pass(input, out_inter_forw, batch_size, dependencies);
             // auto e = m_loss->evaluate(m_network->get_queue(), scale, output, target, grads, losses);
             // deps = {e};
 

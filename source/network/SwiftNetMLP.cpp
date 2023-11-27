@@ -409,16 +409,12 @@ std::vector<sycl::event> SwiftNetMLP<WIDTH>::training(const DeviceMem<bf16> &inp
     bf16 *const intermediate_output_forwardbf16 = reinterpret_cast<bf16 *>(intermediate_output_forward);
     bf16 *const intermediate_output_backwardbf16 = reinterpret_cast<bf16 *>(intermediate_output_backward);
 
-    throw std::invalid_argument("Trainign not yet implemented again.");
-
-    // return mlp_swift_fused<WIDTH, Activation::ReLU, Activation::None>(
-    //     m_q, m_weights_matrices.data(), m_weightsT_matrices.data(),
-    //     input.data(),            // input to forward pass
-    //     target.data(),           // targets for error computation
-    //     m_grads_matrices.data(), // gradients output after backward pass
-    //     intermediate_output_forwardbf16, intermediate_output_backwardbf16, m_n_hidden_layers, batch_size, deps);
-
-    return {};
+    return tinydpcppnn::kernels::mlp_swift_fused<WIDTH, Activation::ReLU, Activation::None>(
+        m_q, m_weights_matrices.data(), m_weightsT_matrices.data(),
+        input.data(),            // input to forward pass
+        target.data(),           // targets for error computation
+        m_grads_matrices.data(), // gradients output after backward pass
+        intermediate_output_forwardbf16, intermediate_output_backwardbf16, m_n_hidden_layers, batch_size, deps);
 }
 
 template <int WIDTH> void SwiftNetMLP<WIDTH>::set_params(float *params) {
