@@ -877,17 +877,17 @@ std::vector<sycl::event> mlp_swift_fused(queue &q, bf16 const *const __restrict_
 
                 /// Compute L2 loss and gradients as input for backward pass
 
-                const float inv_N_total_elements = 2.0f / (M * WIDTH);
-                for (int elemiter = 0; elemiter < TM * WIDTH / 2; elemiter += SG_SIZE) { // row
-                    const int32_t tmp_target =
-                        sg.load((int32_t *)(targets_ptr + total_offset_A) + elemiter); // hbm access. May be slow
-                    int32_t tmp_source = sg.load((int32_t *)&Atmp[sg_offset_A + 2 * elemiter]);
-                    ((bf16 *)&tmp_source)[0] -= ((bf16 *)&tmp_target)[0];
-                    ((bf16 *)&tmp_source)[1] -= ((bf16 *)&tmp_target)[1];
-                    ((bf16 *)&tmp_source)[0] *= inv_N_total_elements;
-                    ((bf16 *)&tmp_source)[1] *= inv_N_total_elements;
-                    sg.store(((int32_t *)&Atmp[sg_offset_A + 2 * elemiter]), tmp_source);
-                }
+                // const float inv_N_total_elements = 2.0f / (M * WIDTH);
+                // for (int elemiter = 0; elemiter < TM * WIDTH / 2; elemiter += SG_SIZE) { // row
+                //     const int32_t tmp_target =
+                //         sg.load((int32_t *)(targets_ptr + total_offset_A) + elemiter); // hbm access. May be slow
+                //     int32_t tmp_source = sg.load((int32_t *)&Atmp[sg_offset_A + 2 * elemiter]);
+                //     ((bf16 *)&tmp_source)[0] -= ((bf16 *)&tmp_target)[0];
+                //     ((bf16 *)&tmp_source)[1] -= ((bf16 *)&tmp_target)[1];
+                //     ((bf16 *)&tmp_source)[0] *= inv_N_total_elements;
+                //     ((bf16 *)&tmp_source)[1] *= inv_N_total_elements;
+                //     sg.store(((int32_t *)&Atmp[sg_offset_A + 2 * elemiter]), tmp_source);
+                // }
 
                 // A tmp now holds the grads. We can start the backward pass.
 

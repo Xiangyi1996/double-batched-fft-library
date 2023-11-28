@@ -23,7 +23,7 @@ using namespace sycl::ext::oneapi::experimental::matrix;
 using bf16 = sycl::ext::oneapi::bfloat16;
 
 // #define INCLUDE_COOLDOWN
-// #define TEST_TRAINING
+#define TEST_TRAINING
 // #define CHECK_RESULTS
 #define TEST_INFERENCE
 // #define DEBUG_OUTPUT
