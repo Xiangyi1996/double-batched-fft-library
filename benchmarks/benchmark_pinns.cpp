@@ -30,6 +30,42 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 #define TEST_INFERENCE
 // #define DEBUG_OUTPUT
 
+void generate_pinns() {
+    const int WIDTH = 64;
+    const int input_width = 3;
+    const int output_width = 3;
+
+    const int output_width_padded = WIDTH; // we pad the remainder to 0
+    const int input_width_padded = WIDTH;  // we pad the remainder to 0
+    const int m_n_hidden_layers = 5;
+
+    int batch_size = 100000;
+
+    sycl::queue q;
+
+    DeviceMem<bf16> inputs(input_width_padded * batch_size, q);
+    std::cout << "Batch size: " << batch_size << ", with input ref size: " << input_ref.size()
+              << ", input size: " << inputs.size() << std::endl;
+
+    inputs.initialize_constant(0.0f, q);
+    q.wait();
+    // need a factory here for different widths
+    SwiftNetMLP<64> network =
+        SwiftNetMLP<64>(q, input_width, output_width, m_n_hidden_layers, Activation::Tanh, Activation::Tanh);
+    q.wait(); // wait for init netweork
+    network.load_from_file("../test/ref_values/network_with_grid_encoding/full/network_params" + iter + ".csv");
+
+    q.wait(); // wait for init vals.
+    const size_t out_inter_forw_size =
+        batch_size * (input_width_padded + output_width_padded + WIDTH * m_n_hidden_layers);
+
+    std::cout << "inference: " << std::endl;
+
+    network.inference(inputs, out_inter_forw, batch_size, {});
+
+    std::cout << "inference done: " << std::endl;
+}
+
 void start_training(const int WIDTH = 64, const int input_width = 5, const int output_width = 1,
                     const int m_n_hidden_layers = 4) {
 
@@ -456,5 +492,6 @@ void start_training(const int WIDTH = 64, const int input_width = 5, const int o
 
 int main() {
     start_training();
+    generate_pinns();
     return 0;
 }

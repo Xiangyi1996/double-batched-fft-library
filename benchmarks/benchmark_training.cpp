@@ -28,8 +28,12 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 #define TEST_INFERENCE
 // #define DEBUG_OUTPUT
 
-void start_training(const int WIDTH = 64, const int input_width = 64, const int output_width = 64,
-                    const int m_n_hidden_layers = 4) {
+void start_training(int WIDTH = 64, int input_width = 64, int output_width = 64, int m_n_hidden_layers = 4,
+                    int iter_time = 1000,
+                    std::vector<uint32_t> batch_sizes = {
+                        /*1 << 29, 1 << 28, 1 << 27, 1 << 26, 1 << 25, 1 << 24, 1 << 23,*/
+                        1 << 22, 1 << 21, 1 << 20, 1 << 19, 1 << 18, 1 << 17, 1 << 16, 1 << 15, 1 << 14, 1 << 13,
+                        1 << 12, 1 << 11, 1 << 10}) {
 
     // SWIFTNET
     MPI_Init(NULL, NULL);
@@ -38,9 +42,9 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
     // Fourth step: train the model by sampling the above image and optimizing
     // relative squared error using Adam.
     // Experimental not sure how many batch sizes are possible
-    std::vector<uint32_t> batch_sizes = {/*1 << 29, 1 << 28, 1 << 27, 1 << 26, 1 << 25, 1 << 24, 1 << 23,*/
-                                         1 << 22, 1 << 21, 1 << 20, 1 << 19, 1 << 18, 1 << 17, 1 << 16,
-                                         1 << 15, 1 << 14, 1 << 13, 1 << 12, 1 << 11, 1 << 10};
+    // std::vector<uint32_t> batch_sizes = {/*1 << 29, 1 << 28, 1 << 27, 1 << 26, 1 << 25, 1 << 24, 1 << 23,*/
+    //                                      1 << 22, 1 << 21, 1 << 20, 1 << 19, 1 << 18, 1 << 17, 1 << 16,
+    //                                      1 << 15, 1 << 14, 1 << 13, 1 << 12, 1 << 11, 1 << 10};
     std::string method = "SwiftNet";
     nlohmann::json bench_result;
     bench_result[method] = nlohmann::json::array();
@@ -89,9 +93,13 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
 
         // Various constants for the network and optimization
         uint32_t n_iterations = std::max(1000 * (1 << 18) / batch_size, 250u);
+        n_iterations =
+            iter_time ? iter_time : n_iterations; // If we use sth else than benchmark_training, use iter_time
         uint32_t n_iterations_warmup = n_iterations / 2;
 
         auto begin = std::chrono::steady_clock::now();
+        auto begin_total = std::chrono::steady_clock::now();
+        auto total_time = std::chrono::steady_clock::now();
 
         float tmp_loss = 0;
         uint32_t tmp_loss_counter = 0;
@@ -101,10 +109,17 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
 
         double mean_training_throughput = 0;
         double mean_inference_throughput = 0;
+        double mean_training_duration = 0;
+        double mean_inference_duration = 0;
+
         size_t mean_counter = 0;
+        size_t iter_counter = 0;
+
         const float tolerance = 0.001f;
         std::vector<std::vector<float>> targetVectors = readTargetVectorsFromFile("../python/torch.csv", ',');
         std::vector<sycl::event> dependencies;
+        std::chrono::steady_clock::time_point end_total;
+
         double tmp_throughput = 0;
 #ifdef TEST_TRAINING
         std::cout << "Iterations: " << n_iterations << ", steps increment: " << STEPS_INCREMENT << std::endl;
@@ -138,6 +153,8 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
                 if (i >= n_iterations_warmup) {
                     mean_training_throughput += throughput;
                     ++mean_counter;
+                    mean_training_duration += microseconds;
+                    iter_counter += print_interval;
                 }
 
                 begin = std::chrono::steady_clock::now();
@@ -145,7 +162,16 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
         }
         q.wait();
 
+        end_total = std::chrono::steady_clock::now();
+        auto microseconds_total =
+            std::chrono::duration_cast<std::chrono::microseconds>(end_total - begin_total).count();
+
         mean_training_throughput /= (double)mean_counter;
+        mean_training_duration /= (double)iter_counter;
+        mean_training_duration *= iter_time * 1e-6;
+
+        std::cout << "Training Time for " << iter_time << " iterations: " << mean_training_duration << "seconds."
+                  << std::endl;
 
         global_throughput += mean_training_throughput;
 
@@ -158,7 +184,6 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
         MPI_Barrier(MPI_COMM_WORLD);
 
         global_throughput = 0.0;
-
         // Sanity check: we run with aranged weights and 4 layers and 0.001 as
         // input. Values generated from test_compare_torch_dpcpp.py and saved in
         // python/dpcpp.csv (bf16 vals). python/torch.csv is float vals
@@ -290,9 +315,11 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
 #ifdef TEST_INFERENCE
 
         begin = std::chrono::steady_clock::now();
+        begin_total = std::chrono::steady_clock::now();
 
         // Inference benchmark
         mean_counter = 0;
+        iter_counter = 0;
 
         print_interval *= 5;
         n_iterations *= 5;
@@ -321,12 +348,20 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
                 if (i >= n_iterations_warmup) {
                     mean_inference_throughput += throughput;
                     ++mean_counter;
+
+                    mean_inference_duration += microseconds;
+                    iter_counter += print_interval;
                 }
 
                 begin = std::chrono::steady_clock::now();
             }
         }
         q.wait();
+
+        end_total = std::chrono::steady_clock::now();
+        auto microseconds_total_infer =
+            std::chrono::duration_cast<std::chrono::microseconds>(end_total - begin_total).count();
+
         auto end_time_inference = std::chrono::steady_clock::now();
         double elapsed_time_inference =
             std::chrono::duration_cast<std::chrono::nanoseconds>(end_time_inference - begin_time_inference).count();
@@ -334,6 +369,7 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
                   << "[µs] \tAverage time inference for plot interval = "
                   << int(print_interval * elapsed_time_inference / 1000.0 / (n_iterations - n_iterations_warmup))
                   << " [µs]" << std::endl;
+
         const double flops_inference = 2.0 * (double)batch_size * (double)WIDTH * (double)WIDTH *
                                        (m_n_hidden_layers + 1) * (n_iterations - n_iterations_warmup);
         const double gflops_per_s_inference = flops_inference / elapsed_time_inference; // flops / ns = gflops/s
@@ -344,7 +380,11 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
         const double hbm_bandwidth_GB_per_s_inference = bytes_loaded_and_stored_inference / elapsed_time_inference;
 
         mean_inference_throughput /= (double)mean_counter;
+        mean_inference_duration /= (double)iter_counter;
+        mean_inference_duration *= iter_time * 1e-6;
 
+        std::cout << "Inference Time for " << iter_time << " iterations: " << mean_inference_duration << "seconds."
+                  << std::endl;
         global_throughput += mean_inference_throughput;
 
         tmp_throughput = 0;
@@ -387,7 +427,9 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
         bench_result[method].push_back({
             {"batch_size", batch_size},
             {"training_throughput", mean_training_throughput},
+            // {"training_duration_1000iters_in_seconds", mean_training_duration},
             {"inference_throughput", mean_inference_throughput},
+            // {"inference_duration_1000iters_in_seconds", mean_inference_duration},
         });
         q.wait();
     }
@@ -402,6 +444,59 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
 }
 
 int main() {
-    start_training();
+    // benchmark training over all batch_sizes
+    int WIDTH = 64;
+    int input_width = 64;
+    int output_width = 64;
+    int m_n_hidden_layers = 4;
+    int iter_time = 0;
+    std::vector<uint32_t> batch_sizes = {/*1 << 29, 1 << 28, 1 << 27, 1 << 26, 1 << 25, 1 << 24, 1 << 23,*/
+                                         1 << 22, 1 << 21, 1 << 20, 1 << 19, 1 << 18, 1 << 17, 1 << 16,
+                                         1 << 15, 1 << 14, 1 << 13, 1 << 12, 1 << 11, 1 << 10};
+    // std::cout << "=================================Benchmark=================================" << std::endl;
+    // start_training(WIDTH, input_width, output_width, m_n_hidden_layers, iter_time, batch_sizes);
+
+    // WIDTH = 64;
+    // input_width = 64;
+    // output_width = 64;
+    // m_n_hidden_layers = 11;
+    // iter_time = 1000;
+    // batch_sizes = {1 << 16}; // batch size one less, because MPI does 2 tiles, thus half batch size.
+    // std::cout << "=================================Benchmark=================================" << std::endl;
+    // start_training(WIDTH, input_width, output_width, m_n_hidden_layers, iter_time, batch_sizes);
+
+    // Image compression
+    WIDTH = 64;
+    input_width = 32;
+    output_width = 1;
+    m_n_hidden_layers = 2;
+    iter_time = 1000;
+    // batch_sizes = {2304 * 3072}; // resolution of image
+    batch_sizes = {1 << 22}; // batch size one less, because MPI does 2 tiles, thus half batch size.
+    std::cout << "=================================Image compression=================================" << std::endl;
+    start_training(WIDTH, input_width, output_width, m_n_hidden_layers, iter_time, batch_sizes);
+
+    // // PINNs
+    // WIDTH = 64;
+    // input_width = 32;
+    // output_width = 3;
+    // m_n_hidden_layers = 5;
+    // iter_time = 1000;
+
+    // std::cout << "=================================PINNs=================================" << std::endl;
+    // batch_sizes = {1 << 16}; // batch size one less, because MPI does 2 tiles, thus half batch size.
+    // start_training(WIDTH, input_width, output_width, m_n_hidden_layers, iter_time, batch_sizes);
+
+    // // NeRF
+    // WIDTH = 64;
+    // input_width = 32;
+    // output_width = 4;
+    // m_n_hidden_layers = 4;
+    // iter_time = 1000;
+
+    // std::cout << "=================================NeRF=================================" << std::endl;
+    // batch_sizes = {1 << 19}; // batch size one less, because MPI does 2 tiles, thus half batch size.
+    // start_training(WIDTH, input_width, output_width, m_n_hidden_layers, iter_time, batch_sizes);
+
     return 0;
 }

@@ -1,0 +1,1 @@
+{"pytorch": [{"batch_size": 2097152, "training_throughput": 279905473.1563486, "inference_throughput": 7742592662.337222}]}

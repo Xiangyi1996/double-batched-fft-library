@@ -23,7 +23,7 @@ def plot_result(filename, name):
     plt.xlabel("Batch Size")
     plt.ylabel("Training Throughput")
     plt.title(f"{name} - Training")
-    plt.grid(True)
+    # plt.grid(True)
     plt.xticks(batch_sizes_pow, [f"2^{n}" for n in batch_sizes_pow])
     plt.savefig(
         os.path.join(os.path.dirname(__file__), "images", "training_throughput.pdf")
@@ -35,7 +35,7 @@ def plot_result(filename, name):
     plt.xlabel("Batch Size")
     plt.ylabel("Inference Throughput")
     plt.title(f"{name} - Inference")
-    plt.grid(True)
+    # plt.grid(True)
     plt.xticks(batch_sizes_pow, [f"2^{n}" for n in batch_sizes_pow])
 
     plt.savefig(

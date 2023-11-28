@@ -4,15 +4,15 @@
 cmake_minimum_required(VERSION 3.23)
 
 #the whole thing only works with icpx due to using joint_matrix
-set(CMAKE_CXX_COMPILER "icpx")
-
+# set(CMAKE_CXX_COMPILER "icpx")
+set(CMAKE_CXX_COMPILER "mpiicpx")
 project(tiny-dpcpp-nn VERSION 0.1.0 LANGUAGES CXX)
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 
 include(CMakeDependentOption)
 
-option(BUILD_TEST "Build tests in 'test' directory" ON)
+option(BUILD_TEST "Build tests in 'test' directory" OFF)
 option(BUILD_PYBIND "Build pybindings in 'dpcpp_bindings' directory" OFF)
 option(BUILD_BENCHMARK "Build benchmarks in 'benchmark' directory" ON)
 
@@ -27,12 +27,10 @@ if(BUILD_TEST)
 endif()
 
 if(BUILD_BENCHMARK)
-
     add_subdirectory(benchmarks)
 endif()
 
 if(BUILD_PYBIND)
-
     # Include Pybind11
     add_subdirectory(extern/pybind11)
     add_subdirectory(dpcpp_bindings)

@@ -33,7 +33,10 @@ SwiftNetMLP<WIDTH>::SwiftNetMLP(queue q, int input_width, int output_width, int 
     m_n_hidden_matrices = m_n_hidden_layers - 1;
 
     check_parameters();
-
+    std::cout << "weight matrix parameter amount: "
+              << m_net_width * m_inputs_width_padded + (m_net_width * m_net_width) * m_n_hidden_matrices +
+                     m_net_width * m_output_width_padded
+              << std::endl;
     // As the systolic matrix multiplication works in multiples of 8/16, we cannot have arbitrary input and output
     // width. To get the correct width as defined by input_width and output_width, we pad later with zeros
 
@@ -95,10 +98,10 @@ template <int WIDTH> void SwiftNetMLP<WIDTH>::check_parameters() {
         throw std::runtime_error(errorMessage);
     }
 
-    if (m_activation != Activation::ReLU) {
+    if ((m_activation != Activation::ReLU) && (m_activation != Activation::None) && m_activation != Activation::Tanh) {
         throw std::runtime_error("m_activation must be ReLU for now.");
     }
-    if (m_output_activation != Activation::None) {
+    if ((m_output_activation != Activation::None) && (m_output_activation != Activation::Tanh)) {
         throw std::runtime_error("m_output_activation must be None for now.");
     }
 }

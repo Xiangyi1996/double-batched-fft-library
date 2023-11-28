@@ -63,6 +63,7 @@ class MLP(torch.nn.Module):
             dtype=x.dtype,
             device=x.device,
         )
+        # print(ones)
         x = torch.cat((x, ones), dim=1)
 
         if self.save_outputs:

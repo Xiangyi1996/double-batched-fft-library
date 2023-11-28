@@ -76,9 +76,9 @@ void test_forward(const int input_width, const int output_width, const int n_hid
     //  }).wait();
 
     if (batch_size % 8 == 0) { // CHECK_THROWS here and return, otherwise continue normally
-        network.forward_pass(network_input, forward, batch_size, deps);
+        network.inference(network_input, forward, batch_size, deps);
     } else {
-        CHECK_THROWS(network.forward_pass(network_input, forward, batch_size, deps));
+        CHECK_THROWS(network.inference(network_input, forward, batch_size, deps));
         return;
     }
 
@@ -238,7 +238,7 @@ void test_backward() {
 
     Q.wait();
 
-    std::vector<sycl::event> es = network.forward_pass(inputs, out_inter_forw, batch_size, {});
+    std::vector<sycl::event> es = network.inference(inputs, out_inter_forw, batch_size, {});
 
     network.backward_pass(backward_inputs, out_inter_backw, out_inter_forw, batch_size, es);
 
@@ -287,48 +287,48 @@ void test_backward() {
     CHECK(areVectorsWithinTolerance(backward_outputs_vec, backward_outputs_vec_ref, tolerance));
 }
 
-// TEST_CASE("Swiftnet Forward - zero pad input") {
-//     int net_width = 64;
-//     int output_width = 64;
-//     int n_hidden_layers = 1;
-//     int init_mode = 2;
+TEST_CASE("Swiftnet Forward - zero pad input") {
+    int net_width = 64;
+    int output_width = 64;
+    int n_hidden_layers = 1;
+    int init_mode = 2;
 
-//     int batch_size = 512;
+    int batch_size = 512;
 
-//     SUBCASE("Input 64 (no pad)") {
-//         int input_width = 64;
-//         test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
-//     }
-//     SUBCASE("Input 1 (63 pad)") {
-//         int input_width = 1;
-//         test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
-//     }
-//     SUBCASE("Input 2 (62 pad)") {
-//         int input_width = 2;
-//         test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
-//     }
-//     SUBCASE("Input 16 (48 pad)") {
-//         int input_width = 16;
-//         test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
-//     }
-//     SUBCASE("Input 32 (32 pad)") {
-//         int input_width = 32;
-//         test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
-//     }
-//     SUBCASE("Input 63 (1 pad)") {
-//         int input_width = 63;
-//         test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
-//     }
+    SUBCASE("Input 64 (no pad)") {
+        int input_width = 64;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
+    }
+    SUBCASE("Input 1 (63 pad)") {
+        int input_width = 1;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
+    }
+    SUBCASE("Input 2 (62 pad)") {
+        int input_width = 2;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
+    }
+    SUBCASE("Input 16 (48 pad)") {
+        int input_width = 16;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
+    }
+    SUBCASE("Input 32 (32 pad)") {
+        int input_width = 32;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
+    }
+    SUBCASE("Input 63 (1 pad)") {
+        int input_width = 63;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
+    }
 
-//     SUBCASE("Input -1 (failure)") {
-//         int input_width = -1;
-//         test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
-//     }
-//     SUBCASE("Input 0 (failure)") {
-//         int input_width = 0;
-//         test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
-//     }
-// }
+    SUBCASE("Input -1 (failure)") {
+        int input_width = -1;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
+    }
+    SUBCASE("Input 0 (failure)") {
+        int input_width = 0;
+        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
+    }
+}
 
 // TEST_CASE("Swiftnet Forward - zero pad output") {
 //     int input_width = 64;
@@ -530,68 +530,72 @@ void test_backward() {
 //     int output_width = 64;
 //     int net_width = 64;
 
-//     SUBCASE("Activation sigmoid") {
-//         test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode,
-//         Activation::Sigmoid,
-//                      Activation::None);
+//     SUBCASE("Activation relu") {
+//         test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode);
+//         //, Activation::ReLU,
+//         //           Activation::None);
 //     }
-
-//     SUBCASE("Output activation sigmoid") {
-//         test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode, Activation::ReLU,
-//                      Activation::Sigmoid);
-//     }
+// SUBCASE("Activation tanh") {
+//     test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode, Activation::Tanh,
+//                  Activation::Tanh);
 // }
 
-TEST_CASE("Swiftnet Forward - load weights") {
-    int net_width = 64;
-    int n_hidden_layers = 2;
+// SUBCASE("Output activation None") {
+//     test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode, Activation::ReLU,
+//                  Activation::None);
+// }
+// }
 
-    int batch_size = 8;
+// TEST_CASE("Swiftnet Forward - load weights") {
+//     int net_width = 64;
+//     int n_hidden_layers = 2;
 
-    // SUBCASE("Simple full") {
-    //     int input_width = 64;
-    //     int output_width = 64;
-    //     int init_mode = 0;
-    //     test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode, Activation::ReLU,
-    //                  Activation::None, 1, "simple_full");
-    // }
-    // SUBCASE("Simple padded") {
-    //     int input_width = 32;
-    //     int output_width = 16;
-    //     int init_mode = 2;
-    //     test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode, Activation::ReLU,
-    //                  Activation::None, 1, "simple_padded");
-    // }
-    // SUBCASE("Simple random arange") {
-    //     int input_width = 64;
-    //     int output_width = 64;
-    //     int init_mode = 2;
-    //     test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode, Activation::ReLU,
-    //                  Activation::None, 1, "simple_arange");
-    // }
-    // SUBCASE("Full network") {
-    //     int input_width = 32;
-    //     int output_width = 1;
-    //     int init_mode = 2;
-    //     test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode, Activation::ReLU,
-    //                  Activation::None, 1, "full_network");
-    // }
-    // SUBCASE("Simple MLP") {
-    //     int input_width = 32;
-    //     int output_width = 1;
-    //     int init_mode = 2;
-    //     test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode, Activation::ReLU,
-    //                  Activation::None, 1, "simple_mlp");
-    // }
-    SUBCASE("Full (encoding output as input)") {
-        int input_width = 32;
-        int output_width = 1;
-        int init_mode = 2;
-        batch_size = 512 * 1;
-        test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode, Activation::ReLU,
-                     Activation::None, 1, "full");
-    }
-}
+//     int batch_size = 8;
+
+// SUBCASE("Simple full") {
+//     int input_width = 64;
+//     int output_width = 64;
+//     int init_mode = 0;
+//     test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode, Activation::ReLU,
+//                  Activation::None, 1, "simple_full");
+// }
+// SUBCASE("Simple padded") {
+//     int input_width = 32;
+//     int output_width = 16;
+//     int init_mode = 2;
+//     test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode, Activation::ReLU,
+//                  Activation::None, 1, "simple_padded");
+// }
+// SUBCASE("Simple random arange") {
+//     int input_width = 64;
+//     int output_width = 64;
+//     int init_mode = 2;
+//     test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode, Activation::ReLU,
+//                  Activation::None, 1, "simple_arange");
+// }
+// SUBCASE("Full network") {
+//     int input_width = 32;
+//     int output_width = 1;
+//     int init_mode = 2;
+//     test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode, Activation::ReLU,
+//                  Activation::None, 1, "full_network");
+// }
+// SUBCASE("Simple MLP") {
+//     int input_width = 32;
+//     int output_width = 1;
+//     int init_mode = 2;
+//     test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode, Activation::ReLU,
+//                  Activation::None, 1, "simple_mlp");
+// }
+// SUBCASE("Full (encoding output as input)") {
+//     int input_width = 32;
+//     int output_width = 1;
+//     int init_mode = 2;
+//     batch_size = 512 * 1;
+//     test_forward(input_width, output_width, n_hidden_layers, net_width, batch_size, init_mode, Activation::ReLU,
+//                  Activation::None, 1, "full");
+// }
+// }
 
 // TEST_CASE("Swiftnet Backward") {
 //     SUBCASE("") { test_backward(); }
