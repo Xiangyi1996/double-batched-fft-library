@@ -320,6 +320,11 @@ std::vector<sycl::event> SwiftNetMLP<WIDTH>::forward_pass(const DeviceMem<bf16> 
                                                           Activation::None, false, 16>(
             m_q, m_weights_matrices.data(), input.data(), Forwardbf16, m_n_hidden_layers, batch_size, deps);
         break;
+    case Activation::Tanh:
+        return tinydpcppnn::kernels::forward_impl_general<bf16, float, WIDTH, WIDTH, WIDTH, Activation::Tanh,
+                                                          Activation::Tanh, false, 16>(
+            m_q, m_weights_matrices.data(), input.data(), Forwardbf16, m_n_hidden_layers, batch_size, deps);
+        break;
     default:
         throw std::invalid_argument("Activation not supported in forward pass");
     }
@@ -349,6 +354,11 @@ std::vector<sycl::event> SwiftNetMLP<WIDTH>::inference(const DeviceMem<bf16> &in
     case Activation::ReLU:
         return tinydpcppnn::kernels::forward_impl_general<bf16, float, WIDTH, WIDTH, WIDTH, Activation::ReLU,
                                                           Activation::None, true, 16>(
+            m_q, m_weights_matrices.data(), input.data(), Forwardbf16, m_n_hidden_layers, batch_size, deps);
+        break;
+    case Activation::Tanh:
+        return tinydpcppnn::kernels::forward_impl_general<bf16, float, WIDTH, WIDTH, WIDTH, Activation::Tanh,
+                                                          Activation::Tanh, true, 16>(
             m_q, m_weights_matrices.data(), input.data(), Forwardbf16, m_n_hidden_layers, batch_size, deps);
         break;
     default:

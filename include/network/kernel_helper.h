@@ -149,6 +149,8 @@ template <typename Tin, typename Tout, Activation act> inline void activate(cons
         data_out = static_cast<Tout>(data_in);
     else if constexpr (act == Activation::ReLU)
         data_out = data_in > static_cast<Tin>(0) ? static_cast<Tout>(data_in) : static_cast<Tout>(0);
+    else if constexpr (act == Activation::Tanh)
+        data_out = static_cast<Tout>(std::tanh(float(data_in)));
 }
 
 template <typename Tin, typename Tdec, typename Tout, Activation act, sycl::access::address_space AddressSpace,
