@@ -4,7 +4,6 @@
 cmake_minimum_required(VERSION 3.23)
 
 #the whole thing only works with icpx due to using joint_matrix
-# set(CMAKE_CXX_COMPILER "icpx")
 set(CMAKE_CXX_COMPILER "mpiicpx")
 project(tiny-dpcpp-nn VERSION 0.1.0 LANGUAGES CXX)
 

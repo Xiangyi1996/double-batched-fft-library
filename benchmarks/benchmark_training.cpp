@@ -24,16 +24,13 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 
 // #define INCLUDE_COOLDOWN
 #define TEST_TRAINING
-// #define CHECK_RESULTS
+//#define CHECK_RESULTS
 #define TEST_INFERENCE
-// #define DEBUG_OUTPUT
+    // #define DEBUG_OUTPUT
 
-void start_training(int WIDTH = 64, int input_width = 64, int output_width = 64, int m_n_hidden_layers = 4,
-                    int iter_time = 1000,
-                    std::vector<uint32_t> batch_sizes = {
-                        /*1 << 29, 1 << 28, 1 << 27, 1 << 26, 1 << 25, 1 << 24, 1 << 23,*/
-                        1 << 22, 1 << 21, 1 << 20, 1 << 19, 1 << 18, 1 << 17, 1 << 16, 1 << 15, 1 << 14, 1 << 13,
-                        1 << 12, 1 << 11, 1 << 10}) {
+    void
+    start_training(const int WIDTH = 64, const int input_width = 64, const int output_width = 64,
+                   const int m_n_hidden_layers = 4) {
 
     // SWIFTNET
     MPI_Init(NULL, NULL);
@@ -142,10 +139,13 @@ void start_training(int WIDTH = 64, int input_width = 64, int output_width = 64,
                 q.wait();
                 std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
                 auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count();
+                const double flops = 3.0 * 2.0 * (double)batch_size * (double)WIDTH * (double)WIDTH *
+                                     (m_n_hidden_layers + 1) * print_interval;
+                const double gflops_per_s = flops / (microseconds * 1000.0); // flops / ns = gflops/s
                 double throughput = print_interval * batch_size / ((double)microseconds / 1000000.0);
                 std::cout << "Iteration#" << i << ": "
                           << "loss=" << tmp_loss / (float)tmp_loss_counter << " time=" << microseconds
-                          << "[µs] thp=" << throughput << "/s" << std::endl;
+                          << "[µs] thp=" << throughput << "/s" << '\t' << gflops_per_s << " Gflops/s" << std::endl;
 
                 tmp_loss = 0;
                 tmp_loss_counter = 0;
@@ -341,9 +341,13 @@ void start_training(int WIDTH = 64, int input_width = 64, int output_width = 64,
                 q.wait();
                 auto end = std::chrono::steady_clock::now();
                 auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count();
+                const double flops =
+                    2.0 * (double)batch_size * (double)WIDTH * (double)WIDTH * (m_n_hidden_layers + 1) * print_interval;
+                const double gflops_per_s = flops / (microseconds * 1000.0); // flops / ns = gflops/s
                 double throughput = print_interval * batch_size / ((double)microseconds / 1000000.0);
                 std::cout << "Iteration#" << i << ": "
-                          << "time=" << microseconds << "[µs] thp=" << throughput << "/s" << std::endl;
+                          << "time=" << microseconds << "[µs] thp=" << throughput << "/s" << '\t' << gflops_per_s
+                          << " Gflops/s" << std::endl;
 
                 if (i >= n_iterations_warmup) {
                     mean_inference_throughput += throughput;
