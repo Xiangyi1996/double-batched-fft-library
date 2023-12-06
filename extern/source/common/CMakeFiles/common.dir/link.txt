@@ -1,2 +1,0 @@
-/usr/bin/ar qc libcommon.a CMakeFiles/common.dir/common.cpp.o CMakeFiles/common.dir/common_host.cpp.o CMakeFiles/common.dir/DeviceMem.cpp.o
-/usr/bin/ranlib libcommon.a
