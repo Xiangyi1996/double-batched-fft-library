@@ -71,7 +71,7 @@ static inline void MAD(simd<Ta, TMWIDTH> &As, const int B_offset, simd<Tc, TMWID
     for (int iterA = 0; iterA < TMWIDTH; iterA += TM * TK) {
 #pragma unroll
         for (int iterB = 0; iterB < WIDTH; iterB += TN) {
-            simd<Ta, TK * TN> block_B = static_cast<Ta>(1.23f);
+            simd<Ta, TK * TN> block_B;
             for (int rowiter = 0; rowiter < TK / vnni_factor; rowiter++) {
                 block_B.template select<vnni_factor * TN, 1>(rowiter * vnni_factor * TN) =
                     slm_block_load<Ta, vnni_factor * TN>(sizeof(Ta) * (B_offset + vnni_factor * WIDTH * rowiter +
