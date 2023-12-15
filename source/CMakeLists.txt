@@ -6,7 +6,6 @@ include(CommonOptions)
 #include(InstallLib)
 
 add_subdirectory(common)
-add_subdirectory(network)
 
 find_package(IntelSYCL REQUIRED)
 find_package(oneDPL REQUIRED)
@@ -27,14 +26,16 @@ set(SOURCES
 add_library(swiftnetmlp ${SOURCES})
 add_library(tinydpcppnn::swiftnetmlp ALIAS swiftnetmlp)
 set_common_options(swiftnetmlp)
-add_sycl_to_target(TARGET swiftnetmlp SOURCES ${SOURCES})
+#add_sycl_to_target(TARGET swiftnetmlp SOURCES ${SOURCES})
 target_compile_definitions(swiftnetmlp PRIVATE -DSYCL2020_CONFORMANT_APIS)
-target_compile_options(swiftnetmlp PUBLIC -qmkl -fsycl-targets=spir64_gen)
-target_link_options(swiftnetmlp PUBLIC -qmkl -fsycl-targets=spir64_gen -Xsycl-target-backend "-device pvc")
-target_link_libraries(swiftnetmlp PUBLIC network ${MPI_CXX_LIBRARIES})
+target_compile_options(swiftnetmlp PUBLIC -qmkl -O2)
+target_link_options(swiftnetmlp PUBLIC -qmkl)
+target_link_libraries(swiftnetmlp PUBLIC common ${MPI_CXX_LIBRARIES})
 target_include_directories(swiftnetmlp PUBLIC "${PROJECT_SOURCE_DIR}/include/"
     "${PROJECT_SOURCE_DIR}/include/losses/"
     "${PROJECT_SOURCE_DIR}/include/Optimizers/"
+    "${PROJECT_SOURCE_DIR}/include/network/"
+    "${PROJECT_SOURCE_DIR}/include/encodings/"
 )
 #target_include_directories(swiftnetmlp PUBLIC "${PROJECT_SOURCE_DIR}/include/common/")
 # target_sources(swiftnetmlp PUBLIC FILE_SET HEADERS

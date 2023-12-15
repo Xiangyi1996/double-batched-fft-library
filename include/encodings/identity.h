@@ -15,16 +15,6 @@
 #include <sycl/sycl.hpp>
 #include <vector>
 
-#ifdef __SYCL_DEVICE_ONLY__
-
-#define CONSTANT __attribute__((opencl_constant))
-
-#else
-
-#define CONSTANT
-
-#endif
-
 template <typename T> class IdentityEncoding : public Encoding<T> {
   public:
     IdentityEncoding(uint32_t n_dims_to_encode, float scale = 1.0f, float offset = 0.0f)

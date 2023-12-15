@@ -24,13 +24,12 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 
 // #define INCLUDE_COOLDOWN
 #define TEST_TRAINING
-//#define CHECK_RESULTS
+#define CHECK_RESULTS
 #define TEST_INFERENCE
-    // #define DEBUG_OUTPUT
+// #define DEBUG_OUTPUT
 
-    void
-    start_training(const int WIDTH = 64, const int input_width = 64, const int output_width = 64,
-                   const int m_n_hidden_layers = 4) {
+void start_training(const int WIDTH = 64, const int input_width = 64, const int output_width = 64,
+                    const int m_n_hidden_layers = 4) {
 
     // SWIFTNET
     MPI_Init(NULL, NULL);
@@ -113,7 +112,7 @@ using bf16 = sycl::ext::oneapi::bfloat16;
         size_t iter_counter = 0;
 
         const float tolerance = 0.001f;
-        std::vector<std::vector<float>> targetVectors = readTargetVectorsFromFile("../python/torch.csv", ',');
+        std::vector<std::vector<float>> targetVectors = readTargetVectorsFromFile("../../python/torch.csv", ',');
         std::vector<sycl::event> dependencies;
         std::chrono::steady_clock::time_point end_total;
 
@@ -247,7 +246,7 @@ using bf16 = sycl::ext::oneapi::bfloat16;
         //   std::cout << i_g << ": " << grads_vec[i_g] << std::endl;
         // }
 #ifdef CHECK_RESULTS
-        std::vector<std::vector<float>> targetGrads = readTargetVectorsFromFile("../python/torch_grads.csv", ',');
+        std::vector<std::vector<float>> targetGrads = readTargetVectorsFromFile("../../python/torch_grads.csv", ',');
 
         // get every layer from fwd:
         for (int i = 0; i < m_n_hidden_layers + 2; i++) {
@@ -409,7 +408,7 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 #ifdef CHECK_RESULTS
         std::vector<bf16> outbf16(batch_size * WIDTH, 0);
         q.memcpy(outbf16.data(),
-                 reinterpret_cast<bf16 *>(network.m_forward) + WIDTH * batch_size * (m_n_hidden_layers + 1),
+                 reinterpret_cast<bf16 *>(out_inter_forw) + WIDTH * batch_size * (m_n_hidden_layers + 1),
                  sizeof(bf16) * batch_size * WIDTH)
             .wait();
         areVectorsWithinTolerance(outbf16, targetVectors.back(), tolerance * 2);

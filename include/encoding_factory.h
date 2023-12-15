@@ -1,10 +1,10 @@
 #include <string>
 #include <unordered_map>
 
-#include "Encodings/grid.h"
-#include "Encodings/identity.h"
-#include "Encodings/spherical_harmonics.h"
 #include "encoding.h"
+#include "grid.h"
+#include "identity.h"
+#include "spherical_harmonics.h"
 
 // Base EncodingFactory class
 template <typename T> class EncodingFactory {

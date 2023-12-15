@@ -21,6 +21,7 @@
 
 #include "common.h"
 #include "kernel_helper_esimd.h"
+#include "oneapi/mkl.hpp"
 
 namespace tinydpcppnn {
 namespace kernels {
@@ -28,6 +29,7 @@ namespace esimd {
 
 using bf16 = sycl::ext::oneapi::bfloat16;
 using namespace sycl::ext::intel::esimd;
+using sycl::ext::intel::experimental::esimd::cache_hint;
 
 template <typename T, typename Tc, int INPUT_WIDTH, int WIDTH, int OUTPUT_WIDTH, size_t TN>
 inline std::vector<sycl::event>
@@ -93,7 +95,7 @@ std::vector<sycl::event> forward_impl_general(sycl::queue &q, T const *const __r
     assert(M % TM == 0);
     // TK depends on the datatype T
     constexpr int TK = 8 * std::min<int>(8, 32 / (8 * sizeof(T)));
-    constexpr int number_preload_weights = 64 * 1024 / (sizeof(T) * WIDTH * WIDTH);
+    constexpr int number_preload_weights = 128 * 1024 / (sizeof(T) * WIDTH * WIDTH);
     // TODO: 64 depends on the device. It is different for non-PVC hardware
     int ITEMS_IN_WG = std::min<int>(M / TM, 64);
     while (M / TM % ITEMS_IN_WG != 0) {
@@ -120,25 +122,23 @@ std::vector<sycl::event> forward_impl_general(sycl::queue &q, T const *const __r
 
             // we store blocks contiguously
             simd<T, TM * WIDTH> As;
-            helpers::loadRow<TM, TK, WIDTH>(inputs_ptr + layer_offset_A, As);
-
-            item.barrier();
+            helpers::loadRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::uncached>(inputs_ptr + layer_offset_A,
+                                                                                        As);
 
             // if not inference activate and store in intermediate output
             if constexpr (!INFERENCE) {
                 simd<T, TM * WIDTH> tmpA;
                 helpers::applyActivation<activation, TM, TK, TN>(As, tmpA);
-                helpers::storeRow<TM, TK, WIDTH>(tmpA, intermediate_output + layer_offset_A);
+                helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::uncached>(tmpA, intermediate_output +
+                                                                                                       layer_offset_A);
             }
 
             simd<Tc, TM * WIDTH> Cs;
             layer_offset_A += M * WIDTH;
+            item.barrier();
             for (int layer = 0; layer < n_hidden_layers; layer++) {
                 // reset result matrices
                 Cs = static_cast<Tc>(0);
-
-                // ensure weight matrix is loaded
-                // item.barrier();
 
                 helpers::MAD<TM, TK, TN>(As, B_offset, Cs);
                 B_offset += WIDTH * WIDTH;
@@ -159,7 +159,9 @@ std::vector<sycl::event> forward_impl_general(sycl::queue &q, T const *const __r
                 // activate and save
                 helpers::applyActivation<activation, TM, TK, TN>(Cs, As);
 
-                if constexpr (!INFERENCE) helpers::storeRow<TM, TK, WIDTH>(As, intermediate_output + layer_offset_A);
+                if constexpr (!INFERENCE)
+                    helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::uncached>(
+                        As, intermediate_output + layer_offset_A);
 
                 layer_offset_A += M * WIDTH;
             }
@@ -167,16 +169,14 @@ std::vector<sycl::event> forward_impl_general(sycl::queue &q, T const *const __r
             // generate output, i.e. last GEMM
             Cs = static_cast<Tc>(0);
 
-            // wait for B to be loaded
-            item.barrier();
-
             helpers::MAD<TM, TK, TN>(As, B_offset, Cs);
 
             // activate and save to slm
             helpers::applyActivation<output_activation, TM, TK, TN>(Cs, As);
 
             // save slm to HBM
-            helpers::storeRow<TM, TK, WIDTH>(As, intermediate_output + layer_offset_A);
+            helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::uncached>(As, intermediate_output +
+                                                                                                 layer_offset_A);
         });
     });
 
@@ -200,7 +200,7 @@ std::vector<sycl::event> backward_impl_general(queue &q, T const *const __restri
     constexpr int SG_SIZE = TN;
     // this may be adjusted in the future in dpendence of M
     constexpr size_t TM = 8;
-    constexpr int number_preload_weights = 64 * 1024 / (sizeof(T) * WIDTH * WIDTH);
+    constexpr int number_preload_weights = 128 * 1024 / (sizeof(T) * WIDTH * WIDTH);
     int ITEMS_IN_WG = std::min<int>(M / TM, 64);
     /// TODO: say we use M/TM = 65. Then this results in WG=1 SG and too many slm load of B.
     /// Better: Use max size WGs and return those which are larger than M/TM. But
@@ -217,8 +217,6 @@ std::vector<sycl::event> backward_impl_general(queue &q, T const *const __restri
     auto e = q.submit([&](handler &cgh) {
         cgh.depends_on(deps);
 
-        local_accessor<T, 1> B(range<1>(WIDTH * WIDTH), cgh);
-
         cgh.parallel_for(sycl::nd_range<1>(M / TM, ITEMS_IN_WG), [=](nd_item<1> item) SYCL_ESIMD_KERNEL {
             slm_init<number_preload_weights * WIDTH * WIDTH * sizeof(T)>();
 
@@ -233,7 +231,7 @@ std::vector<sycl::event> backward_impl_general(queue &q, T const *const __restri
             }
 
             simd<T, TM * WIDTH> As;
-            helpers::loadRow<TM, TK, WIDTH>(inputs_ptr + item_offset_A, As);
+            helpers::loadRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::uncached>(inputs_ptr + item_offset_A, As);
 
             // store backward activated input to the last intermediate output
             // note that output_activation == ReLU does not need any work since that means
@@ -244,16 +242,15 @@ std::vector<sycl::event> backward_impl_general(queue &q, T const *const __restri
             }
 
             // store activated slm in intermediate output
-            helpers::storeRow<TM, TK, WIDTH>(As, intermediate_output + layer_offset_A);
-
+            helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::uncached>(As, intermediate_output +
+                                                                                                 layer_offset_A);
+            // Esnure B is loaded into slm
+            item.barrier();
             simd<Tc, TM * WIDTH> Cs;
             // we are also doing output->last hidden layer
             for (int layer = n_hidden_layers; layer > 0; layer--) {
                 layer_offset_A -= M * WIDTH;
                 Cs = static_cast<Tc>(0);
-
-                // wait for B to be done storing
-                item.barrier();
 
                 helpers::MAD<TM, TK, TN>(As, B_offset, Cs);
                 B_offset += WIDTH * WIDTH;
@@ -274,7 +271,8 @@ std::vector<sycl::event> backward_impl_general(queue &q, T const *const __restri
                 // TODO: Apply correct activation
                 helpers::applyActivation<Activation::None, TM, TK, TN>(Cs, As);
 
-                helpers::storeRow<TM, TK, WIDTH>(As, intermediate_output + layer_offset_A);
+                helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::uncached>(As, intermediate_output +
+                                                                                                     layer_offset_A);
             }
         });
     });

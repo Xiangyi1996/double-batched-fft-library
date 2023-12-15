@@ -5,16 +5,22 @@ find_package(IntelSYCL REQUIRED)
 
 add_executable(benchmark-training benchmark_training.cpp)
 add_sycl_to_target(TARGET benchmark-training SOURCES benchmark_training.cpp)
-target_link_libraries(benchmark-training PRIVATE swiftnetmlp)
-target_compile_options(benchmark-training PRIVATE -qmkl -fsycl-targets=spir64_gen)
-target_link_options(benchmark-training PRIVATE -qmkl -fsycl-targets=spir64_gen -Xsycl-target-backend "-device pvc")
+target_link_libraries(benchmark-training PUBLIC swiftnetmlp)
+target_compile_options(benchmark-training PUBLIC -qmkl)
+target_link_options(benchmark-training PUBLIC -qmkl)
 
+<<<<<<< HEAD
 #add_executable(benchmark-image benchmark_image_compression.cpp)
 #add_sycl_to_target(TARGET benchmark-image SOURCES benchmark_image_compression.cpp)
 #target_link_libraries(benchmark-image PRIVATE swiftnetmlp )
 #target_compile_options(benchmark-image PRIVATE -qmkl -fsycl-targets=spir64_gen)
 #target_link_options(benchmark-image PRIVATE -qmkl -fsycl-targets=spir64_gen -Xsycl-target-backend "-device pvc")
 
+=======
+# add_executable(benchmark-image benchmark_image_compression.cpp)
+# add_sycl_to_target(TARGET benchmark-image SOURCES benchmark_image_compression.cpp)
+# target_link_libraries(benchmark-image PRIVATE swiftnetmlp )
+>>>>>>> 37a9145 (Updated code with proper cache hints and played a bit with the loads. Takes forever to compile now and I don't know why.)
 
 # add_executable(benchmark-nerf benchmark_nerf.cpp)
 # add_sycl_to_target(TARGET benchmark-nerf SOURCES benchmark_nerf.cpp)

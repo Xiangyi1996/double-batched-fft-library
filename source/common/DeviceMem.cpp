@@ -2,15 +2,6 @@
 
 #include "common_host.h"
 
-#ifdef __SYCL_DEVICE_ONLY__
-
-#define CONSTANT __attribute__((opencl_constant))
-
-#else
-
-#define CONSTANT
-
-#endif
 void get_float(float value, int &integer_val, int &fractional_val) {
     // careful with the code. Leading zeros not shown in fractional_val. This is
     // only to debug whether it's zero or non-zero. only for 4 decimals after

@@ -34,7 +34,8 @@ bool areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector
         if (diff > tolerance) {
             is_same = false;
             count++;
-            std::cout << "At " << i << ", Val: " << (double)value[i] << ", target: " << (double)target[i] << std::endl;
+            // std::cout << "At " << i << ", Val: " << (double)value[i] << ", target: " << (double)target[i] <<
+            // std::endl;
         }
     }
     if (!is_same) std::cout << count << "/" << target.size() << " are wrong." << std::endl;
@@ -104,8 +105,8 @@ bool areVectorsWithinTolerance(const std::vector<bf16> &value, const std::vector
         total_values_checked++;
         if (diff > tolerance) {
             allWithinTolerance = false;
-            std::cout << "Element at index " << i << " is not within tolerance. Value: " << value[i]
-                      << ", Target: " << target[i % output_width] << ". Diff: " << diff << std::endl;
+            // std::cout << "Element at index " << i << " is not within tolerance. Value: " << value[i]
+            //           << ", Target: " << target[i % output_width] << ". Diff: " << diff << std::endl;
         }
     }
 

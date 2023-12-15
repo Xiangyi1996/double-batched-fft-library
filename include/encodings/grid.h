@@ -37,9 +37,9 @@
 
 #include "common_device.h"
 #include <DeviceMem.h>
-#include <Encodings/grid_interface.h>
 #include <common.h>
 #include <encoding.h>
+#include <grid_interface.h>
 
 #include <sycl/sycl.hpp>
 // #include <multi_stream.h>
