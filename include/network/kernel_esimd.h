@@ -16,59 +16,188 @@
 #pragma once
 
 #include <algorithm>
+#include <sycl/ext/intel/esimd.hpp>
 #include <sycl/sycl.hpp>
 #include <vector>
 
 #include "common.h"
-#include "kernel_helper_esimd.h"
 #include "oneapi/mkl.hpp"
 
 namespace tinydpcppnn {
 namespace kernels {
 namespace esimd {
 
-using bf16 = sycl::ext::oneapi::bfloat16;
 using namespace sycl::ext::intel::esimd;
 using sycl::ext::intel::experimental::esimd::cache_hint;
 
-template <typename T, typename Tc, int INPUT_WIDTH, int WIDTH, int OUTPUT_WIDTH, size_t TN>
-inline std::vector<sycl::event>
-batchedGEMM_naive(sycl::queue &q, T *const __restrict__ output_ptr, T const *const __restrict__ intermediate_forward,
-                  T const *const __restrict__ intermediate_backward, const int n_hidden_layers, const int M,
-                  const std::vector<sycl::event> &deps) {
-    constexpr int SG_SIZE = TN;
-    auto e = q.submit([&](sycl::handler &cgh) {
-        cgh.depends_on(deps);
+namespace helpers {
 
-        cgh.parallel_for(sycl::nd_range<2>(sycl::range<2>(n_hidden_layers + 1, WIDTH * WIDTH),
-                                           sycl::range<2>(1, std::min(1024, WIDTH * WIDTH))),
-                         [=](sycl::nd_item<2> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
-                             const int matrix = item.get_global_id(0);
-                             const int element = item.get_global_id(1);
-                             const int row = element / WIDTH;
-                             const int col = element % WIDTH;
+using namespace sycl::ext::intel::experimental::esimd;
+#define DSZ lsc_data_size::default_size
 
-                             Tc tmp_out = static_cast<Tc>(0);
-                             T const *intermediate_forward_loc = intermediate_forward + matrix * M * WIDTH + row;
-                             T const *intermediate_backward_loc = intermediate_backward + matrix * M * WIDTH + col;
-                             for (int i = 0; i < M; i++) {
-                                 tmp_out += static_cast<Tc>(*intermediate_forward_loc) *
-                                            static_cast<Tc>(*intermediate_backward_loc);
-                                 intermediate_forward_loc += WIDTH;
-                                 intermediate_backward_loc += WIDTH;
-                             }
-                             T *const output_ptr_loc = output_ptr + WIDTH * WIDTH * matrix + element;
-                             *output_ptr_loc = static_cast<T>(tmp_out);
-                         });
-    });
-    // auto e =
-    //     q.parallel_for((n_hidden_layers + 1) * WIDTH * WIDTH, [=](auto item) [[intel::reqd_sub_group_size(SG_SIZE)]]
-    //     {
-    //         output_ptr[item.get_id()] = static_cast<T>(1.23);
-    //     });
+// #ifdef __SYCL_DEVICE_ONLY__
+// #define MY_INLINE inline
+// #define MY_STATIC static
+// #else
+#define MY_INLINE
+#define MY_STATIC
+// #endif
 
-    return {e};
+// using a block major layout in slm
+template <int TK, int TN, int WIDTH, typename T>
+MY_STATIC MY_INLINE void moveToSlmWG(const sycl::nd_item<1> &item, T const *const ptr, const int offset) {
+    constexpr int vnni_factor = std::max<int>(1, 4 / sizeof(T));
+    constexpr int nblock_total = WIDTH * WIDTH / (TK * TN);
+
+    for (int blockiter = item.get_local_linear_id(); blockiter < nblock_total; blockiter += item.get_local_range()[0]) {
+        // for (int blockiter = 0; blockiter < nblock_total; blockiter++) {
+
+        const int block_row = blockiter / (WIDTH / TN);
+        const int block_col = blockiter % (WIDTH / TN);
+        config_2d_mem_access<float, TN, TK / vnni_factor, 1> my_config(
+            reinterpret_cast<float const *>(ptr), vnni_factor * WIDTH * sizeof(T) - 1, WIDTH / vnni_factor - 1,
+            vnni_factor * WIDTH * sizeof(T) - 1, block_col * TN, block_row * TK / vnni_factor);
+
+        // this loads one block in T
+        simd<float, TK / vnni_factor * TN> tmp = lsc_load_2d<float, TN, TK / vnni_factor, 1, false, false, cache_hint::cached, cache_hint::cached>(my_config);
+
+        constexpr int store_size = std::min<int>(128, TK * TN / vnni_factor);
+        #pragma unroll
+        for (int iter = 0; iter < TK * TN / vnni_factor; iter += store_size) {
+            slm_block_store<float, store_size>(sizeof(float) * (blockiter * TK * TN / vnni_factor + iter) +
+                                                   sizeof(T) * offset,
+                                               tmp.template select<store_size, 1>(iter), overaligned_tag<16>());
+        }
+    }
 }
+
+// in register everything is in block major format with blocks of size TMxTK
+template <int TM, int TK, int WIDTH, cache_hint L1, cache_hint L3, int TMWIDTH, typename T>
+MY_STATIC MY_INLINE void storeRow(simd<T, TMWIDTH> &src, T *const dest) {
+    // TODO: minimize the number of calls to the loads by enabling to store multiple rows at once
+
+    constexpr int rows_per_load = std::min<int>(512 / (WIDTH * sizeof(T)), TM);
+#pragma unroll
+    for (int row = 0; row < TM; row += rows_per_load) {
+        simd<T, WIDTH * rows_per_load> tmp;
+        #pragma collapse 2 unroll
+        for (int locrowiter = 0; locrowiter < rows_per_load; locrowiter++) {
+            for (int iter = 0; iter < WIDTH / TK; iter++) {
+                tmp.template select<TK, 1>(locrowiter * WIDTH + iter * TK) =
+                    src.template select<TK, 1>((row + locrowiter) * TK + iter * TM * TK);
+            }
+        }
+        lsc_block_store<T, rows_per_load * WIDTH, DSZ, L1, L3>(dest + row * WIDTH, tmp, overaligned_tag<16>());
+    }
+}
+
+// in register everything is in block major format with blocks of size TMxTK
+template <int TM, int TK, int WIDTH, cache_hint L1, cache_hint L3, int TMWIDTH, typename T>
+MY_STATIC MY_INLINE void loadRow(T const *const src, simd<T, TMWIDTH> &dest) {
+    // TODO: minimize the number of calls to the loads by enabling to load multiple rows at once
+    // use 2d loads here
+    //     constexpr int blocks_per_load = std::max<int>(1, 4 * sizeof(T));
+    //     constexpr int nloads = WIDTH / (blocks_per_load);
+    //     for (int load_iter = 0; load_iter < nloads; load_iter++) {
+    //         config_2d_mem_access<float, TK, TM, 1> my_config(reinterpret_cast<float const *>(src), WIDTH * sizeof(T)
+    //         - 1,
+    //                                                          TM - 1, WIDTH * sizeof(T) - 1, load_iter * TK, 0);
+
+    //         auto tmp = lsc_load_2d<float, TK, TM, 1, false, false>(my_config);
+    //         auto tmp_origtype = tmp.template bit_cast_view<T>();
+    // #pragma unroll
+    //         for (int iter = 0; iter < TK * TM * blocks_per_load; iter++) {
+    //             dest.template select<1, 1>(load_iter * TK * TM * blocks_per_load + iter) = tmp_origtype[iter];
+    //         }
+    //     }
+
+    constexpr int rows_per_load = std::min<int>(512 / (WIDTH * sizeof(T)), TM);
+#pragma unroll
+    for (int row = 0; row < TM; row += rows_per_load) {
+        simd<T, WIDTH * rows_per_load> tmp =
+            lsc_block_load<T, WIDTH * rows_per_load, DSZ, L1, L3>(src + row * WIDTH, overaligned_tag<16>());
+#pragma collapse 2 unroll
+        for (int locrowiter = 0; locrowiter < rows_per_load; locrowiter++) {
+            for (int iter = 0; iter < WIDTH / TK; iter++) {
+                dest.template select<TK, 1>((row + locrowiter) * TK + iter * TM * TK) =
+                    tmp.template select<TK, 1>(iter * TK);
+            }
+        }
+    }
+}
+
+// we are assuming a block major layout and vnni'd B
+template <int TM, int TK, int TN, int TMWIDTH, typename Ta, typename Tc>
+MY_STATIC MY_INLINE void MAD(simd<Ta, TMWIDTH> &As, const int B_offset, simd<Tc, TMWIDTH> &Cs) {
+
+    constexpr int WIDTH = TMWIDTH / TM;
+    constexpr int vnni_factor = std::max<int>(1, 4 / sizeof(Ta));
+#pragma unroll
+    for (int iterA = 0; iterA < TMWIDTH; iterA += TM * TK) {
+        simd<Ta, TK * WIDTH> row_B =
+            slm_block_load<Ta, TK * WIDTH>(sizeof(Ta) * (B_offset + iterA / TM * WIDTH), overaligned_tag<16>());
+#pragma unroll
+        for (int iterB = 0; iterB < WIDTH; iterB += TN) {
+            Cs.template select<TM * TN, 1>(iterB * TM) = xmx::dpas<8, TM, Tc>(
+                simd<Tc, TM * TN>(Cs.template select<TM * TN, 1>(iterB * TM)),
+                simd<Ta, TN * TK>(
+                    row_B.template select<TK * TN, 1>(iterB * TK)
+                    /*row_B2d.template select<TK / vnni_factor, 1, vnni_factor * TN, 1>(0, vnni_factor * iterB)*/),
+                simd<Ta, TM * TK>(As.template select<TM * TK, 1>(iterA)));
+        }
+    }
+}
+
+template <Activation act, int TM, int TK, int TN, typename Tin, typename Tout, int N>
+MY_STATIC MY_INLINE void applyActivation(simd<Tin, N> &Src, simd<Tout, N> &Dest) {
+    static_assert(TK == TN); // otherwise we would need to reshuffle
+    if constexpr (act == Activation::None)
+        Dest = convert<Tout, Tin>(Src);
+    else if constexpr (act == Activation::ReLU)
+        Dest = convert<Tout, Tin>(max<Tin>(Src, simd<Tin, N>(static_cast<Tin>(0))));
+}
+
+} // namespace helpers
+
+// template <typename T, typename Tc, int INPUT_WIDTH, int WIDTH, int OUTPUT_WIDTH, size_t TN>
+// inline std::vector<sycl::event>
+// batchedGEMM_naive(sycl::queue &q, T *const __restrict__ output_ptr, T const *const __restrict__ intermediate_forward,
+//                   T const *const __restrict__ intermediate_backward, const int n_hidden_layers, const int M,
+//                   const std::vector<sycl::event> &deps) {
+//     constexpr int SG_SIZE = TN;
+//     auto e = q.submit([&](sycl::handler &cgh) {
+//         cgh.depends_on(deps);
+
+//         cgh.parallel_for(sycl::nd_range<2>(sycl::range<2>(n_hidden_layers + 1, WIDTH * WIDTH),
+//                                            sycl::range<2>(1, std::min(1024, WIDTH * WIDTH))),
+//                          [=](sycl::nd_item<2> item) [[intel::reqd_sub_group_size(SG_SIZE)]] {
+//                              const int matrix = item.get_global_id(0);
+//                              const int element = item.get_global_id(1);
+//                              const int row = element / WIDTH;
+//                              const int col = element % WIDTH;
+
+//                              Tc tmp_out = static_cast<Tc>(0);
+//                              T const *intermediate_forward_loc = intermediate_forward + matrix * M * WIDTH + row;
+//                              T const *intermediate_backward_loc = intermediate_backward + matrix * M * WIDTH + col;
+//                              for (int i = 0; i < M; i++) {
+//                                  tmp_out += static_cast<Tc>(*intermediate_forward_loc) *
+//                                             static_cast<Tc>(*intermediate_backward_loc);
+//                                  intermediate_forward_loc += WIDTH;
+//                                  intermediate_backward_loc += WIDTH;
+//                              }
+//                              T *const output_ptr_loc = output_ptr + WIDTH * WIDTH * matrix + element;
+//                              *output_ptr_loc = static_cast<T>(tmp_out);
+//                          });
+//     });
+//     // auto e =
+//     //     q.parallel_for((n_hidden_layers + 1) * WIDTH * WIDTH, [=](auto item)
+//     [[intel::reqd_sub_group_size(SG_SIZE)]]
+//     //     {
+//     //         output_ptr[item.get_id()] = static_cast<T>(1.23);
+//     //     });
+
+//     return {e};
+// }
 
 ////////////////////////////GENERAL FUNCTIONS WHICH CAN DO EVERYTHING///////////
 
@@ -279,7 +408,7 @@ std::vector<sycl::event> backward_impl_general(queue &q, T const *const __restri
 
     // NOTE: MKL gemm_batch is slower.
     std::vector<sycl::event> events(n_hidden_layers + 1);
-    if constexpr (std::is_same<T, bf16>::value) { // need to cast to onemkls bf16 type.
+    if constexpr (std::is_same<T, sycl::ext::oneapi::bfloat16>::value) { // need to cast to onemkls bf16 type.
         for (int iter = 0; iter < n_hidden_layers + 1; iter++) {
             events[iter] = oneapi::mkl::blas::row_major::gemm(
                 q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M, 1.0f,

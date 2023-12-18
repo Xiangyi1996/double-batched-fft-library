@@ -21,6 +21,8 @@ set(SOURCES
 # list(TRANSFORM PUBLIC_HEADERS PREPEND "${PROJECT_SOURCE_DIR}/include/Network/")
 # list(TRANSFORM PUBLIC_HEADERS PREPEND "${PROJECT_SOURCE_DIR}/include/Losses/")
 
+add_library(network INTERFACE)
+target_include_directories(network INTERFACE "${PROJECT_SOURCE_DIR}/include/network/")
 
 
 add_library(swiftnetmlp ${SOURCES})
@@ -30,11 +32,10 @@ set_common_options(swiftnetmlp)
 target_compile_definitions(swiftnetmlp PRIVATE -DSYCL2020_CONFORMANT_APIS)
 target_compile_options(swiftnetmlp PUBLIC -qmkl -O2)
 target_link_options(swiftnetmlp PUBLIC -qmkl)
-target_link_libraries(swiftnetmlp PUBLIC common ${MPI_CXX_LIBRARIES})
+target_link_libraries(swiftnetmlp PUBLIC common network ${MPI_CXX_LIBRARIES})
 target_include_directories(swiftnetmlp PUBLIC "${PROJECT_SOURCE_DIR}/include/"
     "${PROJECT_SOURCE_DIR}/include/losses/"
     "${PROJECT_SOURCE_DIR}/include/Optimizers/"
-    "${PROJECT_SOURCE_DIR}/include/network/"
     "${PROJECT_SOURCE_DIR}/include/encodings/"
 )
 #target_include_directories(swiftnetmlp PUBLIC "${PROJECT_SOURCE_DIR}/include/common/")
