@@ -38,9 +38,10 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
     // Fourth step: train the model by sampling the above image and optimizing
     // relative squared error using Adam.
     // Experimental not sure how many batch sizes are possible
-    // std::vector<uint32_t> batch_sizes = {/*1 << 29, 1 << 28, 1 << 27, 1 << 26, 1 << 25, 1 << 24, 1 << 23,*/
-    //                                      1 << 22, 1 << 21, 1 << 20, 1 << 19, 1 << 18, 1 << 17, 1 << 16,
-    //                                      1 << 15, 1 << 14, 1 << 13, 1 << 12, 1 << 11, 1 << 10};
+    std::vector<uint32_t> batch_sizes = {/*1 << 29, 1 << 28, 1 << 27, 1 << 26, 1 << 25, 1 << 24, 1 << 23,*/
+                                         /*1 << 22, 1 << 21, 1 << 20, 1 << 19, 1 << 18, 1 << 17, 1 << 16,
+                                         1 << 15, 1 << 14, 1 << 13, 1 << 12, 1 << 11, 1 << 10*/
+                                         1 << 22};
     std::string method = "SwiftNet";
     nlohmann::json bench_result;
     bench_result[method] = nlohmann::json::array();

@@ -59,10 +59,12 @@ MY_STATIC MY_INLINE void moveToSlmWG(const sycl::nd_item<1> &item, T const *cons
             vnni_factor * WIDTH * sizeof(T) - 1, block_col * TN, block_row * TK / vnni_factor);
 
         // this loads one block in T
-        simd<float, TK / vnni_factor * TN> tmp = lsc_load_2d<float, TN, TK / vnni_factor, 1, false, false, cache_hint::cached, cache_hint::cached>(my_config);
+        simd<float, TK / vnni_factor * TN> tmp =
+            lsc_load_2d<float, TN, TK / vnni_factor, 1, false, false, cache_hint::cached, cache_hint::cached>(
+                my_config);
 
         constexpr int store_size = std::min<int>(128, TK * TN / vnni_factor);
-        #pragma unroll
+#pragma unroll
         for (int iter = 0; iter < TK * TN / vnni_factor; iter += store_size) {
             slm_block_store<float, store_size>(sizeof(float) * (blockiter * TK * TN / vnni_factor + iter) +
                                                    sizeof(T) * offset,
@@ -80,49 +82,71 @@ MY_STATIC MY_INLINE void storeRow(simd<T, TMWIDTH> &src, T *const dest) {
 #pragma unroll
     for (int row = 0; row < TM; row += rows_per_load) {
         simd<T, WIDTH * rows_per_load> tmp;
-        #pragma collapse 2 unroll
+#pragma collapse 2 unroll
         for (int locrowiter = 0; locrowiter < rows_per_load; locrowiter++) {
             for (int iter = 0; iter < WIDTH / TK; iter++) {
                 tmp.template select<TK, 1>(locrowiter * WIDTH + iter * TK) =
                     src.template select<TK, 1>((row + locrowiter) * TK + iter * TM * TK);
             }
         }
-        lsc_block_store<T, rows_per_load * WIDTH, DSZ, L1, L3>(dest + row * WIDTH, tmp, overaligned_tag<16>());
+        lsc_block_store<T, rows_per_load * WIDTH, DSZ, L1, L3>(dest + row * WIDTH, tmp, overaligned_tag<8>());
     }
 }
+
+// // in register everything is in block major format with blocks of size TMxTK
+// template <int TM, int TK, int WIDTH, cache_hint L1, cache_hint L3, int TMWIDTH, typename T>
+// MY_STATIC MY_INLINE void storeRow(simd<T, TMWIDTH> &src, T *const dest) {
+//     // TODO: minimize the number of calls to the loads by enabling to store multiple rows at once
+
+//     constexpr int nblocks = WIDTH / TK;
+//     constexpr int blocks_per_load = std::max<int>(1, 4 / sizeof(T));
+
+// #pragma unroll
+//     for (int blockiter = 0; blockiter < nblocks; blockiter++) {
+//         config_2d_mem_access<float, TK / blocks_per_load, TM, 1> my_config_store(
+//             reinterpret_cast<const float *>(dest), WIDTH * sizeof(T) - 1, TM - 1, WIDTH * sizeof(T) - 1,
+//             blockiter * TK / blocks_per_load, 0);
+//         simd<float, TK / blocks_per_load * TM> tmp =
+//             src.template bit_cast_view<float>().template select<TK / blocks_per_load * TM, 1>(blockiter * TK /
+//                                                                                               blocks_per_load * TM);
+//         lsc_store_2d<float, TK / blocks_per_load, TM, 1, L1, L3>(my_config_store, tmp);
+//     }
+// }
+
+// in register everything is in block major format with blocks of size TMxTK
+// template <int TM, int TK, int WIDTH, cache_hint L1, cache_hint L3, int TMWIDTH, typename T>
+// MY_STATIC MY_INLINE void loadRow(T const *const src, simd<T, TMWIDTH> &dest) {
+//     constexpr int rows_per_load = std::min<int>(512 / (WIDTH * sizeof(T)), TM);
+// #pragma unroll
+//     for (int row = 0; row < TM; row += rows_per_load) {
+//         simd<T, WIDTH * rows_per_load> tmp =
+//             lsc_block_load<T, WIDTH * rows_per_load, DSZ, L1, L3>(src + row * WIDTH, overaligned_tag<16>());
+// #pragma collapse 2 unroll
+//         for (int locrowiter = 0; locrowiter < rows_per_load; locrowiter++) {
+//             for (int iter = 0; iter < WIDTH / TK; iter++) {
+//                 dest.template select<TK, 1>((row + locrowiter) * TK + iter * TM * TK) =
+//                     tmp.template select<TK, 1>(iter * TK);
+//             }
+//         }
+//     }
+// }
 
 // in register everything is in block major format with blocks of size TMxTK
 template <int TM, int TK, int WIDTH, cache_hint L1, cache_hint L3, int TMWIDTH, typename T>
 MY_STATIC MY_INLINE void loadRow(T const *const src, simd<T, TMWIDTH> &dest) {
-    // TODO: minimize the number of calls to the loads by enabling to load multiple rows at once
-    // use 2d loads here
-    //     constexpr int blocks_per_load = std::max<int>(1, 4 * sizeof(T));
-    //     constexpr int nloads = WIDTH / (blocks_per_load);
-    //     for (int load_iter = 0; load_iter < nloads; load_iter++) {
-    //         config_2d_mem_access<float, TK, TM, 1> my_config(reinterpret_cast<float const *>(src), WIDTH * sizeof(T)
-    //         - 1,
-    //                                                          TM - 1, WIDTH * sizeof(T) - 1, load_iter * TK, 0);
 
-    //         auto tmp = lsc_load_2d<float, TK, TM, 1, false, false>(my_config);
-    //         auto tmp_origtype = tmp.template bit_cast_view<T>();
-    // #pragma unroll
-    //         for (int iter = 0; iter < TK * TM * blocks_per_load; iter++) {
-    //             dest.template select<1, 1>(load_iter * TK * TM * blocks_per_load + iter) = tmp_origtype[iter];
-    //         }
-    //     }
-
-    constexpr int rows_per_load = std::min<int>(512 / (WIDTH * sizeof(T)), TM);
+    constexpr int blocks_per_load = std::max<int>(1, 4 / sizeof(T));
+    constexpr int nloads = WIDTH / (TK * blocks_per_load);
 #pragma unroll
-    for (int row = 0; row < TM; row += rows_per_load) {
-        simd<T, WIDTH * rows_per_load> tmp =
-            lsc_block_load<T, WIDTH * rows_per_load, DSZ, L1, L3>(src + row * WIDTH, overaligned_tag<16>());
-#pragma collapse 2 unroll
-        for (int locrowiter = 0; locrowiter < rows_per_load; locrowiter++) {
-            for (int iter = 0; iter < WIDTH / TK; iter++) {
-                dest.template select<TK, 1>((row + locrowiter) * TK + iter * TM * TK) =
-                    tmp.template select<TK, 1>(iter * TK);
-            }
-        }
+    for (int load_iter = 0; load_iter < nloads; load_iter++) {
+        config_2d_mem_access<float, TK / blocks_per_load, TM, blocks_per_load> my_config(
+            reinterpret_cast<float const *>(src), WIDTH * sizeof(T) - 1, TM - 1, WIDTH * sizeof(T) - 1, load_iter * TK,
+            0);
+
+        simd<float, TK * TM> tmp =
+            lsc_load_2d<float, TK / blocks_per_load, TM, blocks_per_load, false, false, L1, L3>(my_config);
+        dest.template select<TM * TK * blocks_per_load, 1>(TM * TK * blocks_per_load * load_iter) =
+            tmp.template bit_cast_view<T>().template select<TM * TK * blocks_per_load, 1>(0);
     }
 }
 
@@ -131,19 +155,27 @@ template <int TM, int TK, int TN, int TMWIDTH, typename Ta, typename Tc>
 MY_STATIC MY_INLINE void MAD(simd<Ta, TMWIDTH> &As, const int B_offset, simd<Tc, TMWIDTH> &Cs) {
 
     constexpr int WIDTH = TMWIDTH / TM;
-    constexpr int vnni_factor = std::max<int>(1, 4 / sizeof(Ta));
-#pragma unroll
+#pragma collapse 2 unroll
     for (int iterA = 0; iterA < TMWIDTH; iterA += TM * TK) {
-        simd<Ta, TK * WIDTH> row_B =
-            slm_block_load<Ta, TK * WIDTH>(sizeof(Ta) * (B_offset + iterA / TM * WIDTH), overaligned_tag<16>());
-#pragma unroll
+        // simd<Ta, TK * WIDTH> row_B =
+        //     slm_block_load<Ta, TK * WIDTH>(sizeof(Ta) * (B_offset + iterA / TM * WIDTH), overaligned_tag<16>());
+        // simd<Ta, TK * WIDTH> row_B;
+        // const int loc_offset = B_offset + iterA / TM * WIDTH;
+        // row_B.template select<TK * TN, 1>(0) = slm_block_load<Ta, TK * TN>(sizeof(Ta) * (loc_offset));
+        // row_B.template select<TK * TN, 1>(TK * TN) = slm_block_load<Ta, TK * TN>(sizeof(Ta) * (loc_offset + TK *
+        // TN)); row_B.template select<TK * TN, 1>(2 * TK * TN) =
+        //     slm_block_load<Ta, TK * TN>(sizeof(Ta) * (loc_offset + 2 * TK * TN));
+        // row_B.template select<TK * TN, 1>(3 * TK * TN) =
+        //     slm_block_load<Ta, TK * TN>(sizeof(Ta) * (loc_offset + 3 * TK * TN));
+        // #pragma unroll
         for (int iterB = 0; iterB < WIDTH; iterB += TN) {
+            simd<Ta, TK * TN> row_B =
+                slm_block_load<Ta, TK * TN>(sizeof(Ta) * (B_offset + iterA / TM * WIDTH + iterB * TK));
             Cs.template select<TM * TN, 1>(iterB * TM) = xmx::dpas<8, TM, Tc>(
                 simd<Tc, TM * TN>(Cs.template select<TM * TN, 1>(iterB * TM)),
-                simd<Ta, TN * TK>(
-                    row_B.template select<TK * TN, 1>(iterB * TK)
-                    /*row_B2d.template select<TK / vnni_factor, 1, vnni_factor * TN, 1>(0, vnni_factor * iterB)*/),
-                simd<Ta, TM * TK>(As.template select<TM * TK, 1>(iterA)));
+                // simd<Ta, TN * TK>(row_B.template select<TK * TN, 1>(iterB * TK)/*row_B2d.template select<TK /
+                // vnni_factor, 1, vnni_factor * TN, 1>(0, vnni_factor * iterB)*/),
+                row_B, simd<Ta, TM * TK>(As.template select<TM * TK, 1>(iterA)));
         }
     }
 }
@@ -304,8 +336,8 @@ std::vector<sycl::event> forward_impl_general(sycl::queue &q, T const *const __r
             helpers::applyActivation<output_activation, TM, TK, TN>(Cs, As);
 
             // save slm to HBM
-            helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::uncached>(As, intermediate_output +
-                                                                                                 layer_offset_A);
+            helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::write_back>(As, intermediate_output +
+                                                                                                   layer_offset_A);
         });
     });
 

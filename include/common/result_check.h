@@ -25,11 +25,14 @@ bool areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector
 
     long long count = 0;
     bool is_same = true;
+    double max_diff = 0.0;
     for (size_t i = 0; i < target.size(); ++i) {
         double diff = 0.0;
         if ((double)value[i] != 0.0 || (double)target[i] != 0.0)
             diff = std::abs((double)value[i] - (double)target[i]) /
                    std::max<double>(std::abs((double)value[i]), std::abs((double)target[i]));
+
+        max_diff = std::max(diff, max_diff);
 
         if (diff > tolerance) {
             is_same = false;
@@ -38,7 +41,7 @@ bool areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector
             // std::endl;
         }
     }
-    if (!is_same) std::cout << count << "/" << target.size() << " are wrong." << std::endl;
+    if (!is_same) std::cout << count << "/" << target.size() << " are wrong. Max diff = " << max_diff << std::endl;
 
     // CHECK(is_same);
     return is_same;
@@ -99,8 +102,10 @@ bool areVectorsWithinTolerance(const std::vector<bf16> &value, const std::vector
     int total_values_checked = 0;
     bool allWithinTolerance = true;
 
+    double max_diff = 0.0f;
     for (size_t i = 0; i < value.size(); ++i) {
-        float diff = std::abs((float)value[i] - target[i % output_width]);
+        const double diff = std::abs((double)value[i] - target[i % output_width]);
+        max_diff = std::max<double>(diff, max_diff);
         // std::cout << "Checking idx: " << i << std::endl;
         total_values_checked++;
         if (diff > tolerance) {
@@ -115,7 +120,7 @@ bool areVectorsWithinTolerance(const std::vector<bf16> &value, const std::vector
         std::cout << "All elements are within tolerance. Total values checked: " << total_values_checked << std::endl;
     } else {
         std::cout << "Not all elements are within tolerance.. Total values checked: " << total_values_checked
-                  << std::endl;
+                  << " , max diff = " << max_diff << std::endl;
     }
 
     return allWithinTolerance;

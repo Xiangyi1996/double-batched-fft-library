@@ -5,11 +5,8 @@ cmake_minimum_required(VERSION 3.23)
 
 #the whole thing only works with icpx due to using joint_matrix
 set(CMAKE_CXX_COMPILER "mpiicpx")
-<<<<<<< HEAD
-=======
 set(default_build_type "Release")
 
->>>>>>> 37a9145 (Updated code with proper cache hints and played a bit with the loads. Takes forever to compile now and I don't know why.)
 project(tiny-dpcpp-nn VERSION 0.1.0 LANGUAGES CXX)
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
