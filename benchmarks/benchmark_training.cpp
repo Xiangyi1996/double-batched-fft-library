@@ -326,7 +326,7 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
         n_iterations_warmup *= 5;
         auto begin_time_inference = std::chrono::steady_clock::now();
         dependencies = {};
-        for (uint32_t i = 0; i < n_iterations; ++i) {
+        for (uint32_t i = 1; i < n_iterations + 1; ++i) {
             if (i == n_iterations_warmup)
                 begin_time_inference = std::chrono::steady_clock::now(); // start measuring after warmup
 
@@ -347,7 +347,7 @@ void start_training(const int WIDTH = 64, const int input_width = 64, const int 
                 double throughput = print_interval * batch_size / ((double)microseconds / 1000000.0);
                 std::cout << "Iteration#" << i << ": "
                           << "time=" << microseconds << "[µs] thp=" << throughput << "/s" << '\t' << gflops_per_s
-                          << " Gflops/s" << std::endl;
+                          << " Gflops/s\n";
 
                 if (i >= n_iterations_warmup) {
                     mean_inference_throughput += throughput;

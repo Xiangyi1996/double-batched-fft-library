@@ -50,7 +50,6 @@ MY_STATIC MY_INLINE void moveToSlmWG(const sycl::nd_item<1> &item, T const *cons
     constexpr int nblock_total = WIDTH * WIDTH / (TK * TN);
 
     for (int blockiter = item.get_local_linear_id(); blockiter < nblock_total; blockiter += item.get_local_range()[0]) {
-        // for (int blockiter = 0; blockiter < nblock_total; blockiter++) {
 
         const int block_row = blockiter / (WIDTH / TN);
         const int block_col = blockiter % (WIDTH / TN);
@@ -63,13 +62,8 @@ MY_STATIC MY_INLINE void moveToSlmWG(const sycl::nd_item<1> &item, T const *cons
             lsc_load_2d<float, TN, TK / vnni_factor, 1, false, false, cache_hint::cached, cache_hint::cached>(
                 my_config);
 
-        constexpr int store_size = std::min<int>(128, TK * TN / vnni_factor);
-#pragma unroll
-        for (int iter = 0; iter < TK * TN / vnni_factor; iter += store_size) {
-            slm_block_store<float, store_size>(sizeof(float) * (blockiter * TK * TN / vnni_factor + iter) +
-                                                   sizeof(T) * offset,
-                                               tmp.template select<store_size, 1>(iter), overaligned_tag<16>());
-        }
+        slm_block_store<float, TN * TK / vnni_factor>(
+            sizeof(float) * (blockiter * TK * TN / vnni_factor) + sizeof(T) * offset, tmp, overaligned_tag<16>());
     }
 }
 
@@ -112,6 +106,24 @@ MY_STATIC MY_INLINE void storeRow(simd<T, TMWIDTH> &src, T *const dest) {
 //         lsc_store_2d<float, TK / blocks_per_load, TM, 1, L1, L3>(my_config_store, tmp);
 //     }
 // }
+// template <int TM, int TK, int WIDTH, cache_hint L1, cache_hint L3, int TMWIDTH, typename T>
+// MY_STATIC MY_INLINE void storeRow(simd<T, TMWIDTH> &src, T *const dest) {
+//     // TODO: minimize the number of calls to the loads by enabling to store multiple rows at once
+
+//     constexpr int nblocks = WIDTH / TK;
+//     constexpr int blocks_per_load = std::max<int>(1, 4 / sizeof(T));
+
+// #pragma unroll
+//     for (int blockiter = 0; blockiter < nblocks; blockiter += blocks_per_load) {
+//         config_2d_mem_access<float, TK, TM, 1> my_config_store(reinterpret_cast<const float *>(dest),
+//                                                                WIDTH * sizeof(T) - 1, TM - 1, WIDTH * sizeof(T) - 1,
+//                                                                blockiter * TK / blocks_per_load, 0);
+//         //Attention: this is wrong. Just to check perf.
+//         simd<float, TK * TM> tmp =
+//             src.template bit_cast_view<float>().template select<TK * TM, 1>(blockiter * TK / blocks_per_load * TM);
+//         lsc_store_2d<float, TK, TM, 1, L1, L3>(my_config_store, tmp);
+//     }
+// }
 
 // in register everything is in block major format with blocks of size TMxTK
 // template <int TM, int TK, int WIDTH, cache_hint L1, cache_hint L3, int TMWIDTH, typename T>
@@ -150,6 +162,19 @@ MY_STATIC MY_INLINE void loadRow(T const *const src, simd<T, TMWIDTH> &dest) {
     }
 }
 
+template <int TM, int TK, int WIDTH, cache_hint L1, cache_hint L3, typename T>
+MY_STATIC MY_INLINE void prefetchRow(T const *const src) {
+    constexpr int vnni_factor = std::max<int>(1, 4 / sizeof(T));
+#pragma unroll
+    for (int iter = 0; iter < WIDTH; iter += TK) {
+        config_2d_mem_access<float, TK, TM / vnni_factor, 1> my_config(
+            reinterpret_cast<float const *>(src), vnni_factor * WIDTH * sizeof(T) - 1, WIDTH / vnni_factor - 1,
+            vnni_factor * WIDTH * sizeof(T) - 1, iter, 0);
+        lsc_prefetch_2d<float, TK, TM / vnni_factor, 1, false, false, cache_hint::cached, cache_hint::cached>(
+            my_config);
+    }
+}
+
 // we are assuming a block major layout and vnni'd B
 template <int TM, int TK, int TN, int TMWIDTH, typename Ta, typename Tc>
 MY_STATIC MY_INLINE void MAD(simd<Ta, TMWIDTH> &As, const int B_offset, simd<Tc, TMWIDTH> &Cs) {
@@ -157,28 +182,53 @@ MY_STATIC MY_INLINE void MAD(simd<Ta, TMWIDTH> &As, const int B_offset, simd<Tc,
     constexpr int WIDTH = TMWIDTH / TM;
 #pragma collapse 2 unroll
     for (int iterA = 0; iterA < TMWIDTH; iterA += TM * TK) {
-        // simd<Ta, TK * WIDTH> row_B =
-        //     slm_block_load<Ta, TK * WIDTH>(sizeof(Ta) * (B_offset + iterA / TM * WIDTH), overaligned_tag<16>());
-        // simd<Ta, TK * WIDTH> row_B;
-        // const int loc_offset = B_offset + iterA / TM * WIDTH;
-        // row_B.template select<TK * TN, 1>(0) = slm_block_load<Ta, TK * TN>(sizeof(Ta) * (loc_offset));
-        // row_B.template select<TK * TN, 1>(TK * TN) = slm_block_load<Ta, TK * TN>(sizeof(Ta) * (loc_offset + TK *
-        // TN)); row_B.template select<TK * TN, 1>(2 * TK * TN) =
-        //     slm_block_load<Ta, TK * TN>(sizeof(Ta) * (loc_offset + 2 * TK * TN));
-        // row_B.template select<TK * TN, 1>(3 * TK * TN) =
-        //     slm_block_load<Ta, TK * TN>(sizeof(Ta) * (loc_offset + 3 * TK * TN));
-        // #pragma unroll
         for (int iterB = 0; iterB < WIDTH; iterB += TN) {
             simd<Ta, TK * TN> row_B =
                 slm_block_load<Ta, TK * TN>(sizeof(Ta) * (B_offset + iterA / TM * WIDTH + iterB * TK));
-            Cs.template select<TM * TN, 1>(iterB * TM) = xmx::dpas<8, TM, Tc>(
-                simd<Tc, TM * TN>(Cs.template select<TM * TN, 1>(iterB * TM)),
-                // simd<Ta, TN * TK>(row_B.template select<TK * TN, 1>(iterB * TK)/*row_B2d.template select<TK /
-                // vnni_factor, 1, vnni_factor * TN, 1>(0, vnni_factor * iterB)*/),
-                row_B, simd<Ta, TM * TK>(As.template select<TM * TK, 1>(iterA)));
+            Cs.template select<TM * TN, 1>(iterB * TM) =
+                xmx::dpas<8, TM, Tc>(simd<Tc, TM * TN>(Cs.template select<TM * TN, 1>(iterB * TM)), row_B,
+                                     simd<Ta, TM * TK>(As.template select<TM * TK, 1>(iterA)));
         }
     }
 }
+template <int TM, int TK, int TN, int TMWIDTH, typename Ta, typename Tc>
+MY_STATIC MY_INLINE void MAD(simd<Ta, TMWIDTH> &As, Ta const *const __restrict__ B, simd<Tc, TMWIDTH> &Cs) {
+
+    constexpr int WIDTH = TMWIDTH / TM;
+    constexpr int vnni_factor = std::max<int>(1, 4 / sizeof(Ta));
+#pragma collapse 2 unroll
+    for (int iterA = 0; iterA < TMWIDTH; iterA += TM * TK) {
+        for (int iterB = 0; iterB < WIDTH; iterB += TN) {
+            config_2d_mem_access<float, TN, TK / vnni_factor, 1> my_config(
+                reinterpret_cast<float const *>(B), vnni_factor * WIDTH * sizeof(Ta) - 1, WIDTH / vnni_factor - 1,
+                vnni_factor * WIDTH * sizeof(Ta) - 1, iterB, iterA / TM / vnni_factor);
+            simd<float, TK / vnni_factor * TN> row_B =
+                lsc_load_2d<float, TN, TK / vnni_factor, 1, false, false, cache_hint::cached, cache_hint::cached>(
+                    my_config);
+
+            Cs.template select<TM * TN, 1>(iterB * TM) = xmx::dpas<8, TM, Tc>(
+                simd<Tc, TM * TN>(Cs.template select<TM * TN, 1>(iterB * TM)),
+                simd<Ta, TN * TK>(row_B.template bit_cast_view<Ta>().template select<TK * TN, 1>(0)),
+                simd<Ta, TM * TK>(As.template select<TM * TK, 1>(iterA)));
+        }
+    }
+}
+// template <int TM, int TK, int TN, int TMWIDTH, typename Ta, typename Tc>
+// MY_STATIC MY_INLINE void MAD(simd<Ta, TMWIDTH> &As, const int B_offset, simd<Tc, TMWIDTH> &Cs) {
+
+//     constexpr int WIDTH = TMWIDTH / TM;
+// #pragma collapse 2 unroll
+//     for (int iterB = 0; iterB < WIDTH; iterB += TN) {
+//         for (int iterA = 0; iterA < TMWIDTH; iterA += TM * TK) {
+
+//             simd<Ta, TK * TN> row_B =
+//                 slm_block_load<Ta, TK * TN>(sizeof(Ta) * (B_offset + iterA / TM * WIDTH + iterB * TK));
+//             Cs.template select<TM * TN, 1>(iterB * TM) =
+//                 xmx::dpas<8, TM, Tc>(simd<Tc, TM * TN>(Cs.template select<TM * TN, 1>(iterB * TM)), row_B,
+//                                      simd<Ta, TM * TK>(As.template select<TM * TK, 1>(iterA)));
+//         }
+//     }
+// }
 
 template <Activation act, int TM, int TK, int TN, typename Tin, typename Tout, int N>
 MY_STATIC MY_INLINE void applyActivation(simd<Tin, N> &Src, simd<Tout, N> &Dest) {
@@ -269,17 +319,7 @@ std::vector<sycl::event> forward_impl_general(sycl::queue &q, T const *const __r
         cgh.depends_on(deps);
 
         cgh.parallel_for(sycl::nd_range<1>(M / TM, ITEMS_IN_WG), [=](sycl::nd_item<1> item) SYCL_ESIMD_KERNEL {
-            // b offset = 0;
-            // testing if we can preload multiple weight matrices for better perf
-            slm_init<number_preload_weights * WIDTH * WIDTH * sizeof(T)>();
-
-            int B_offset = 0;
             int layer_offset_A = item.get_global_linear_id() * WIDTH * TM;
-
-            for (int iter = 0; iter < std::min<int>(number_preload_weights, n_hidden_layers + 1); iter++) {
-                helpers::moveToSlmWG<TK, TN, WIDTH>(item, weights_ptr + iter * WIDTH * WIDTH,
-                                                    B_offset + iter * WIDTH * WIDTH);
-            }
 
             // we store blocks contiguously
             simd<T, TM * WIDTH> As;
@@ -296,26 +336,11 @@ std::vector<sycl::event> forward_impl_general(sycl::queue &q, T const *const __r
 
             simd<Tc, TM * WIDTH> Cs;
             layer_offset_A += M * WIDTH;
-            item.barrier();
             for (int layer = 0; layer < n_hidden_layers; layer++) {
                 // reset result matrices
                 Cs = static_cast<Tc>(0);
 
-                helpers::MAD<TM, TK, TN>(As, B_offset, Cs);
-                B_offset += WIDTH * WIDTH;
-
-                if ((layer + 1) % number_preload_weights == 0) {
-                    item.barrier();
-                    B_offset = 0;
-                    // load next weight matrix
-                    for (int iter = 0; iter < std::min<int>(number_preload_weights, n_hidden_layers - layer); iter++) {
-                        helpers::moveToSlmWG<TK, TN, WIDTH>(
-                            item, weights_ptr + (layer + 1) * WIDTH * WIDTH + iter * WIDTH * WIDTH,
-                            B_offset + iter * WIDTH * WIDTH);
-                    }
-
-                    item.barrier();
-                }
+                helpers::MAD<TM, TK, TN>(As, weights_ptr + layer * WIDTH * WIDTH, Cs);
 
                 // activate and save
                 helpers::applyActivation<activation, TM, TK, TN>(Cs, As);
@@ -330,7 +355,8 @@ std::vector<sycl::event> forward_impl_general(sycl::queue &q, T const *const __r
             // generate output, i.e. last GEMM
             Cs = static_cast<Tc>(0);
 
-            helpers::MAD<TM, TK, TN>(As, B_offset, Cs);
+            // helpers::MAD<TM, TK, TN>(As, B_offset, Cs);
+            helpers::MAD<TM, TK, TN>(As, weights_ptr + n_hidden_layers * WIDTH * WIDTH, Cs);
 
             // activate and save to slm
             helpers::applyActivation<output_activation, TM, TK, TN>(Cs, As);
@@ -379,17 +405,8 @@ std::vector<sycl::event> backward_impl_general(queue &q, T const *const __restri
         cgh.depends_on(deps);
 
         cgh.parallel_for(sycl::nd_range<1>(M / TM, ITEMS_IN_WG), [=](nd_item<1> item) SYCL_ESIMD_KERNEL {
-            slm_init<number_preload_weights * WIDTH * WIDTH * sizeof(T)>();
-
-            auto weights_ptr_loc = weights_ptr + n_hidden_layers * WIDTH * WIDTH;
-            int B_offset = 0;
             const int item_offset_A = item.get_global_linear_id() * WIDTH * TM;
             int layer_offset_A = n_hidden_layers * M * WIDTH + item_offset_A;
-
-            for (int iter = 0; iter < std::min<int>(number_preload_weights, n_hidden_layers + 1); iter++) {
-                helpers::moveToSlmWG<TK, TN, WIDTH>(item, weights_ptr_loc, B_offset + iter * WIDTH * WIDTH);
-                weights_ptr_loc -= WIDTH * WIDTH; // next weight matrix
-            }
 
             simd<T, TM * WIDTH> As;
             helpers::loadRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::uncached>(inputs_ptr + item_offset_A, As);
@@ -405,29 +422,13 @@ std::vector<sycl::event> backward_impl_general(queue &q, T const *const __restri
             // store activated slm in intermediate output
             helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::uncached>(As, intermediate_output +
                                                                                                  layer_offset_A);
-            // Esnure B is loaded into slm
-            item.barrier();
             simd<Tc, TM * WIDTH> Cs;
             // we are also doing output->last hidden layer
             for (int layer = n_hidden_layers; layer > 0; layer--) {
                 layer_offset_A -= M * WIDTH;
                 Cs = static_cast<Tc>(0);
 
-                helpers::MAD<TM, TK, TN>(As, B_offset, Cs);
-                B_offset += WIDTH * WIDTH;
-
-                // load B for next iteration into SLM
-                if (B_offset % (number_preload_weights * WIDTH * WIDTH) == 0) {
-                    item.barrier();
-                    B_offset = 0;
-                    // load next weight matrix
-                    for (int iter = 0; iter < std::min<int>(number_preload_weights, layer - 1); iter++) {
-                        helpers::moveToSlmWG<TK, TN, WIDTH>(item, weights_ptr_loc, B_offset + iter * WIDTH * WIDTH);
-                        weights_ptr_loc -= WIDTH * WIDTH;
-                    }
-
-                    item.barrier();
-                }
+                helpers::MAD<TM, TK, TN>(As, weights_ptr + layer * WIDTH * WIDTH, Cs);
 
                 // TODO: Apply correct activation
                 helpers::applyActivation<Activation::None, TM, TK, TN>(Cs, As);
