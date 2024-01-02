@@ -60,6 +60,11 @@ doctest_discover_tests(test-swiftnet)
 # target_compile_options(test-kernelhelper PUBLIC -fsycl-targets=spir64_gen)
 # target_link_options(test-kernelhelper PUBLIC -fsycl-targets=spir64_gen -Xsycl-target-backend "-device pvc")
 
+add_executable(test-kernelhelper-esimd doctest_kernelhelper_esimd.cpp)
+add_sycl_to_target(TARGET test-kernelhelper-esimd SOURCES doctest_kernelhelper_esimd.cpp)
+target_link_libraries(test-kernelhelper-esimd PRIVATE test-lib network)
+doctest_discover_tests(test-kernelhelper-esimd)
+
 # add_executable(test-save-image doctest_image_save.cpp)
 # add_sycl_to_target(TARGET test-save-image SOURCES doctest_image_save.cpp)
 # target_link_libraries(test-save-image PRIVATE test-lib swiftnetmlp)

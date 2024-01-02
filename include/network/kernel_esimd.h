@@ -56,6 +56,7 @@ namespace helpers {
 
 using namespace sycl::ext::intel::experimental::esimd;
 #define DSZ lsc_data_size::default_size
+using bf16 = sycl::ext::oneapi::bfloat16;
 
 // #ifdef __SYCL_DEVICE_ONLY__
 // #define MY_INLINE inline
@@ -64,6 +65,16 @@ using namespace sycl::ext::intel::experimental::esimd;
 #define MY_INLINE
 #define MY_STATIC
 // #endif
+
+template <typename T> struct XMXCType {
+    typedef T CType;
+};
+template <> struct XMXCType<bf16> {
+    typedef float CType;
+};
+template <> struct XMXCType<sycl::half> {
+    typedef sycl::half CType;
+};
 
 // in register everything is in block major format with blocks of size TMxTK
 template <int TM, int TK, int WIDTH, cache_hint L1, cache_hint L3, int TMWIDTH, typename T>
@@ -82,45 +93,6 @@ SYCL_ESIMD_FUNCTION MY_STATIC MY_INLINE void storeRow(simd<T, TMWIDTH> &src, T *
         lsc_block_store<T, rows_per_load * WIDTH, DSZ, L1, L3>(dest + row * WIDTH, tmp, overaligned_tag<8>());
     }
 }
-
-// // in register everything is in block major format with blocks of size TMxTK
-// template <int TM, int TK, int WIDTH, cache_hint L1, cache_hint L3, int TMWIDTH, typename T>
-// SYCL_ESIMD_FUNCTION MY_STATIC MY_INLINE void storeRow(simd<T, TMWIDTH> &src, T *const dest) {
-//     constexpr int rows_per_load = std::min<int>(512 / (WIDTH * sizeof(T)), TM);
-
-// #pragma unroll
-//     for (int row = 0; row < TM; row += rows_per_load) {
-//         simd<T, WIDTH * rows_per_load> tmp;
-// #pragma collapse 2 unroll
-//         for (int locrowiter = 0; locrowiter < rows_per_load; locrowiter++) {
-//             for (int iter = 0; iter < WIDTH / TK; iter++) {
-//                 tmp.template select<TK, 1>(locrowiter * WIDTH + iter * TK) =
-//                     src.template select<TK, 1>((row + locrowiter) * TK + iter * TM * TK);
-//             }
-//         }
-//         lsc_block_store<T, rows_per_load * WIDTH, DSZ, L1, L3>(dest + row * WIDTH, tmp, overaligned_tag<8>());
-//     }
-// }
-
-// // in register everything is in block major format with blocks of size TMxTK
-// template <int TM, int TK, int WIDTH, cache_hint L1, cache_hint L3, int TMWIDTH, typename T>
-// SYCL_ESIMD_FUNCTION MY_STATIC MY_INLINE void storeRow(simd<T, TMWIDTH> &src, T *const dest) {
-//     constexpr int rows_per_load = std::min<int>(512 / (WIDTH * sizeof(T)), TM);
-//     constexpr int nblocks = WIDTH / TK;
-//     simd<T, TMWIDTH> src_rm;
-//     auto src_rm_2d = src_rm.template bit_cast_view<T, TM, WIDTH>();
-// #pragma unroll
-//     for (int blockiter = 0; blockiter < nblocks; blockiter++) {
-//         src_rm_2d.template select<TM, 1, TK, 1>(0, blockiter * TK) =
-//             src.template select<TM * TK, 1>(blockiter * TM * TK);
-//     }
-
-// #pragma unroll
-//     for (int row = 0; row < TM; row += rows_per_load) {
-//         lsc_block_store<T, rows_per_load * WIDTH, DSZ, L1, L3>(
-//             dest + row * WIDTH, src_rm.template select<rows_per_load * WIDTH, 1>(row * WIDTH), overaligned_tag<8>());
-//     }
-// }
 
 // in register everything is in block major format with blocks of size TMxTK
 // template <int TM, int TK, int WIDTH, cache_hint L1, cache_hint L3, int TMWIDTH, typename T>
@@ -263,7 +235,7 @@ std::vector<sycl::event> forward_impl_general(sycl::queue &q, T const *const __r
         cgh.depends_on(deps);
 
         cgh.parallel_for(sycl::nd_range<1>(M / TM, ITEMS_IN_WG), [=](sycl::nd_item<1> item) SYCL_ESIMD_KERNEL {
-            int layer_offset_A = item.get_global_linear_id() * WIDTH * TM;
+            const int layer_offset_A = item.get_global_linear_id() * WIDTH * TM;
 
             // we store blocks contiguously
             simd<T, TM * WIDTH> As;
@@ -279,7 +251,6 @@ std::vector<sycl::event> forward_impl_general(sycl::queue &q, T const *const __r
             }
 
             simd<Tc, TM * WIDTH> Cs;
-            layer_offset_A += M * WIDTH;
             for (int layer = 0; layer < n_hidden_layers; layer++) {
                 // reset result matrices
                 Cs = static_cast<Tc>(0);
@@ -291,9 +262,7 @@ std::vector<sycl::event> forward_impl_general(sycl::queue &q, T const *const __r
 
                 if constexpr (!INFERENCE)
                     helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::uncached>(
-                        As, intermediate_output + layer_offset_A);
-
-                layer_offset_A += M * WIDTH;
+                        As, intermediate_output + (layer + 1) * M * WIDTH + layer_offset_A);
             }
 
             // generate output, i.e. last GEMM
@@ -306,8 +275,12 @@ std::vector<sycl::event> forward_impl_general(sycl::queue &q, T const *const __r
             helpers::applyActivation<output_activation, TM, TK, TN>(Cs, As);
 
             // save slm to HBM
-            helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::write_back>(As, intermediate_output +
-                                                                                                   layer_offset_A);
+            if constexpr (!INFERENCE)
+                helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::write_back>(
+                    As, intermediate_output + n_hidden_layers * M * WIDTH + layer_offset_A);
+            else if constexpr (INFERENCE) // storing at the beginning since no intermediate results
+                helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::write_back>(As, intermediate_output +
+                                                                                                       layer_offset_A);
         });
     });
 
@@ -373,7 +346,7 @@ std::vector<sycl::event> backward_impl_general(queue &q, T const *const __restri
 
                 helpers::MAD<TM, TK, TN>(As, weights_ptr + layer * WIDTH * WIDTH, Cs);
 
-                // TODO: Apply correct activation
+                // TODO: Apply correct backward activation
                 helpers::applyActivation<Activation::None, TM, TK, TN>(Cs, As);
 
                 helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::uncached>(As, intermediate_output +
@@ -402,10 +375,6 @@ std::vector<sycl::event> backward_impl_general(queue &q, T const *const __restri
         }
     }
     return events;
-
-    // return batchedGEMM_naive<T, Tc, INPUT_WIDTH, WIDTH, OUTPUT_WIDTH, TN>(q, output_ptr, forward,
-    // intermediate_output,
-    //                                                                       n_hidden_layers, M, {e});
 }
 
 } // namespace esimd

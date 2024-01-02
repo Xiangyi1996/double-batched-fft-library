@@ -175,15 +175,6 @@ inline bool equals_case_insensitive(const std::string &str1, const std::string &
     return to_lower(str1) == to_lower(str2);
 }
 
-struct CaseInsensitiveHash {
-    size_t operator()(const std::string &v) const { return std::hash<std::string>{}(to_lower(v)); }
-};
-struct CaseInsensitiveEqual {
-    bool operator()(const std::string &l, const std::string &r) const { return equals_case_insensitive(l, r); }
-};
-
-template <typename T> using ci_hashmap = std::unordered_map<std::string, T, CaseInsensitiveHash, CaseInsensitiveEqual>;
-
 template <typename T> std::string type_to_string();
 
 inline std::string bytes_to_string(size_t bytes) {
@@ -210,46 +201,6 @@ inline uint32_t powi(uint32_t base, uint32_t exponent) {
     return result;
 }
 
-class ScopeGuard {
-  public:
-    ScopeGuard() = default;
-    ScopeGuard(const std::function<void()> &callback) : m_callback{callback} {}
-    ScopeGuard(std::function<void()> &&callback) : m_callback{std::move(callback)} {}
-    ScopeGuard &operator=(const ScopeGuard &other) = delete;
-    ScopeGuard(const ScopeGuard &other) = delete;
-    ScopeGuard &operator=(ScopeGuard &&other) {
-        std::swap(m_callback, other.m_callback);
-        return *this;
-    }
-    ScopeGuard(ScopeGuard &&other) { *this = std::move(other); }
-    ~ScopeGuard() {
-        if (m_callback) {
-            m_callback();
-        }
-    }
-
-    void disarm() { m_callback = {}; }
-
-  private:
-    std::function<void()> m_callback;
-};
-
-template <typename T> class Lazy {
-  public:
-    template <typename F> T &get(F &&generator) {
-        if (!m_val) {
-            m_val = generator();
-        }
-
-        return m_val;
-    }
-
-  private:
-    T m_val;
-};
-
-#if defined(SYCL_LANGUAGE_VERSION) || (defined(__clang__) && defined(SYCL_LANGUAGE_VERSION))
-
 template <typename T> constexpr uint32_t n_blocks_linear(T n_elements, uint32_t n_threads = N_THREADS_LINEAR) {
     return (uint32_t)tinydpcppnn::math::div_round_up(n_elements, (T)n_threads);
 }
@@ -265,99 +216,3 @@ inline void linear_kernel(K kernel, uint32_t shmem_size, sycl::queue *const q, T
                                       sycl::range<3>(1, 1, N_THREADS_LINEAR)),
                     [=](sycl::nd_item<3> item_ct1) { int a = 3; });
 }
-
-template <typename F> void parallel_for_kernel(const size_t n_elements, F fun, const sycl::nd_item<3> &item_ct1) {
-    const size_t i = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
-    if (i >= n_elements) return;
-
-    fun(i);
-}
-
-template <typename F>
-inline void parallel_for_gpu(uint32_t shmem_size, sycl::queue *const q, size_t n_elements, F &&fun) {
-    if (n_elements <= 0) {
-        return;
-    }
-    q->parallel_for(
-        sycl::nd_range<3>(sycl::range<3>(1, 1, n_blocks_linear(n_elements)) * sycl::range<3>(1, 1, N_THREADS_LINEAR),
-                          sycl::range<3>(1, 1, N_THREADS_LINEAR)),
-        [=](sycl::nd_item<3> item_ct1) { parallel_for_kernel<F>(n_elements, fun, item_ct1); });
-}
-
-template <typename F> inline void parallel_for_gpu(sycl::queue *const q, size_t n_elements, F &&fun) {
-    parallel_for_gpu(0, q, n_elements, std::forward<F>(fun));
-}
-
-template <typename F>
-void parallel_for_aos_kernel(const size_t n_elements, const uint32_t n_dims, F fun, const sycl::nd_item<3> &item_ct1) {
-    const size_t dim = item_ct1.get_local_id(2);
-    const size_t elem = item_ct1.get_local_id(1) + item_ct1.get_group(2) * item_ct1.get_local_range(1);
-    if (dim >= n_dims) return;
-    if (elem >= n_elements) return;
-
-    fun(elem, dim);
-}
-
-template <typename F>
-inline void parallel_for_gpu_aos(uint32_t shmem_size, sycl::queue *const q, size_t n_elements, uint32_t n_dims,
-                                 F &&fun) {
-    if (n_elements <= 0 || n_dims <= 0) {
-        return;
-    }
-
-    const sycl::range<3> threads = {1, tinydpcppnn::math::div_round_up(N_THREADS_LINEAR, n_dims), n_dims};
-    const size_t n_threads = threads[2] * threads[1];
-    const sycl::range<3> blocks = {1, 1, (uint32_t)tinydpcppnn::math::div_round_up(n_elements * n_dims, n_threads)};
-
-    /*
-    DPCT1049:1: The work-group size passed to the SYCL kernel may exceed the
-    limit. To get the device limit, query info::device::max_work_group_size.
-    Adjust the work-group size if needed.
-    */
-    q->parallel_for(sycl::nd_range<3>(blocks * threads, threads),
-                    [=](sycl::nd_item<3> item_ct1) { parallel_for_aos_kernel(n_elements, n_dims, fun, item_ct1); });
-}
-
-template <typename F>
-inline void parallel_for_gpu_aos(sycl::queue *const q, size_t n_elements, uint32_t n_dims, F &&fun) {
-    parallel_for_gpu_aos(0, q, n_elements, n_dims, std::forward<F>(fun));
-}
-
-template <typename F> inline void parallel_for_gpu_aos(size_t n_elements, uint32_t n_dims, F &&fun) {
-    parallel_for_gpu_aos(nullptr, n_elements, n_dims, std::forward<F>(fun));
-}
-
-template <typename F>
-void parallel_for_soa_kernel(const size_t n_elements, const uint32_t n_dims, F fun, const sycl::nd_item<3> &item_ct1) {
-    const size_t elem = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
-    const size_t dim = item_ct1.get_group(1);
-    if (elem >= n_elements) return;
-    if (dim >= n_dims) return;
-
-    fun(elem, dim);
-}
-
-template <typename F>
-inline void parallel_for_gpu_soa(uint32_t shmem_size, sycl::queue *const q, size_t n_elements, uint32_t n_dims,
-                                 F &&fun) {
-    if (n_elements <= 0 || n_dims <= 0) {
-        return;
-    }
-
-    const sycl::range<3> blocks = {1, n_dims, n_blocks_linear(n_elements)};
-
-    q->parallel_for(
-        sycl::nd_range<3>(sycl::range<3>(1, 1, n_blocks_linear(n_elements)) * sycl::range<3>(1, 1, N_THREADS_LINEAR),
-                          sycl::range<3>(1, 1, N_THREADS_LINEAR)),
-        [=](sycl::nd_item<3> item_ct1) { parallel_for_soa_kernel(n_elements, n_dims, fun, item_ct1); });
-}
-
-template <typename F>
-inline void parallel_for_gpu_soa(sycl::queue *const q, size_t n_elements, uint32_t n_dims, F &&fun) {
-    parallel_for_gpu_soa(0, q, n_elements, n_dims, std::forward<F>(fun));
-}
-
-template <typename F> inline void parallel_for_gpu_soa(size_t n_elements, uint32_t n_dims, F &&fun) {
-    parallel_for_gpu_soa(nullptr, n_elements, n_dims, std::forward<F>(fun));
-}
-#endif

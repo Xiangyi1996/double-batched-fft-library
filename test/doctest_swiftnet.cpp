@@ -5,7 +5,6 @@
 #include <filesystem>
 
 #include "SwiftNetMLP.h"
-#include "activation.h"
 #include "result_check.h"
 float calculateMAPE(float prediction, float reference) {
     if (reference == 0.0) {

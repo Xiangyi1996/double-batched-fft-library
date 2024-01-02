@@ -52,29 +52,6 @@ class GPUMatrixBase {
 
     virtual size_t n_bytes() const = 0;
     virtual void set_data_unsafe(void *data) = 0;
-
-    static void allocate_shared_memory(DeviceMem<char> &memory, const std::vector<GPUMatrixBase *> &matrices) {
-        size_t total_n_bytes = 0;
-        for (auto *matrix : matrices) {
-            total_n_bytes += matrix->n_bytes();
-        }
-
-        if (memory.bytes() < total_n_bytes) {
-            memory.resize(total_n_bytes);
-        }
-
-        size_t offset = 0;
-        for (auto *matrix : matrices) {
-            matrix->set_data_unsafe(memory.data() + offset);
-            offset += matrix->n_bytes();
-        }
-    }
-
-    template <typename T>
-    static void allocate_shared_memory(DeviceMem<char> &memory, std::vector<GPUMatrixDynamic<T>> &matrices);
-
-    template <typename T, MatrixLayout layout>
-    static void allocate_shared_memory(DeviceMem<char> &memory, std::vector<GPUMatrix<T, layout>> &matrices);
 };
 
 template <typename T> class GPUMatrixDynamic : public GPUMatrixBase {
@@ -270,17 +247,13 @@ template <typename T, MatrixLayout _layout = MatrixLayout::ColumnMajor> class GP
         _layout == MatrixLayout::RowMajor ? MatrixLayout::ColumnMajor : MatrixLayout::RowMajor;
 
     // Owning its memory as a DeviceMem<T>
-    GPUMatrix(uint32_t m, uint32_t n) : GPUMatrixDynamic<T> { m, n, static_layout }
-    {}
+    GPUMatrix(uint32_t m, uint32_t n) : GPUMatrixDynamic<T>{m, n, static_layout} {}
 
     // Owning its memory as an allocation from a stream's memory arena
-    GPUMatrix(uint32_t m, uint32_t n, sycl::queue &stream) : GPUMatrixDynamic<T> { m, n, stream, static_layout }
-    {}
+    GPUMatrix(uint32_t m, uint32_t n, sycl::queue &stream) : GPUMatrixDynamic<T>{m, n, stream, static_layout} {}
 
-    GPUMatrix(T *data, uint32_t m, uint32_t n, uint32_t stride = 0) : GPUMatrixDynamic<T> {
-        data, m, n, static_layout, stride
-    }
-    {}
+    GPUMatrix(T *data, uint32_t m, uint32_t n, uint32_t stride = 0)
+        : GPUMatrixDynamic<T>{data, m, n, static_layout, stride} {}
 
     GPUMatrix() : GPUMatrix{nullptr, 0, 0} {}
 
@@ -351,21 +324,3 @@ template <typename T, MatrixLayout _layout = MatrixLayout::ColumnMajor> class GP
         }
     }
 };
-
-template <typename T>
-void GPUMatrixBase::allocate_shared_memory(DeviceMem<char> &memory, std::vector<GPUMatrixDynamic<T>> &matrices) {
-    std::vector<GPUMatrixBase *> matrix_pointers;
-    for (auto &matrix : matrices) {
-        matrix_pointers.emplace_back(&matrix);
-    }
-    allocate_shared_memory(memory, matrix_pointers);
-}
-
-template <typename T, MatrixLayout layout>
-void GPUMatrixBase::allocate_shared_memory(DeviceMem<char> &memory, std::vector<GPUMatrix<T, layout>> &matrices) {
-    std::vector<GPUMatrixBase *> matrix_pointers;
-    for (auto &matrix : matrices) {
-        matrix_pointers.emplace_back(&matrix);
-    }
-    allocate_shared_memory(memory, matrix_pointers);
-}

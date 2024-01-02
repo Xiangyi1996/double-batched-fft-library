@@ -6,7 +6,6 @@
 #include "RelativeL1.h"
 #include "RelativeL2.h"
 #include "SwiftNetMLP.h"
-#include "activation.h"
 #include "adam.h"
 #include "cross_entropy.h"
 #include "json.hpp"

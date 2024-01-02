@@ -5,7 +5,6 @@
 #include <iostream>
 #include <vector>
 
-#include "activation.h"
 #include "network_with_encodings.h"
 #include "result_check.h"
 

@@ -24,7 +24,7 @@ class NetworkWithEncoding {
 
     void set_params(std::vector<bf16> params);
 
-    Network *get_network() { return network; }
+    Network<bf16> *get_network() { return network; }
     //   DeviceMem<float>* get_output() { return &network_output; }
 
   private:
@@ -33,7 +33,7 @@ class NetworkWithEncoding {
     //   Encoding<float>* encoding_grid;
     Encoding<float> *encoding;
 
-    Network *network;
+    Network<bf16> *network;
     queue m_q;
 };
 

@@ -9,19 +9,6 @@
 
 static constexpr float PI = 3.14159265358979323846f;
 
-#if defined(SYCL_LANGUAGE_VERSION)
-#if TCNN_HALF_PRECISION
-using network_precision_t = __half;
-#else
-using network_precision_t = float;
-#endif
-
-// Optionally: set the precision to `float` to disable tensor cores and debug
-// potential
-//             problems with mixed-precision training.
-// using network_precision_t = float;
-#endif
-
 // When TCNN managed its model parameters, they are always aligned,
 // which yields performance benefits in practice. However, parameters
 // supplied by PyTorch are not necessarily aligned. The following

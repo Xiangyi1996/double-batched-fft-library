@@ -7,7 +7,6 @@
 #include <vector>
 
 #include "SwiftNetMLP.h"
-#include "activation.h"
 #include "encoding_factory.h"
 #include "mkl.h"
 #include "mkl_omp_offload.h"

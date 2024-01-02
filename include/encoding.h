@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <sycl/sycl.hpp>
 
-#include "activation.h"
 #include "common_host.h"
 #include "gpu_matrix.h"
 #include "json.hpp"

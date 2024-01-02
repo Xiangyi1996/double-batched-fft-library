@@ -4,7 +4,6 @@
 
 #include "L2.h"
 #include "SwiftNetMLP.h"
-#include "activation.h"
 #include "common.h"
 #include "mkl.h"
 #include "mkl_omp_offload.h"

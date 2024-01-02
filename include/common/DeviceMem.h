@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <dpct/dpct.hpp>
+#include <fstream>
 #include <iostream>
 #include <random>
 #include <sycl/ext/oneapi/backend/level_zero.hpp>
@@ -14,310 +15,83 @@
 #include "common_host.h"
 
 using namespace sycl;
-using bf16 = sycl::ext::oneapi::bfloat16;
-
-#define DEBUG_GUARD_SIZE 0
-
-/// TODO: Why? We are never using this, just updating
-inline std::atomic<size_t> &total_n_bytes_allocated() {
-    static std::atomic<size_t> s_total_n_bytes_allocated{0};
-    return s_total_n_bytes_allocated;
-}
 
 // A templated class for managing device memory
-/// TODO: this class seems bloated. Can we simplify it?
 template <typename T> class DeviceMem {
   private:
+    size_t m_size = 0;
+    const sycl::queue &m_q;
     T *m_data = nullptr;
-    int m_size = 0;
-    bool m_managed = false;
 
   public:
     // Default constructor
-    DeviceMem();
+    DeviceMem() = delete;
 
-    // Constructor with size and queue
-    DeviceMem(int size, sycl::queue &q);
-
-    DeviceMem(size_t size, bool managed = false) : m_managed{managed} { resize(size); }
-
-    void check_guards() const {
-#if DEBUG_GUARD_SIZE > 0
-        if (!m_data) return;
-
-        uint8_t buf[DEBUG_GUARD_SIZE];
-        const uint8_t *rawptr{reinterpret_cast<const uint8_t *>(m_data)};
-
-        sycl::queue &q{dpct::get_default_queue()};
-        q.memcpy(buf, rawptr - DEBUG_GUARD_SIZE, DEBUG_GUARD_SIZE).wait();
-        for (int i = 0; i < DEBUG_GUARD_SIZE; ++i) {
-            if (buf[i] != 0xff) {
-                printf("TRASH BEFORE BLOCK offset %d data %p, read 0x%02x expected "
-                       "0xff!\n",
-                       i, m_data, buf[i]);
-                break;
-            }
-        }
-
-        q.memcpy(buf, rawptr + m_size * sizeof(T), DEBUG_GUARD_SIZE).wait();
-        for (int i = 0; i < DEBUG_GUARD_SIZE; ++i) {
-            if (buf[i] != 0xfe) {
-                printf("TRASH AFTER BLOCK offset %d data %p, read 0x%02x expected 0xfe!\n", i, m_data, buf[i]);
-                break;
-            }
-        }
-#endif
-    }
-    // Allocate from Darius' code
-    void allocate2(int size, queue &q);
-
-    // Allocate memory on the device
-    void allocate(int size, queue &q);
-
-    // Allocate memory on the device
-    void allocate(int size);
-
-    // Free memory on the device
-    void free_mem(queue &q);
-    void free_mem();
-
-    // Copy data from host to device
-    void copy_from_host(std::vector<T> &data, int n, queue q);
-
-    // Copy data from device to host
-    void copy_to_host(std::vector<T> &data, int n, queue q);
-
-    // Copy data from host to device
-    void copy_from_host(std::vector<T> &data, queue q);
-
-    // Copy data from device to host
-    void copy_to_host(std::vector<T> &data, queue q);
-
-    /** @name Copy operations
-     *  @{
+    /**
+     * @brief Constructor for the DeviceMem class
+     *
+     * @param size               Size of the memory to allocate in elements.
+     * @param queue              SYCL queue associated with the object.
      */
-    /// Copy data of num_elements from the raw pointer on the host
-    void copy_from_host(const T *host_data, const size_t num_elements) {
-        dpct::get_default_queue().memcpy(data(), host_data, num_elements * sizeof(T));
+    DeviceMem(const size_t size, const sycl::queue &q) : m_size(size), m_q(q) {
+        assert(m_size >= 0);
+        m_data = sycl::malloc_device<T>(m_size, m_q);
     }
 
-    /// Copies data from the raw host pointer to fill the entire array
-    void copy_from_host(const T *data) { copy_from_host(data, m_size); }
+    ~DeviceMem() { sycl::free(m_data, m_q); }
 
-    /// Copies num_elements of data from the raw host pointer after enlarging the
-    /// array so that everything fits in
-    void enlarge_and_copy_from_host(const T *data, const size_t num_elements) {
-        enlarge(num_elements);
-        copy_from_host(data, num_elements);
+    // Copy data from host to device
+    sycl::event copy_from_host(const std::vector<T> &data) {
+        assert(data.size() == m_size);
+        return m_q.memcpy(m_data, data.data(), get_bytes());
     }
 
-    /// Copies num_elements from the host vector after enlarging the array so that
-    /// everything fits in
-    void enlarge_and_copy_from_host(const std::vector<T> &data, const size_t num_elements) {
-        enlarge_and_copy_from_host(data.data(), num_elements);
-    }
-
-    /// Copies the entire host vector after enlarging the array so that everything
-    /// fits in
-    void enlarge_and_copy_from_host(const std::vector<T> &data) {
-        enlarge_and_copy_from_host(data.data(), data.size());
-    }
-
-    /// Copies num_elements of data from the raw host pointer after resizing the
-    /// array
-    void resize_and_copy_from_host(const T *data, const size_t num_elements) {
-        resize(num_elements);
-        copy_from_host(data, num_elements);
-    }
-
-    /// Copies num_elements from the host vector after resizing the array
-    void resize_and_copy_from_host(const std::vector<T> &data, const size_t num_elements) {
-        resize_and_copy_from_host(data.data(), num_elements);
-    }
-
-    /// Copies the entire host vector after resizing the array
-    void resize_and_copy_from_host(const std::vector<T> &data) { resize_and_copy_from_host(data.data(), data.size()); }
-
-    /// Copies num_elements of data from the raw host pointer to the device. Fails
-    /// if there is not enough space available.
-    void copy_to_host(T *host_data, const size_t num_elements) const {
-        if (num_elements > m_size) {
-            throw std::runtime_error{
-                tinydpcppnn::format("Trying to copy {} elements, but memory size is only {}.", num_elements, m_size)};
-        }
-
-        dpct::get_default_queue().memcpy(host_data, data(), num_elements * sizeof(T));
-    }
-
-    /// Copies num_elements from the device to a vector on the host
-    void copy_to_host(std::vector<T> &data, const size_t num_elements) const {
-        if (data.size() < num_elements) {
-            throw std::runtime_error{tinydpcppnn::format("Trying to copy {} elements, but vector size is only {}.",
-                                                         num_elements, data.size())};
-        }
-
-        copy_to_host(data.data(), num_elements);
-    }
-
-    /// Copies num_elements from the device to a raw pointer on the host
-    void copy_to_host(T *data) const { copy_to_host(data, m_size); }
-
-    /// Copies all elements from the device to a vector on the host
-    void copy_to_host(std::vector<T> &data) const {
-        if (data.size() < m_size) {
-            throw std::runtime_error{
-                tinydpcppnn::format("Trying to copy {} elements, but vector size is only {}", m_size, data.size())};
-        }
-
-        copy_to_host(data.data(), m_size);
+    // Copy data from device to host
+    sycl::event copy_to_host(std::vector<T> &data) const {
+        assert(data.size() == m_size);
+        return m_q.memcpy(data.data(), m_data, get_bytes());
     }
 
     /// Copies size elements from another device array to this one, automatically
     /// resizing it
-    void copy_from_device(const DeviceMem<T> &other, const size_t size) {
-        if (size == 0) {
-            return;
-        }
+    sycl::event copy_from_device(const DeviceMem<T> &other) {
+        assert(other.m_size == m_size);
 
-        if (m_size < size) {
-            resize(size);
-        }
-
-        dpct::get_default_queue().memcpy(m_data, other.m_data, size * sizeof(T));
+        return m_q.memcpy(m_data, other.m_data, get_bytes());
     }
-
-    /// Copies data from another device array to this one, automatically resizing
-    /// it
-    void copy_from_device(const DeviceMem<T> &other) { copy_from_device(other, other.m_size); }
-
-    // Created an (owned) copy of the data
-    DeviceMem<T> copy(size_t size) const {
-        DeviceMem<T> result{size};
-        result.copy_from_device(*this);
-        return result;
-    }
-
-    DeviceMem<T> copy() const { return copy(m_size); }
 
     // Get the raw data pointer
-    T *data() const {
-        check_guards();
-        return m_data;
-    }
-    void set_values(int size, float *array, queue &q);
-    // Set data at a specific index
-    void set_data(int id, T value);
-
-    /** @name Resizing/enlargement
-     *  @{
-     */
-    /// Resizes the array to the exact new size, even if it is already larger
-    void resize(const size_t size);
-
-    /// Enlarges the array if its size is smaller
-    void enlarge(const size_t size);
-    /** @} */
-
-    /** @name Memset
-     *  @{
-     */
-    /// Sets the memory of the first num_elements to value
-    void memset(const int value, const size_t num_elements, const size_t offset = 0);
+    T const *data() const { return m_data; }
 
     /// Sets the memory of the all elements to value
-    void memset(const int value);
-
-    T &at(size_t idx) const {
-        if (!m_managed) {
-            throw std::runtime_error{tinydpcppnn::format("DeviceMem::at() not permitted if not managed.")};
-        }
-
-        if (idx > m_size) {
-            throw std::runtime_error{tinydpcppnn::format("DeviceMem out of bounds: idx={} size={}", idx, m_size)};
-        }
-
-        return m_data[idx];
-    }
-
-    T &operator[](size_t idx) const {
-#ifdef DEBUG_BUFFER_OVERRUN
-        if (idx > m_size) {
-            printf("WARNING: buffer overrun of %p at idx %zu\n", idx);
-        }
-#endif
-        return m_data[idx];
-    }
-
-    T &operator[](uint32_t idx) const {
-#ifdef DEBUG_BUFFER_OVERRUN
-        if (idx > m_size) {
-            printf("WARNING: buffer overrun of %p at idx %u\n", idx);
-        }
-#endif
-        return m_data[idx];
-    }
+    sycl::event fill(const T &value) { return m_q.fill(m_data, value, size()); }
 
     // Get the size of the memory allocation
-    size_t get_num_elements() const { return m_size; }
-    size_t size() const { return get_num_elements(); }
+    size_t size() const { return m_size; }
 
     // Get bytes of allocated memory size
     size_t get_bytes() const { return m_size * sizeof(T); }
 
-    // Synonym: Get bytes of allocated memory size
-    size_t bytes() const { return get_bytes(); }
+    static void save_to_file(const DeviceMem<T> &vec, std::string filename) {
+        // Open the file for writing
+        std::ofstream file;
+        file.open(filename);
+        if (!file.is_open()) {
+            std::cerr << "Error opening file: " << filename << std::endl;
+        }
 
-    // Initialize memory with values drawn from a normal distribution
-    void initialize_normal(double dev, DeviceMem<T> &transposed, int input_width, int width, int output_width,
-                           int n_hidden, queue q);
+        std::vector<T> host(vec.size());
+        vec.copy_to_host(host);
 
-    // Initialize memory with values drawn from a normal distribution
-    void initialize_normal(double dev, queue q);
+        // Write each value of the weights matrices to the file
+        for (int i = 0; i < host.size(); i++) {
+            file << (float)host[i] << "\n";
+        }
 
-    // Initialize memory with values drawn from a uniform distribution
-    void initialize_uniform(double scale, DeviceMem<T> &transposed, int input_width, int width, int output_width,
-                            int n_hidden, queue q);
-
-    // Transpose the memory content
-    void make_transposed(DeviceMem<T> &transposed, int input_width, int width, int output_width, int n_hidden, queue q);
-
-    // Initialize memory with values drawn from a uniform distribution
-    void initialize_uniform(queue q, double scale = 1.0);
-
-    // Initialize memory with values according to Xavier uniform initialization
-    void initialize_xavier_unif(DeviceMem<T> &transposed, int input_width, int width, int output_width, int n_hidden,
-                                queue q);
-
-    // Initialize memory with values according to Xavier uniform initialization
-    void initialize_xavier_unif(int input_width, int output_width, queue q);
-
-    // Initialize memory with values according to Xavier normal initialization
-    void initialize_xavier_normal(DeviceMem<T> &transposed, int input_width, int width, int output_width, int n_hidden,
-                                  queue q);
-
-    // Initialize memory with values according to Xavier normal initialization
-    void initialize_xavier_normal(int input_width, int output_width, queue q);
-
-    // Initialize memory with constant values
-    void initialize_constant(T constant, DeviceMem<T> &transposed, queue q);
-
-    // Initialize memory with constant values
-    void initialize_constant(T constant, queue q);
-
-    // Initialize memory with values according to He normal initialization
-    void initialize_he_normal(DeviceMem<T> &transposed, int input_width, int width, int output_width, int n_hidden,
-                              queue q);
-
-    // Initialize memory with values according to He normal initialization
-    void initialize_he_normal(int input_width, queue q);
-
-    void initialize_arange(queue q, int input_width, int net_width, int out_width, int hidden_matrices);
-    void initialize_arange(queue q);
-
-    void allocate_memory(size_t n_bytes);
-    void zero_pad_input(int input_width, int input_width_padded, int width, queue &q);
-    void zero_pad_output(int output_width, int input_width_padded, int width, int output_width_padded, int n_hidden,
-                         queue &q);
+        // Close the file
+        file.close();
+        return;
+    }
 };
 
 /// TODO: this can be a sub struct of the Arena
@@ -344,6 +118,7 @@ struct Interval {
 };
 
 class DeviceMemArena {
+
   public:
     DeviceMemArena() {
         static bool printed_warning = false;
@@ -408,7 +183,6 @@ class DeviceMemArena {
 
             if (m_base_address) {
                 ze_result_t res;
-                total_n_bytes_allocated() -= m_size;
 
                 res = zeVirtualMemUnmap(m_context, m_base_address, m_size);
                 if (res != ZE_RESULT_SUCCESS) throw std::runtime_error{"~DeviceMemArena: Could not unmap memory."};
@@ -539,7 +313,6 @@ class DeviceMemArena {
                                                          res)};
 
         m_size += n_bytes_to_allocate;
-        total_n_bytes_allocated() += n_bytes_to_allocate;
 
         q.wait();
     }

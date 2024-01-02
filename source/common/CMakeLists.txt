@@ -10,7 +10,6 @@ find_package(oneDPL REQUIRED)
 set(SOURCES
     common.cpp
     common_host.cpp
-    DeviceMem.cpp
 )
 
 add_library(common ${SOURCES})
