@@ -3,7 +3,6 @@
 
 #include <iostream>
 #include <sycl/sycl.hpp>
-#include <vector>
 
 #include "benchmark_inference.h"
 #include "mpi.h"

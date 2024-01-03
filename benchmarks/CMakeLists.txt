@@ -9,10 +9,14 @@ add_sycl_to_target(TARGET benchmark-inference SOURCES benchmark_inference.cpp)
 target_compile_options(benchmark-inference PUBLIC -qmkl)
 target_link_options(benchmark-inference PUBLIC -qmkl)
 target_link_libraries(benchmark-inference PUBLIC common network ${MPI_CXX_LIBRARIES})
-# target_include_directories(benchmark-inference PUBLIC
-#     "${PROJECT_SOURCE_DIR}/include/network/"
-#     "${PROJECT_SOURCE_DIR}/include/common/"
-# )
+
+add_executable(benchmark-training benchmark_training.cpp)
+add_sycl_to_target(TARGET benchmark-training SOURCES benchmark_training.cpp)
+target_compile_options(benchmark-training PUBLIC -qmkl)
+target_link_options(benchmark-training PUBLIC -qmkl)
+target_link_libraries(benchmark-training PUBLIC common network ${MPI_CXX_LIBRARIES})
+target_include_directories(benchmark-training PUBLIC "${PROJECT_SOURCE_DIR}/include/")
+
 
 # add_executable(benchmark-image benchmark_image_compression.cpp)
 # add_sycl_to_target(TARGET benchmark-image SOURCES benchmark_image_compression.cpp)

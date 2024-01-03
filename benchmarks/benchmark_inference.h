@@ -50,7 +50,7 @@ void benchmark_inference(const size_t batch_size, const int n_hidden_layers, con
     MPI_Barrier(MPI_COMM_WORLD);
     const auto end_time = std::chrono::steady_clock::now();
 
-    WritePerformanceData(begin_time, end_time, batch_size, WIDTH, n_hidden_layers, n_iterations, sizeof(T));
+    WritePerformanceDataInference(begin_time, end_time, batch_size, WIDTH, n_hidden_layers, n_iterations, sizeof(T));
 
     MPI_Barrier(MPI_COMM_WORLD);
 

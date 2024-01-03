@@ -365,8 +365,8 @@ std::vector<sycl::event> backward_impl_general(queue &q, T const *const __restri
                 reinterpret_cast<oneapi::mkl::bfloat16 *>(intermediate_output) + iter * M * WIDTH, WIDTH, 1.0f,
                 reinterpret_cast<oneapi::mkl::bfloat16 *>(output_ptr) + iter * WIDTH * WIDTH, WIDTH, {e});
         }
-    } else {
-        throw std::invalid_argument("Untested code path.");
+    } else if constexpr (!std::is_same<T, sycl::ext::oneapi::bfloat16>::value) {
+        // throw std::invalid_argument("Untested code path.");
         for (int iter = 0; iter < n_hidden_layers + 1; iter++) {
             events[iter] = oneapi::mkl::blas::row_major::gemm(
                 q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M, 1.0,

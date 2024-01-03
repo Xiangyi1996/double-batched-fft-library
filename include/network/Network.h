@@ -10,8 +10,6 @@ template <typename T> class Network {
             const int output_width)
         : m_q(q), n_hidden_layers_(n_hidden_layers), inputs_width_(inputs_width), network_width_(network_width),
           output_width_(output_width),
-          m_grads_matrices(network_width_ * (inputs_width_ + network_width_ * (n_hidden_layers_ - 1) + output_width_),
-                           m_q),
           m_weights_matrices(network_width_ * (inputs_width_ + network_width_ * (n_hidden_layers_ - 1) + output_width_),
                              m_q),
           m_weightsT_matrices(
@@ -29,8 +27,10 @@ template <typename T> class Network {
     virtual std::vector<sycl::event> inference(const DeviceMem<T> &input, DeviceMem<T> &output, const size_t batch_size,
                                                const std::vector<sycl::event> &deps) = 0;
 
-    // Perform backward pass through the network
-    virtual std::vector<sycl::event> backward_pass(const DeviceMem<T> &grads,
+    ///@brief input are the derivatives of the losses
+    /// output are the updates of the weights for the optimization step.
+    /// intermediate arrays are not used after this function
+    virtual std::vector<sycl::event> backward_pass(const DeviceMem<T> &input, DeviceMem<T> &output,
                                                    DeviceMem<T> &intermediate_output_backward,
                                                    const DeviceMem<T> &intermediate_output_forward,
                                                    const size_t batch_size, const std::vector<sycl::event> &deps) = 0;
@@ -66,7 +66,7 @@ template <typename T> class Network {
         TransposeWeights(m_weights_matrices, m_weightsT_matrices);
     }
 
-    virtual DeviceMem<T> &get_grads_matrices() { return m_grads_matrices; }
+    // this is the result from the backward pass. Not sure why this is here to be honest.
     virtual const DeviceMem<T> &get_weights_matrices() const { return m_weights_matrices; }
     virtual const DeviceMem<T> &get_weightsT_matrices() const { return m_weightsT_matrices; }
 
@@ -233,7 +233,6 @@ template <typename T> class Network {
     const int network_width_;
     const int output_width_;
 
-    DeviceMem<T> m_grads_matrices;
     DeviceMem<T> m_weights_matrices;
     DeviceMem<T> m_weightsT_matrices;
 };

@@ -102,7 +102,7 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
      * @param out_inter Intermediate array for storing outputs. This is filled as part of the backward pass
      * @param forward Pointer to the forward intermediate array which was filled in the forw pass
      */
-    std::vector<sycl::event> backward_pass(const DeviceMem<T> &grads, DeviceMem<T> &intermediate_output_backward,
+    std::vector<sycl::event> backward_pass(const DeviceMem<T> &input, DeviceMem<T> &output, DeviceMem<T> &intermediate_output_backward,
                                            const DeviceMem<T> &intermediate_output_forward, const size_t batch_size,
                                            const std::vector<sycl::event> &deps) override {
         if ((batch_size % 8) != 0) throw std::invalid_argument("Batch size is not divisible by 8.");
@@ -113,15 +113,15 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
         case Activation::None:
             return tinydpcppnn::kernels::esimd::backward_impl_general<T, CType, WIDTH, WIDTH, WIDTH, Activation::None,
                                                                       Activation::None, 16>(
-                Network<T>::get_queue(), Network<T>::get_weightsT_matrices().data(), grads.data(),
-                Network<T>::get_grads_matrices().data(), intermediate_output_backward.data(),
+                Network<T>::get_queue(), Network<T>::get_weightsT_matrices().data(), input.data(),
+                output.data(), intermediate_output_backward.data(),
                 intermediate_output_forward.data(), Network<T>::get_n_hidden_layers(), batch_size, deps);
             break;
         case Activation::ReLU:
             return tinydpcppnn::kernels::esimd::backward_impl_general<T, CType, WIDTH, WIDTH, WIDTH, Activation::ReLU,
                                                                       Activation::None, 16>(
-                Network<T>::get_queue(), Network<T>::get_weightsT_matrices().data(), grads.data(),
-                Network<T>::get_grads_matrices().data(), intermediate_output_backward.data(),
+                Network<T>::get_queue(), Network<T>::get_weightsT_matrices().data(), input.data(),
+                output.data(), intermediate_output_backward.data(),
                 intermediate_output_forward.data(), Network<T>::get_n_hidden_layers(), batch_size, deps);
 
         default:
