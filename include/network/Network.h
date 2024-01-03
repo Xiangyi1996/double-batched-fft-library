@@ -6,6 +6,10 @@
 // Base class for neural network
 template <typename T> class Network {
   public:
+    /// TODO: add parameter to constructor which indicates the initialization mode for the weights
+    /// Default value for that parameter should be "none". arange, const -, const +, he_normal, as below
+    /// OR: give a lambda function as input and apply it to every element.
+    /// Not quite clear how to do it yet.
     Network(sycl::queue &q, const int n_hidden_layers, const int inputs_width, const int network_width,
             const int output_width)
         : m_q(q), n_hidden_layers_(n_hidden_layers), inputs_width_(inputs_width), network_width_(network_width),
@@ -50,7 +54,7 @@ template <typename T> class Network {
 
     ///@brief initializes the weight matrices to pre-set values.
     ///@todo: remove this from the network class.
-    void initialize_weights_matrices(int mode) {
+    void initialize_weights_matrices(const int mode) {
         // Initialize weights matrices with uniform random values, you can choose a
         // different initialization ( see in DeviceMem.cpp )
 

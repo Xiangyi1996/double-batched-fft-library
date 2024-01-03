@@ -60,6 +60,14 @@ template <typename T> class DeviceMem {
         return m_q.memcpy(m_data, other.m_data, other.get_bytes());
     }
 
+    /// copy and cast from another device array.
+    /// Note that the size of the src array has to be equal or larger than the size of the target array
+    /// TODO: get rid of this.
+    template <typename Tsrc>
+    static sycl::event copy_from_device(const DeviceMem<T> &target, Tsrc const *const src, sycl::queue &q) {
+        return q.parallel_for(target.size(), [=](auto idx) { m_data[idx] = static_cast<T>(src[idx]); });
+    }
+
     // Get the raw data pointer
     T const *const data() const { return m_data; }
     T *const data() { return m_data; }
