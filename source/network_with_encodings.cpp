@@ -2,9 +2,10 @@
 #include "SwiftNetMLP.h"
 
 constexpr int WIDTH = 64;
-NetworkWithEncoding::NetworkWithEncoding(int input_width, int output_width, int n_hidden_layers, Activation activation,
+NetworkWithEncoding::NetworkWithEncoding(const int input_width, int output_width, int n_hidden_layers, Activation activation,
                                          Activation output_activation, std::string encoding_name,
-                                         const std::unordered_map<std::string, std::string> &encoding_config) {
+                                         const std::unordered_map<std::string, std::string> &encoding_config) 
+{
     m_q = sycl::queue();
 
     // if (encoding_name.find("Grid") !=
@@ -41,17 +42,16 @@ void NetworkWithEncoding::forward_pass(GPUMatrix<float> &input, int run_inferenc
     //   std::cout << "Input" << std::endl;
     //   input.print();
     // Declare all memory here. Bit ugly, but no other way
-    int net_width = network->get_net_width();
+    int net_width = network->get_network_width();
     int input_width = network->get_inputs_width();
     int n_hidden_layers = network->get_n_hidden_layers();
     int output_width = network->get_output_width();
-    int output_width_padded = network->get_padded_output_width();
     // Allocate and initialize various memory buffers
 
     std::cout << "FWD pass in network with ecndoings.cpp Batch size: " << batch_size << std::endl;
 
-    DeviceMem<bf16> network_input = DeviceMem<bf16>(m_encoding_output_width * batch_size, m_q);
-    GPUMatrix<float> encoding_output = GPUMatrix<float>(m_encoding_output_width, batch_size);
+    DeviceMem<bf16> network_input(m_encoding_output_width * batch_size, m_q);
+    GPUMatrix<float> encoding_output(m_encoding_output_width, batch_size);
 
     encoding->forward_impl(&m_q, input, &encoding_output);
     // std::cout << "Output encoding: " << std::endl;

@@ -1,11 +1,11 @@
-#include "gpu_matrix.h"
 // #include <cstdlib>
 // #include <ctime>
-// #include <fstream>
-// #include <iostream>
+#include <fstream>
+#include <iostream>
 #include <vector>
 
-void saveImageToPGM(const std::string &filename, int width, int height, const std::vector<unsigned char> &image) {
+void saveImageToPGM(const std::string &filename, const int width, const int height,
+                    const std::vector<unsigned char> &image) {
     // Create and open the output file
     std::ofstream outputFile(filename, std::ios::out | std::ios::binary);
 
@@ -37,11 +37,10 @@ bool areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector
         if (diff > tolerance) {
             is_same = false;
             count++;
-            // std::cout << "At " << i << ", Val: " << (double)value[i] << ", target: " << (double)target[i] <<
-            // std::endl;
+            std::cout << "At " << i << ", Val: " << (double)value[i] << ", target: " << (double)target[i] << std::endl;
         }
     }
-    if (!is_same) std::cout << count << "/" << target.size() << " are wrong. Max diff = " << max_diff << std::endl;
+    std::cout << count << "/" << target.size() << " are wrong. Max diff = " << max_diff << std::endl;
 
     // CHECK(is_same);
     return is_same;
@@ -67,12 +66,12 @@ template <typename T> std::vector<T> loadVectorFromCSV(const std::string &filena
     return data;
 }
 
-void saveCSV(const std::string &filename, const std::vector<float> &data) {
+template <typename T> void saveCSV(const std::string &filename, const std::vector<T> &data) {
     std::ofstream file(filename);
 
     if (file.is_open()) {
         for (const auto &value : data) {
-            file << value << std::endl;
+            file << (double)value << std::endl;
         }
         file.close();
     }
@@ -95,36 +94,37 @@ std::vector<float> loadCSV(const std::string &filename) {
     return data;
 }
 
-bool areVectorsWithinTolerance(const std::vector<bf16> &value, const std::vector<float> &target, float tolerance,
-                               int output_width) {
-    //   assert(a.size() == b.size());  // Ensure vectors have the same length
+// bool areVectorsWithinTolerance(const std::vector<bf16> &value, const std::vector<float> &target, float tolerance,
+//                                int output_width) {
+//     //   assert(a.size() == b.size());  // Ensure vectors have the same length
 
-    int total_values_checked = 0;
-    bool allWithinTolerance = true;
+//     int total_values_checked = 0;
+//     bool allWithinTolerance = true;
 
-    double max_diff = 0.0f;
-    for (size_t i = 0; i < value.size(); ++i) {
-        const double diff = std::abs((double)value[i] - target[i % output_width]);
-        max_diff = std::max<double>(diff, max_diff);
-        // std::cout << "Checking idx: " << i << std::endl;
-        total_values_checked++;
-        if (diff > tolerance) {
-            allWithinTolerance = false;
-            // std::cout << "Element at index " << i << " is not within tolerance. Value: " << value[i]
-            //           << ", Target: " << target[i % output_width] << ". Diff: " << diff << std::endl;
-        }
-    }
+//     double max_diff = 0.0f;
+//     for (size_t i = 0; i < value.size(); ++i) {
+//         const double diff = std::abs((double)value[i] - target[i % output_width]);
+//         max_diff = std::max<double>(diff, max_diff);
+//         // std::cout << "Checking idx: " << i << std::endl;
+//         total_values_checked++;
+//         if (diff > tolerance) {
+//             allWithinTolerance = false;
+//             // std::cout << "Element at index " << i << " is not within tolerance. Value: " << value[i]
+//             //           << ", Target: " << target[i % output_width] << ". Diff: " << diff << std::endl;
+//         }
+//     }
 
-    if (allWithinTolerance) {
+//     if (allWithinTolerance) {
 
-        std::cout << "All elements are within tolerance. Total values checked: " << total_values_checked << std::endl;
-    } else {
-        std::cout << "Not all elements are within tolerance.. Total values checked: " << total_values_checked
-                  << " , max diff = " << max_diff << std::endl;
-    }
+//         std::cout << "All elements are within tolerance. Total values checked: " << total_values_checked <<
+//         std::endl;
+//     } else {
+//         std::cout << "Not all elements are within tolerance.. Total values checked: " << total_values_checked
+//                   << " , max diff = " << max_diff << std::endl;
+//     }
 
-    return allWithinTolerance;
-}
+//     return allWithinTolerance;
+// }
 
 // Function to read target vectors from a file with a specified delimiter
 std::vector<std::vector<float>> readTargetVectorsFromFile(const std::string &filename, char delimiter) {

@@ -19,8 +19,8 @@ using namespace sycl;
 // A templated class for managing device memory
 template <typename T> class DeviceMem {
   private:
-    size_t m_size = 0;
-    const sycl::queue &m_q;
+    size_t m_size;
+    sycl::queue &m_q;
     T *m_data = nullptr;
 
   public:
@@ -33,7 +33,7 @@ template <typename T> class DeviceMem {
      * @param size               Size of the memory to allocate in elements.
      * @param queue              SYCL queue associated with the object.
      */
-    DeviceMem(const size_t size, const sycl::queue &q) : m_size(size), m_q(q) {
+    DeviceMem(const size_t size, sycl::queue &q) : m_size(size), m_q(q) {
         assert(m_size >= 0);
         m_data = sycl::malloc_device<T>(m_size, m_q);
     }
@@ -55,13 +55,14 @@ template <typename T> class DeviceMem {
     /// Copies size elements from another device array to this one, automatically
     /// resizing it
     sycl::event copy_from_device(const DeviceMem<T> &other) {
-        assert(other.m_size == m_size);
+        assert(other.m_size <= m_size);
 
-        return m_q.memcpy(m_data, other.m_data, get_bytes());
+        return m_q.memcpy(m_data, other.m_data, other.get_bytes());
     }
 
     // Get the raw data pointer
-    T const *data() const { return m_data; }
+    T const *const data() const { return m_data; }
+    T *const data() { return m_data; }
 
     /// Sets the memory of the all elements to value
     sycl::event fill(const T &value) { return m_q.fill(m_data, value, size()); }
@@ -81,7 +82,7 @@ template <typename T> class DeviceMem {
         }
 
         std::vector<T> host(vec.size());
-        vec.copy_to_host(host);
+        vec.copy_to_host(host).wait();
 
         // Write each value of the weights matrices to the file
         for (int i = 0; i < host.size(); i++) {
@@ -90,7 +91,6 @@ template <typename T> class DeviceMem {
 
         // Close the file
         file.close();
-        return;
     }
 };
 
@@ -156,7 +156,7 @@ class DeviceMemArena {
             }
         } catch (std::runtime_error &ex) {
             // Use regular memory as fallback
-            m_fallback_memory = std::make_shared<DeviceMem<uint8_t>>();
+            m_fallback_memory = std::make_shared<DeviceMem<uint8_t>>(0, q);
 
             if (!printed_warning) {
                 printed_warning = true;
@@ -276,7 +276,9 @@ class DeviceMemArena {
                 throw std::runtime_error{"DeviceMemArena::enlarge: Could not query page-size."};
 
             m_size = tinydpcppnn::math::next_multiple(tmp, page_size);
-            m_fallback_memory = std::make_shared<DeviceMem<uint8_t>>(m_fallback_memory->copy(m_size));
+            auto tmp_fallback_memory = std::make_shared<DeviceMem<uint8_t>>(m_size, q);
+            tmp_fallback_memory->copy_from_device(*m_fallback_memory).wait();
+            m_fallback_memory = tmp_fallback_memory;
 
             q.wait();
 

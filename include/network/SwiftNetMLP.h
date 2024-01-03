@@ -25,7 +25,7 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
      * @param output_activation  Activation function for the output layer.
      * @tparam WIDTH             Width of the matrices.
      */
-    SwiftNetMLP(const sycl::queue &q, const int input_width, const int output_width, const int n_hidden_layers,
+    SwiftNetMLP(sycl::queue &q, const int input_width, const int output_width, const int n_hidden_layers,
                 Activation activation, Activation output_activation)
         : Network<T>(q, n_hidden_layers, input_width, WIDTH, output_width), m_activation{activation},
           m_output_activation{output_activation} {
@@ -137,7 +137,7 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
     }
 
   private:
-    virtual void SanityCheck() const {
+    virtual void SanityCheck() const override {
         static_assert(WIDTH == 16 || WIDTH == 32 || WIDTH == 64 || WIDTH == 128);
 
         if (m_activation != Activation::ReLU) {
@@ -151,7 +151,7 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
     Activation m_activation;
     Activation m_output_activation;
 
-    using CType = tinydpcppnn::kernels::esimd::helpers::XMXCType<T>::CType;
+    using CType = typename tinydpcppnn::kernels::esimd::helpers::XMXCType<T>::CType;
 };
 
 #endif

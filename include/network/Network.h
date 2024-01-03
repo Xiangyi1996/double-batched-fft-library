@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DeviceMem.h"
+#include "common.h"
 
 // Base class for neural network
 template <typename T> class Network {
@@ -40,33 +41,32 @@ template <typename T> class Network {
                                               const std::vector<sycl::event> &deps) = 0;
 
     /// @brief Get the SYCL queue associated with the network
-    const queue &get_queue() const { return m_q; }
+    queue &get_queue() { return m_q; }
 
     virtual void set_weights_matrices(const std::vector<T> &weights) {
-        m_weights_matrices.copy_from_host(weights, m_q);
-        TansposeWeights(m_weights_matrices, m_weightsT_matrices);
+        m_weights_matrices.copy_from_host(weights);
+        TransposeWeights(m_weights_matrices, m_weightsT_matrices);
     };
 
     ///@brief initializes the weight matrices to pre-set values.
     ///@todo: remove this from the network class.
-    virtual void initialize_weights_matrices(int mode = 0) {
+    void initialize_weights_matrices(int mode) {
         // Initialize weights matrices with uniform random values, you can choose a
         // different initialization ( see in DeviceMem.cpp )
 
-        if (mode == 1) {
+        if (mode == 1)
             initialize_arange(m_weights_matrices, network_width_);
-        } else if (mode == 2) {
+        else if (mode == 2)
             initialize_constant(m_weights_matrices, 0.01);
-        } else if (mode == 3) {
+        else if (mode == 3)
             initialize_constant(m_weights_matrices, -0.01);
-        } else {
+        else
             initialize_he_normal(m_weights_matrices, inputs_width_);
-        }
 
         TransposeWeights(m_weights_matrices, m_weightsT_matrices);
     }
 
-    virtual const DeviceMem<T> &get_grads_matrices() const { return m_grads_matrices; }
+    virtual DeviceMem<T> &get_grads_matrices() { return m_grads_matrices; }
     virtual const DeviceMem<T> &get_weights_matrices() const { return m_weights_matrices; }
     virtual const DeviceMem<T> &get_weightsT_matrices() const { return m_weightsT_matrices; }
 
@@ -121,7 +121,7 @@ template <typename T> class Network {
     }
 
     // we are making this static void to avoid copying of this class to the device
-    static void TransposeWeightMatrix(T const *const in, const int M, const int N, T *const out, const sycl::queue &q) {
+    static void TransposeWeightMatrix(T const *const in, const int M, const int N, T *const out, sycl::queue &q) {
         q.parallel_for(sycl::range<1>(M * N), [=](auto idx) {
             const int i = idx / N;
             const int j = idx % N;
@@ -129,7 +129,7 @@ template <typename T> class Network {
         });
     }
 
-    void TansposeWeights(const DeviceMem<T> &weights, DeviceMem<T> &weightsT) {
+    void TransposeWeights(const DeviceMem<T> &weights, DeviceMem<T> &weightsT) {
         const size_t nelems = get_inputs_width() * get_network_width() +
                               get_n_hidden_matrices() * get_network_width() * get_network_width() +
                               get_network_width() * get_output_width();
@@ -214,9 +214,12 @@ template <typename T> class Network {
 
     static void initialize_arange(DeviceMem<T> &vec, const int range) {
         std::vector<T> tmp_host(vec.size());
-        for (size_t blockiter = 0; blockiter < vec.size(); blockiter += range) {
-            for (int rangeiter = 0; rangeiter < range; rangeiter++) {
-                tmp_host[blockiter + rangeiter] = static_cast<T>((rangeiter - (range / 2)) * 0.01);
+        for (size_t blockiter = 0; blockiter < vec.size(); blockiter += range * range) {
+            for (int rowiter = 0; rowiter < range; rowiter++) {
+                for (int coliter = 0; coliter < range; coliter++) {
+                    tmp_host[blockiter + rowiter * range + coliter] =
+                        static_cast<T>((rowiter + 1 - (range / 2)) * 0.01);
+                }
             }
         }
 
