@@ -34,7 +34,9 @@ template <typename T> class DeviceMem {
      * @param queue              SYCL queue associated with the object.
      */
     DeviceMem(const size_t size, sycl::queue &q) : m_size(size), m_q(q) {
-        assert(m_size >= 0);
+        // allocate less than 4 GB in one go.
+        if ((m_size * sizeof(T)) > ((size_t)4 * (1 << 30)))
+            throw std::invalid_argument("Trying to allocate too large DeviceMem (> 4GB).");
         m_data = sycl::malloc_device<T>(m_size, m_q);
     }
 
@@ -65,7 +67,7 @@ template <typename T> class DeviceMem {
     /// TODO: get rid of this.
     template <typename Tsrc>
     static sycl::event copy_from_device(const DeviceMem<T> &target, Tsrc const *const src, sycl::queue &q) {
-        return q.parallel_for(target.size(), [=](auto idx) { m_data[idx] = static_cast<T>(src[idx]); });
+        return q.parallel_for(target.size(), [=](auto idx) { target.m_data[idx] = static_cast<T>(src[idx]); });
     }
 
     // Get the raw data pointer

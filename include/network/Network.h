@@ -5,20 +5,21 @@
 
 // Base class for neural network
 template <typename T> class Network {
+
   public:
-    /// TODO: add parameter to constructor which indicates the initialization mode for the weights
-    /// Default value for that parameter should be "none". arange, const -, const +, he_normal, as below
-    /// OR: give a lambda function as input and apply it to every element.
-    /// Not quite clear how to do it yet.
+    enum WeightInitMode { arange, constant_pos, constant_negative, he_normal, none };
+
     Network(sycl::queue &q, const int n_hidden_layers, const int inputs_width, const int network_width,
-            const int output_width)
-        : m_q(q), n_hidden_layers_(n_hidden_layers), inputs_width_(inputs_width), network_width_(network_width),
-          output_width_(output_width),
-          m_weights_matrices(network_width_ * (inputs_width_ + network_width_ * (n_hidden_layers_ - 1) + output_width_),
-                             m_q),
+            const int output_width, const WeightInitMode mode)
+        : m_q(q), n_hidden_layers_(NonNegative(n_hidden_layers)), inputs_width_(PadWidths(inputs_width, network_width)),
+          network_width_(NonNegative(network_width)), output_width_(PadWidths(output_width, network_width)),
+          m_weights_matrices(
+              (size_t)network_width_ * (inputs_width_ + network_width_ * (n_hidden_layers_ - 1) + output_width_), m_q),
           m_weightsT_matrices(
-              network_width_ * (inputs_width_ + network_width_ * (n_hidden_layers_ - 1) + output_width_), m_q) {
+              (size_t)network_width_ * (inputs_width_ + network_width_ * (n_hidden_layers_ - 1) + output_width_), m_q) {
+
         SanityCheck();
+        initialize_weights_matrices(inputs_width, output_width, mode);
     }
 
     virtual ~Network() {}
@@ -51,24 +52,6 @@ template <typename T> class Network {
         m_weights_matrices.copy_from_host(weights);
         TransposeWeights(m_weights_matrices, m_weightsT_matrices);
     };
-
-    ///@brief initializes the weight matrices to pre-set values.
-    ///@todo: remove this from the network class.
-    void initialize_weights_matrices(const int mode) {
-        // Initialize weights matrices with uniform random values, you can choose a
-        // different initialization ( see in DeviceMem.cpp )
-
-        if (mode == 1)
-            initialize_arange(m_weights_matrices, network_width_);
-        else if (mode == 2)
-            initialize_constant(m_weights_matrices, 0.01);
-        else if (mode == 3)
-            initialize_constant(m_weights_matrices, -0.01);
-        else
-            initialize_he_normal(m_weights_matrices, inputs_width_);
-
-        TransposeWeights(m_weights_matrices, m_weightsT_matrices);
-    }
 
     // this is the result from the backward pass. Not sure why this is here to be honest.
     virtual const DeviceMem<T> &get_weights_matrices() const { return m_weights_matrices; }
@@ -120,8 +103,52 @@ template <typename T> class Network {
             throw std::invalid_argument("Network width has to be a power of 2 between 16 and 128.");
 
         if (network_width_ != inputs_width_ || network_width_ != output_width_)
-            throw std::invalid_argument(
-                "Right now, only networks with same input, layer and output width are allowed.");
+            throw std::invalid_argument("Only networks with same input, layer and output width are allowed.");
+    }
+
+    ///@brief Helper function which sets values of the weights matrices to 0 if
+    /// the actual input/output width was padded to the network-allowed input/output width.
+    void ZeroWeightsPadding(const int unpadded_input_width, const int unpadded_output_width) {
+        if (unpadded_input_width > inputs_width_ || unpadded_output_width > output_width_)
+            throw std::invalid_argument("Padded weights width cannot be less than the unpadded.");
+
+        T *const weights = m_weights_matrices.data();
+        /// we need to copy everything here since we do not want to have an implicit copy of 'this'
+        const int padded_input_width = get_inputs_width();
+        const int network_width = get_network_width();
+        const int padded_output_width = get_output_width();
+        const int output_offset =
+            get_n_hidden_matrices() * network_width * network_width + network_width * padded_input_width;
+
+        // input matrix: set rows to 0.
+        if (unpadded_input_width != padded_input_width) {
+            m_q.parallel_for(
+                   range<1>(padded_input_width * network_width),
+                   [=](id<1> idx) {
+                       const int i = idx / network_width; // rows
+                       const int j = idx % network_width; // cols
+
+                       if (i >= unpadded_input_width)
+                           weights[toPackedLayoutCoord(i * network_width + j, padded_input_width, network_width)] =
+                               static_cast<T>(0);
+                   })
+                .wait();
+        }
+
+        // output matrix set columns to 0
+        if (unpadded_output_width != padded_output_width) {
+            m_q.parallel_for(range<1>(padded_output_width * network_width),
+                             [=](id<1> idx) {
+                                 const int i = idx / padded_output_width; // rows
+                                 const int j = idx % padded_output_width; // cols
+
+                                 if (j >= unpadded_output_width)
+                                     weights[output_offset + toPackedLayoutCoord(i * padded_output_width + j,
+                                                                                 network_width, padded_output_width)] =
+                                         static_cast<T>(0);
+                             })
+                .wait();
+        }
     }
 
     // we are making this static void to avoid copying of this class to the device
@@ -156,6 +183,34 @@ template <typename T> class Network {
                               weightsT.data() + offset, m_q);
 
         m_q.wait();
+    }
+
+    ///@brief initializes the weight matrices to pre-set values.
+    /// Note that the network has in general no interest in knowing anything
+    /// about padding. Only when we initialize the weight matrix are we setting
+    /// certain elements to 0.
+    ///@todo: remove this from the network class.
+    void initialize_weights_matrices(const int unpadded_input_width, const int unpadded_output_width,
+                                     WeightInitMode mode) {
+        // Initialize weights matrices with uniform random values, you can choose a
+        // different initialization ( see in DeviceMem.cpp )
+
+        if (mode == WeightInitMode::arange)
+            initialize_arange(m_weights_matrices, network_width_);
+        else if (mode == WeightInitMode::constant_pos)
+            initialize_constant(m_weights_matrices, 0.01);
+        else if (mode == WeightInitMode::constant_negative)
+            initialize_constant(m_weights_matrices, -0.01);
+        else if (mode == WeightInitMode::he_normal)
+            initialize_he_normal(m_weights_matrices, network_width_);
+        else if (mode == WeightInitMode::none) // init to 0
+            initialize_constant(m_weights_matrices, 0);
+        else
+            throw std::invalid_argument("Invalid weights initialization mode.");
+
+        ZeroWeightsPadding(unpadded_input_width, unpadded_output_width);
+
+        TransposeWeights(m_weights_matrices, m_weightsT_matrices);
     }
 
     /**
@@ -228,6 +283,19 @@ template <typename T> class Network {
         }
 
         vec.copy_from_host(tmp_host).wait();
+    }
+
+    static int PadWidths(const int width, const int base) {
+        if (width <= 0) throw std::invalid_argument("width <= 0 cannot be padded.");
+        if (base <= 0) throw std::invalid_argument("base <= 0 cannot be used for padding.");
+
+        return ((width + base - 1) / base) * base;
+    }
+
+    static int NonNegative(const int number) {
+        if (number < 0) throw std::invalid_argument("Use non-negative number.");
+
+        return number;
     }
 
     sycl::queue &m_q;

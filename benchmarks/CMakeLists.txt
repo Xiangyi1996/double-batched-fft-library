@@ -6,16 +6,12 @@ find_package(MPI REQUIRED)
 
 add_executable(benchmark-inference benchmark_inference.cpp)
 add_sycl_to_target(TARGET benchmark-inference SOURCES benchmark_inference.cpp)
-target_compile_options(benchmark-inference PUBLIC -qmkl)
-target_link_options(benchmark-inference PUBLIC -qmkl)
-target_link_libraries(benchmark-inference PUBLIC common network ${MPI_CXX_LIBRARIES})
+target_link_libraries(benchmark-inference PRIVATE network ${MPI_CXX_LIBRARIES})
 
 add_executable(benchmark-training benchmark_training.cpp)
 add_sycl_to_target(TARGET benchmark-training SOURCES benchmark_training.cpp)
-target_compile_options(benchmark-training PUBLIC -qmkl)
-target_link_options(benchmark-training PUBLIC -qmkl)
-target_link_libraries(benchmark-training PUBLIC common network ${MPI_CXX_LIBRARIES})
-target_include_directories(benchmark-training PUBLIC "${PROJECT_SOURCE_DIR}/include/")
+target_link_libraries(benchmark-training PRIVATE network ${MPI_CXX_LIBRARIES})
+target_include_directories(benchmark-training PRIVATE "${PROJECT_SOURCE_DIR}/include/")
 
 
 # add_executable(benchmark-image benchmark_image_compression.cpp)

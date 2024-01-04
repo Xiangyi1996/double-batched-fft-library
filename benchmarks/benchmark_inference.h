@@ -17,7 +17,8 @@
 template <typename T, int WIDTH>
 void benchmark_inference(const size_t batch_size, const int n_hidden_layers, const int n_iterations, sycl::queue &q) {
 
-    WriteBenchmarkHeader("Inference", batch_size, WIDTH, n_hidden_layers, sizeof(T));
+    tinydpcppnn::benchmarks::common::WriteBenchmarkHeader("Inference", batch_size, WIDTH, n_hidden_layers, sizeof(T),
+                                                          q);
 
     constexpr int input_width = WIDTH;
     constexpr int output_width = WIDTH;
@@ -50,7 +51,8 @@ void benchmark_inference(const size_t batch_size, const int n_hidden_layers, con
     MPI_Barrier(MPI_COMM_WORLD);
     const auto end_time = std::chrono::steady_clock::now();
 
-    WritePerformanceDataInference(begin_time, end_time, batch_size, WIDTH, n_hidden_layers, n_iterations, sizeof(T));
+    tinydpcppnn::benchmarks::common::WritePerformanceDataInference(begin_time, end_time, batch_size, WIDTH,
+                                                                   n_hidden_layers, n_iterations, sizeof(T));
 
     MPI_Barrier(MPI_COMM_WORLD);
 

@@ -79,6 +79,12 @@ template <> struct XMXCType<sycl::half> {
 // in register everything is in block major format with blocks of size TMxTK
 template <int TM, int TK, int WIDTH, cache_hint L1, cache_hint L3, int TMWIDTH, typename T>
 SYCL_ESIMD_FUNCTION MY_STATIC MY_INLINE void storeRow(simd<T, TMWIDTH> &src, T *const dest) {
+
+    static_assert(TM >= 1 && TM <= 8);
+    static_assert(WIDTH % TK == 0);
+    static_assert(TMWIDTH == TM * WIDTH);
+    static_assert(sizeof(T) <= 4);
+
     constexpr int rows_per_load = std::min<int>(512 / (WIDTH * sizeof(T)), TM);
     auto src_2d = src.template bit_cast_view<T, TMWIDTH / TK, TK>(); // block major
 
@@ -110,14 +116,21 @@ SYCL_ESIMD_FUNCTION MY_STATIC MY_INLINE void storeRow(simd<T, TMWIDTH> &src, T *
 // in register everything is in block major format with blocks of size TMxTK
 template <int TM, int TK, int WIDTH, cache_hint L1, cache_hint L3, int TMWIDTH, typename T>
 SYCL_ESIMD_FUNCTION MY_STATIC MY_INLINE void loadRow(T const *const src, simd<T, TMWIDTH> &dest) {
-
-    constexpr int blocks_per_load = std::max<int>(1, 4 / sizeof(T));
+    static_assert(TM >= 1 && TM <= 8);
+    static_assert(WIDTH % TK == 0);
+    static_assert(TMWIDTH == TM * WIDTH);
+    static_assert(sizeof(T) <= 4);
+    constexpr int elems_per_pos = 4 / sizeof(T);
+    constexpr int blocks_per_load = TK * elems_per_pos > WIDTH ? 1 : elems_per_pos;
     constexpr int nloads = WIDTH / (TK * blocks_per_load);
+    static_assert(nloads > 0);
+
     auto dest_int = dest.template bit_cast_view<int32_t>();
 #pragma unroll
     for (int load_iter = 0; load_iter < nloads; load_iter++) {
-        dest_int.template select<TM * TK, 1>(TM * TK * load_iter) =
-            lsc_load_2d<int32_t, TK / blocks_per_load, TM, blocks_per_load, false, false, L1, L3>(
+        dest_int.template select<TM * TK / elems_per_pos * blocks_per_load, 1>(TM * TK / elems_per_pos *
+                                                                               blocks_per_load * load_iter) =
+            lsc_load_2d<int32_t, TK / elems_per_pos, TM, blocks_per_load, false, false, L1, L3>(
                 reinterpret_cast<int32_t const *>(src), WIDTH * sizeof(T) - 1, TM - 1, WIDTH * sizeof(T) - 1,
                 load_iter * TK, 0);
     }
@@ -127,8 +140,13 @@ SYCL_ESIMD_FUNCTION MY_STATIC MY_INLINE void loadRow(T const *const src, simd<T,
 template <int TM, int TK, int TN, int TMWIDTH, typename Ta, typename Tc>
 SYCL_ESIMD_FUNCTION MY_STATIC MY_INLINE void MAD(simd<Ta, TMWIDTH> &As, Ta const *const __restrict__ B,
                                                  simd<Tc, TMWIDTH> &Cs) {
-
+    static_assert(TM >= 1 && TM <= 8);
+    static_assert(TN == 16 || TN == 8);
+    static_assert(TMWIDTH % TM == 0);
     constexpr int WIDTH = TMWIDTH / TM;
+    static_assert(WIDTH % TK == 0 && WIDTH % TN == 0);
+    static_assert(sizeof(Ta) <= 4 && sizeof(Tc) <= 4);
+
     constexpr int vnni_factor = std::max<int>(1, 4 / sizeof(Ta));
 #pragma collapse 2 unroll
     for (int iterA = 0; iterA < TMWIDTH; iterA += TM * TK) {
@@ -148,7 +166,10 @@ SYCL_ESIMD_FUNCTION MY_STATIC MY_INLINE void MAD(simd<Ta, TMWIDTH> &As, Ta const
 
 template <Activation act, int TM, int TK, int TN, typename Tin, typename Tout, int N>
 SYCL_ESIMD_FUNCTION MY_STATIC MY_INLINE void applyActivation(simd<Tin, N> &Src, simd<Tout, N> &Dest) {
-    static_assert(TK == TN); // otherwise we would need to reshuffle
+    static_assert(TM >= 1 && TM <= 8);
+    static_assert(TN == 16 || TN == 8);
+    static_assert(TK == TN); // otherwise we would need to reshuffle due to block major format
+
     if constexpr (act == Activation::None)
         Dest = convert<Tout, Tin>(Src);
     else if constexpr (act == Activation::ReLU)
@@ -277,7 +298,7 @@ std::vector<sycl::event> forward_impl_general(sycl::queue &q, T const *const __r
             // save slm to HBM
             if constexpr (!INFERENCE)
                 helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::write_back>(
-                    As, intermediate_output + n_hidden_layers * M * WIDTH + layer_offset_A);
+                    As, intermediate_output + (n_hidden_layers + 1) * M * WIDTH + layer_offset_A);
             else if constexpr (INFERENCE) // storing at the beginning since no intermediate results
                 helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::write_back>(As, intermediate_output +
                                                                                                        layer_offset_A);
@@ -289,7 +310,7 @@ std::vector<sycl::event> forward_impl_general(sycl::queue &q, T const *const __r
 
 template <typename T, typename Tc, int INPUT_WIDTH, int WIDTH, int OUTPUT_WIDTH, Activation activation,
           Activation output_activation, size_t TN>
-std::vector<sycl::event> backward_impl_general(queue &q, T const *const __restrict__ weights_ptr,
+std::vector<sycl::event> backward_impl_general(sycl::queue &q, T const *const __restrict__ weights_ptr,
                                                T const *const __restrict__ inputs_ptr, T *const __restrict__ output_ptr,
                                                T *const __restrict__ intermediate_output,
                                                T const *const __restrict__ forward, const int n_hidden_layers,
@@ -317,10 +338,10 @@ std::vector<sycl::event> backward_impl_general(queue &q, T const *const __restri
     // TK depends on the datatype T
     constexpr size_t TK = 8 * std::min<size_t>(8, 32 / (8 * sizeof(T)));
 
-    auto e = q.submit([&](handler &cgh) {
+    auto e = q.submit([&](sycl::handler &cgh) {
         cgh.depends_on(deps);
 
-        cgh.parallel_for(sycl::nd_range<1>(M / TM, ITEMS_IN_WG), [=](nd_item<1> item) SYCL_ESIMD_KERNEL {
+        cgh.parallel_for(sycl::nd_range<1>(M / TM, ITEMS_IN_WG), [=](sycl::nd_item<1> item) SYCL_ESIMD_KERNEL {
             const int item_offset_A = item.get_global_linear_id() * WIDTH * TM;
             int layer_offset_A = n_hidden_layers * M * WIDTH + item_offset_A;
 

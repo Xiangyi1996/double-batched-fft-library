@@ -20,7 +20,8 @@
 template <typename T, int WIDTH>
 void benchmark_training(const size_t batch_size, const int n_hidden_layers, const int n_iterations, sycl::queue &q) {
 
-    WriteBenchmarkHeader("Training (forw+backw, no opt, no loss)", batch_size, WIDTH, n_hidden_layers, sizeof(T));
+    tinydpcppnn::benchmarks::common::WriteBenchmarkHeader("Training (forw+backw, no opt, no loss)", batch_size, WIDTH,
+                                                          n_hidden_layers, sizeof(T), q);
 
     constexpr int input_width = WIDTH;
     constexpr int output_width = WIDTH;
@@ -62,10 +63,14 @@ void benchmark_training(const size_t batch_size, const int n_hidden_layers, cons
     MPI_Barrier(MPI_COMM_WORLD);
     const auto end_time = std::chrono::steady_clock::now();
 
-    WritePerformanceDataTraining(begin_time, end_time, batch_size, WIDTH, n_hidden_layers, n_iterations, sizeof(T));
+    tinydpcppnn::benchmarks::common::WritePerformanceDataTraining(begin_time, end_time, batch_size, WIDTH,
+                                                                  n_hidden_layers, n_iterations, sizeof(T));
 
     MPI_Barrier(MPI_COMM_WORLD);
 
+    // Now do a simple correctness check
+    // TODO: check all the elements in the interm forw array.
+    // expect that the output of the backward pass is 0 since losses are set to 0
     std::vector<T> expected_result(outputs_backw.size(), 0);
 
     std::vector<T> out_host(expected_result.size(), 0);

@@ -23,6 +23,9 @@ find_package(MPI REQUIRED)
 
 add_library(network INTERFACE)
 target_include_directories(network INTERFACE "${PROJECT_SOURCE_DIR}/include/network/")
+target_link_libraries(network INTERFACE common)
+target_compile_options(network INTERFACE -qmkl)
+target_link_options(network INTERFACE -qmkl)
 
 
 # add_library(swiftnetmlp ${SOURCES})

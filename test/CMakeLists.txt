@@ -30,7 +30,7 @@ add_common_flags(test-lib)
 
 add_executable(test-swiftnet doctest_swiftnet.cpp)
 add_sycl_to_target(TARGET test-swiftnet SOURCES doctest_swiftnet.cpp)
-target_link_libraries(test-swiftnet PRIVATE test-lib swiftnetmlp)
+target_link_libraries(test-swiftnet PRIVATE test-lib network)
 doctest_discover_tests(test-swiftnet)
 
 # add_executable(test-devicemem doctest_devicemem.cpp)
