@@ -58,18 +58,8 @@ template <typename T> class GPUMatrixDynamic : public GPUMatrixBase {
   public:
     using Type = T;
 
-    // Owning its memory as a DeviceMem<T>
-    GPUMatrixDynamic(uint32_t m, uint32_t n, MatrixLayout layout = MatrixLayout::ColumnMajor)
-        : m_rows{m}, m_cols{n}, m_layout{layout} {
-        sycl::queue stream;
-        m_malloc_allocation = std::make_shared<DeviceMem<uint8_t>>(m * n * sizeof(T));
-        m_data = (T *)m_malloc_allocation->data();
-        set_stride_contiguous();
-    }
-
     GPUMatrixDynamic(uint32_t m, uint32_t n, sycl::queue &stream, MatrixLayout layout = MatrixLayout::ColumnMajor)
         : m_rows{m}, m_cols{n}, m_layout{layout} {
-        m_arena_allocation = nullptr;
         m_malloc_allocation = std::make_shared<DeviceMem<uint8_t>>(m * n * sizeof(T), stream);
         m_data = (T *)m_malloc_allocation->data();
         set_stride_contiguous();
@@ -90,7 +80,6 @@ template <typename T> class GPUMatrixDynamic : public GPUMatrixBase {
         std::swap(m_stride, other.m_stride);
         std::swap(m_layout, other.m_layout);
         std::swap(m_malloc_allocation, other.m_malloc_allocation);
-        std::swap(m_arena_allocation, other.m_arena_allocation);
         return *this;
     }
 
@@ -137,16 +126,14 @@ template <typename T> class GPUMatrixDynamic : public GPUMatrixBase {
     void set_stride_contiguous() { m_stride = stride_contiguous(); }
 
     GPUMatrixDynamic<T> slice(uint32_t offset_rows, uint32_t new_rows, uint32_t offset_cols, uint32_t new_cols) const {
-        return GPUMatrixDynamic<T>{
-            data() + (layout() == MatrixLayout::ColumnMajor ? (offset_rows + offset_cols * stride())
-                                                            : (offset_cols + offset_rows * stride())),
-            new_rows,
-            new_cols,
-            layout(),
-            stride(),
-            m_malloc_allocation,
-            m_arena_allocation,
-        };
+        return GPUMatrixDynamic<T>{data() + (layout() == MatrixLayout::ColumnMajor
+                                                 ? (offset_rows + offset_cols * stride())
+                                                 : (offset_cols + offset_rows * stride())),
+                                   new_rows,
+                                   new_cols,
+                                   layout(),
+                                   stride(),
+                                   m_malloc_allocation};
     }
 
     GPUMatrixDynamic<T> slice_rows(uint32_t offset, uint32_t size) const { return slice(offset, size, 0, cols()); }
@@ -213,20 +200,17 @@ template <typename T> class GPUMatrixDynamic : public GPUMatrixBase {
     }
 
     GPUMatrixDynamic<T> transposed() const {
-        return GPUMatrixDynamic<T>(data(), n(), m(), transposed_layout(), stride(), m_malloc_allocation,
-                                   m_arena_allocation);
+        return GPUMatrixDynamic<T>(data(), n(), m(), transposed_layout(), stride(), m_malloc_allocation);
     }
 
     GPUMatrix<T, MatrixLayout::RowMajor> rm() const {
         CHECK_THROW(m_layout == MatrixLayout::RowMajor);
-        return GPUMatrix<T, MatrixLayout::RowMajor>(data(), m(), n(), stride(), m_malloc_allocation,
-                                                    m_arena_allocation);
+        return GPUMatrix<T, MatrixLayout::RowMajor>(data(), m(), n(), stride(), m_malloc_allocation);
     }
 
     GPUMatrix<T, MatrixLayout::ColumnMajor> cm() const {
         CHECK_THROW(m_layout == MatrixLayout::ColumnMajor);
-        return GPUMatrix<T, MatrixLayout::ColumnMajor>(data(), m(), n(), stride(), m_malloc_allocation,
-                                                       m_arena_allocation);
+        return GPUMatrix<T, MatrixLayout::ColumnMajor>(data(), m(), n(), stride(), m_malloc_allocation);
     }
 
   private:
@@ -237,7 +221,6 @@ template <typename T> class GPUMatrixDynamic : public GPUMatrixBase {
     // References to corresponding memory allocations. These ensure that
     // m_data does not accidentally become dangling.
     std::shared_ptr<DeviceMem<uint8_t>> m_malloc_allocation;
-    std::shared_ptr<void> m_arena_allocation;
 };
 
 template <typename T, MatrixLayout _layout = MatrixLayout::ColumnMajor> class GPUMatrix : public GPUMatrixDynamic<T> {
@@ -245,9 +228,6 @@ template <typename T, MatrixLayout _layout = MatrixLayout::ColumnMajor> class GP
     static const MatrixLayout static_layout = _layout;
     static const MatrixLayout static_transposed_layout =
         _layout == MatrixLayout::RowMajor ? MatrixLayout::ColumnMajor : MatrixLayout::RowMajor;
-
-    // Owning its memory as a DeviceMem<T>
-    GPUMatrix(uint32_t m, uint32_t n) : GPUMatrixDynamic<T>{m, n, static_layout} {}
 
     // Owning its memory as an allocation from a stream's memory arena
     GPUMatrix(uint32_t m, uint32_t n, sycl::queue &stream) : GPUMatrixDynamic<T>{m, n, stream, static_layout} {}

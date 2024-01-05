@@ -37,12 +37,12 @@ class NetworkWithEncoding {
         const int n_hidden_layers = network_->get_n_hidden_layers();
 
         DeviceMem<bf16> network_input(network_input_width * batch_size, m_q);
-        GPUMatrix<float> encoding_output(network_input_width, batch_size);
+        GPUMatrix<float> encoding_output(network_input_width, batch_size, m_q);
 
         encoding_->forward_impl(&m_q, input, &encoding_output);
         m_q.wait();
 
-        DeviceMem<bf16>::copy_from_device(network_input, encoding_output.data(), m_q).wait();
+        DeviceMem<bf16>::copy_from_device<float>(network_input, encoding_output.data(), m_q).wait();
         return network_->inference(network_input, network_output, batch_size, deps);
     }
 
@@ -53,7 +53,7 @@ class NetworkWithEncoding {
         const int n_hidden_layers = network_->get_n_hidden_layers();
 
         DeviceMem<bf16> network_input(network_input_width * batch_size, m_q);
-        GPUMatrix<float> encoding_output(network_input_width, batch_size);
+        GPUMatrix<float> encoding_output(network_input_width, batch_size, m_q);
 
         encoding_->forward_impl(&m_q, input, &encoding_output);
         m_q.wait();

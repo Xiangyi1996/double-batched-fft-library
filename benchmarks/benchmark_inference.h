@@ -31,8 +31,8 @@ void benchmark_inference(const size_t batch_size, const int n_hidden_layers, con
     output.fill(0);
 
     // need a factory here for different widths
-    SwiftNetMLP<T, WIDTH> network(q, input_width, output_width, n_hidden_layers, Activation::ReLU, Activation::None);
-    network.initialize_weights_matrices(2); // sets it to 0.01;
+    SwiftNetMLP<T, WIDTH> network(q, input_width, output_width, n_hidden_layers, Activation::ReLU, Activation::None,
+                                  Network<T>::WeightInitMode::constant_pos);
 
     constexpr int n_iterations_warmup = 5;
     // Do a warmup loop, not benched.

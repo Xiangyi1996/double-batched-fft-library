@@ -182,20 +182,12 @@ template <typename T> class IdentityEncoding : public Encoding<T> {
 
     uint32_t output_width() const override { return padded_output_width(); }
 
-    uint32_t required_input_alignment() const override { return 1; }
-
     void set_padded_output_width(uint32_t padded_output_width) override {
         CHECK_THROW(padded_output_width >= m_n_output_dims);
         m_n_to_pad = padded_output_width - m_n_output_dims;
     }
 
-    uint32_t required_output_alignment() const override { return 1; }
-
-    MatrixLayout preferred_output_layout() const override { return MatrixLayout::AoS; }
-
-    void initialize_params(float *params_full_precision, float scale = 1) override {
-        std::cout << "Identity has no params" << std::endl;
-    };
+    void initialize_params(float *params_full_precision, float scale = 1) override {}
 
   private:
     uint32_t m_n_dims_to_encode;

@@ -29,8 +29,10 @@ void benchmark_training(const size_t batch_size, const int n_hidden_layers, cons
     DeviceMem<T> inputs(input_width * batch_size, q);
     DeviceMem<T> outputs_backw(input_width * WIDTH + output_width * WIDTH + (n_hidden_layers - 1) * WIDTH * WIDTH, q);
     DeviceMem<T> losses(batch_size * output_width, q);
-    const size_t out_inter_forw_size = batch_size * (input_width + output_width + WIDTH * n_hidden_layers);
-    const size_t out_inter_backw_size = batch_size * WIDTH * (n_hidden_layers + 1);
+    const size_t out_inter_forw_size =
+        batch_size * (input_width + output_width +
+                      WIDTH * n_hidden_layers); // includes input and output (thus +1 of the back interm)
+    const size_t out_inter_backw_size = batch_size * (output_width + WIDTH * n_hidden_layers);
     DeviceMem<T> out_inter_forw(out_inter_forw_size, q);
     DeviceMem<T> out_inter_backw(out_inter_backw_size, q);
 
@@ -40,8 +42,8 @@ void benchmark_training(const size_t batch_size, const int n_hidden_layers, cons
     losses.fill(0);
 
     // need a factory here for different widths
-    SwiftNetMLP<T, WIDTH> network(q, input_width, output_width, n_hidden_layers, Activation::ReLU, Activation::None);
-    network.initialize_weights_matrices(2); // sets it to 0.01;
+    SwiftNetMLP<T, WIDTH> network(q, input_width, output_width, n_hidden_layers, Activation::ReLU, Activation::None,
+                                  Network<T>::WeightInitMode::constant_pos);
 
     Trainer<T> train(&network);
 

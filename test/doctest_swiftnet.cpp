@@ -16,6 +16,38 @@ float calculateMAPE(float prediction, float reference) {
 }
 
 template <typename T, int WIDTH>
+void test_inference_1layer(sycl::queue &q, const int input_width, const int output_width, const int batch_size) {
+
+    constexpr int n_hidden_layers = 1;
+    constexpr float input_val = 1.0f;
+    // setting Network<T>::WeightInitMode::constant_pos sets the weights to this value
+    constexpr float weight_val = 0.01f;
+
+    SwiftNetMLP<T, WIDTH> network(q, input_width, output_width, n_hidden_layers, Activation::ReLU, Activation::None,
+                                  Network<T>::WeightInitMode::constant_pos);
+
+    DeviceMem<T> network_output(batch_size * network.get_output_width(), q);
+    DeviceMem<T> network_input(network.get_inputs_width() * batch_size, q);
+
+    network_input.fill(input_val);
+
+    network.forward_pass(network_input, network_output, batch_size, {});
+
+    q.wait();
+
+    std::vector<T> out_host(network_output.size());
+    network_output.copy_to_host(out_host).wait();
+
+    for (int output_idx = 0; output_idx < out_host.size(); output_idx++) {
+
+        const int nonzero_value = (output_idx % network.get_output_width()) < output_width ? 1 : 0;
+        const double ref_result =
+            nonzero_value * weight_val * input_width * input_val * network.get_network_width() * weight_val;
+        CHECK(static_cast<double>(out_host[output_idx]) == doctest::Approx(ref_result).epsilon(1e-3));
+    }
+}
+
+template <typename T, int WIDTH>
 void test_forward_1layer(sycl::queue &q, const int input_width, const int output_width, const int batch_size) {
 
     constexpr int n_hidden_layers = 1;
@@ -53,7 +85,7 @@ void test_forward_1layer(sycl::queue &q, const int input_width, const int output
             // std::cout << static_cast<double>(fwd_host[i]) << ", ";
         } else {
             const int output_idx = i - batch_size * (network.get_inputs_width() + network.get_network_width());
-            const int nonzero_value = (output_idx % network.get_output_width()) < output_width;
+            const int nonzero_value = (output_idx % network.get_output_width()) < output_width ? 1 : 0;
             const double ref_result =
                 nonzero_value * weight_val * input_width * input_val * network.get_network_width() * weight_val;
             CHECK(static_cast<double>(fwd_host[i]) == doctest::Approx(ref_result).epsilon(1e-3));
@@ -419,6 +451,37 @@ TEST_CASE("Swiftnet - zero pad forward_pass WIDTH 64") {
         typedef sycl::ext::oneapi::bfloat16 T;
         constexpr int WIDTH = 64;
         test_forward_1layer<T, WIDTH>(q, input_width, output_width, 8);
+    };
+
+    SUBCASE("No Pad") {
+        constexpr int input_width = 64;
+        constexpr int output_width = 64;
+        test_function(input_width, output_width, q);
+    }
+    SUBCASE("Input Pad") {
+        constexpr int input_width = 3;
+        constexpr int output_width = 64;
+        test_function(input_width, output_width, q);
+    }
+    SUBCASE("Output Pad") {
+        constexpr int input_width = 64;
+        constexpr int output_width = 7;
+        test_function(input_width, output_width, q);
+    }
+    SUBCASE("Input and Output Pad") {
+        constexpr int input_width = 3;
+        constexpr int output_width = 5;
+        test_function(input_width, output_width, q);
+    }
+}
+
+TEST_CASE("Swiftnet - zero pad inference WIDTH 64") {
+    sycl::queue q(sycl::gpu_selector_v);
+
+    auto test_function = [=](const int input_width, const int output_width, sycl::queue &q) {
+        typedef sycl::ext::oneapi::bfloat16 T;
+        constexpr int WIDTH = 64;
+        test_inference_1layer<T, WIDTH>(q, input_width, output_width, 8);
     };
 
     SUBCASE("No Pad") {

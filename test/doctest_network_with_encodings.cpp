@@ -41,7 +41,7 @@ template <typename T, int WIDTH = 64> void test_network_with_encoding(sycl::queu
     static_assert(encoding_output_width >= 32); // TODO: generalize min encoding output size
 
     SwiftNetMLP<T, WIDTH> network(q, input_width, unpadded_output_width, n_hidden_layers, Activation::ReLU,
-                                  Activation::None, Network<T>::WeightInitMode::none);
+                                  Activation::None, Network<T>::WeightInitMode::constant_pos);
     q.wait();
     assert(input_width == network.get_inputs_width());
     assert(output_width == network.get_output_width());
@@ -60,7 +60,7 @@ template <typename T, int WIDTH = 64> void test_network_with_encoding(sycl::queu
     GridEncoding<float> *encoding = create_grid_encoding<float>(encoding_input_width, encoding_json);
 
     std::vector<float> params =
-        loadVectorFromCSV<float>("../test/ref_values/network_with_grid_encoding/full/encoding_params.csv");
+        loadVectorFromCSV<float>("../../test/ref_values/network_with_grid_encoding/full/encoding_params.csv");
     assert(params.size() == encoding->n_params());
 
     DeviceMem<float> params_full_precision(encoding->n_params(), q);
@@ -72,6 +72,12 @@ template <typename T, int WIDTH = 64> void test_network_with_encoding(sycl::queu
     q.wait();
 
     DeviceMem<T>::copy_from_device(inputs, output_encoding.data(), q).wait();
+    std::vector<T> input_host(inputs.size());
+    inputs.copy_to_host(input_host).wait();
+    for (auto val : input_host) {
+        std::cout << val << ", ";
+    }
+    std::cout << std::endl;
 
     DeviceMem<T> output_network(batch_size * output_width, q);
     network.inference(inputs, output_network, batch_size, {});
@@ -80,7 +86,13 @@ template <typename T, int WIDTH = 64> void test_network_with_encoding(sycl::queu
     std::vector<T> out_host(output_network.size());
     output_network.copy_to_host(out_host).wait();
     std::vector<float> output_ref =
-        loadVectorFromCSV<float>("../test/ref_values/network_with_grid_encoding/full/network_output.csv");
+        loadVectorFromCSV<float>("../../test/ref_values/network_with_grid_encoding/full/network_output.csv");
+
+    std::cout << "output_ref size = " << output_ref.size() << std::endl;
+    for (auto val : out_host) {
+        std::cout << val << ", ";
+    }
+    std::cout << std::endl;
 
     CHECK(areVectorsWithinTolerance(out_host, output_ref, 1e-3));
 

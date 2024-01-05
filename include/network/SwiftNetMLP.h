@@ -47,6 +47,9 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
                                           const size_t batch_size, const std::vector<sycl::event> &deps) override {
         SanityCheckForward(input, intermediate_output_forward, batch_size);
 
+        // input = batch_size * input_width 1) W = input_width*WIDTH, (n_hidden_layer-1)*WIDTH*WIDTH, WIDTH*output_width
+        // intermediate_output_forward = batch_size * (input_width + n_hidden_layer*WIDTH + output_width)
+
         // Perform forward pass based on activation function
         switch (m_activation) {
         case Activation::None:
@@ -107,6 +110,14 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
                                            const DeviceMem<T> &intermediate_output_forward, const size_t batch_size,
                                            const std::vector<sycl::event> &deps) override {
         SanityCheckBackward(input, output, intermediate_output_backward, intermediate_output_forward, batch_size);
+
+        // input = loss : batch_size*output_width
+        // W^T = output_width*WIDTH, (n_hidden_layer-1)*WIDTH*WIDTH, WIDTH*input_width
+        // intermediate_output_backward : batch_size*output_width,
+        // n_hidden_layer*batch_size*WIDTH,batch_size*input_width intermediate_output_forward = batch_size *
+        // (input_width + n_hidden_layer*WIDTH + output_width) output = gradients of loss wrt to weights : SOllten selbe
+        // dimensionen wie weights haben output = intermediate_output_forw^T * interm_output_backw für jedes W :
+        // input_width*input_width, (n_hidden_layer-1)WIDTH*WIDTH, output_width*output_width
 
         // Choose appropriate mlp_swiftnet_backward based on activation
         // We are onyl doinh output_activation==none right now
@@ -178,12 +189,11 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
             throw std::invalid_argument("Input array in backward pass too small");
         if (intermediate_output_forward.size() <
             batch_size * (Network<T>::get_inputs_width() + Network<T>::get_output_width() +
-                          WIDTH * Network<T>::get_n_hidden_layers()))
+                          WIDTH * Network<T>::get_n_hidden_matrices()))
             throw std::invalid_argument("intermediate_output_forward array too small");
         if (intermediate_output_backward.size() <
-            batch_size * (Network<T>::get_inputs_width() + Network<T>::get_output_width() +
-                          WIDTH * Network<T>::get_n_hidden_layers()))
-            throw std::invalid_argument("intermediate_output_forward array too small");
+            batch_size * (Network<T>::get_output_width() + WIDTH * Network<T>::get_n_hidden_layers()))
+            throw std::invalid_argument("intermediate_output_backward array too small");
         if (output.size() < WIDTH * (Network<T>::get_n_hidden_matrices() * WIDTH + Network<T>::get_inputs_width() +
                                      Network<T>::get_output_width()))
             throw std::invalid_argument("Output of backward pass too small.");

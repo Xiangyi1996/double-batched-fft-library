@@ -1545,16 +1545,10 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
     uint32_t output_width() const override { return padded_output_width(); }
 
-    uint32_t required_input_alignment() const override { return 1; }
-
     void set_padded_output_width(uint32_t padded_output_width) override {
         CHECK_THROW(padded_output_width >= m_n_output_dims);
         m_n_to_pad = padded_output_width - m_n_output_dims;
     }
-
-    uint32_t required_output_alignment() const override { return N_FEATURES_PER_LEVEL; }
-
-    MatrixLayout preferred_output_layout() const override { return MatrixLayout::SoA; }
 
     void set_params_impl(T *params, T *inference_params,
                          T *gradients) // TODO: override

@@ -26,11 +26,11 @@ bool areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector
     long long count = 0;
     bool is_same = true;
     double max_diff = 0.0;
-    for (size_t i = 0; i < target.size(); ++i) {
+    for (size_t i = 0; i < value.size(); ++i) {
         double diff = 0.0;
-        if ((double)value[i] != 0.0 || (double)target[i] != 0.0)
-            diff = std::abs((double)value[i] - (double)target[i]) /
-                   std::max<double>(std::abs((double)value[i]), std::abs((double)target[i]));
+        if ((double)value.at(i) != 0.0 || (double)target.at(i) != 0.0)
+            diff = std::abs((double)value.at(i) - (double)target.at(i)) /
+                   std::max<double>(std::abs((double)value.at(i)), std::abs((double)target.at(i)));
 
         max_diff = std::max(diff, max_diff);
 
