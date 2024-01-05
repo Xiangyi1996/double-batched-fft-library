@@ -21,11 +21,18 @@ find_package(MPI REQUIRED)
 # list(TRANSFORM PUBLIC_HEADERS PREPEND "${PROJECT_SOURCE_DIR}/include/Network/")
 # list(TRANSFORM PUBLIC_HEADERS PREPEND "${PROJECT_SOURCE_DIR}/include/Losses/")
 
+add_library(encodings INTERFACE)
+target_include_directories(encodings INTERFACE "${PROJECT_SOURCE_DIR}/include/encodings/"
+    "${PROJECT_SOURCE_DIR}/include/json/")
+target_link_libraries(encodings INTERFACE common)
+target_compile_options(encodings INTERFACE -qmkl)
+target_link_options(encodings INTERFACE -qmkl)
+
 add_library(network INTERFACE)
 target_include_directories(network INTERFACE "${PROJECT_SOURCE_DIR}/include/network/")
-target_link_libraries(network INTERFACE common)
-target_compile_options(network INTERFACE -qmkl)
-target_link_options(network INTERFACE -qmkl)
+target_link_libraries(network INTERFACE encodings)
+# target_compile_options(network INTERFACE -qmkl)
+# target_link_options(network INTERFACE -qmkl)
 
 
 # add_library(swiftnetmlp ${SOURCES})

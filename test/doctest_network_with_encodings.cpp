@@ -5,18 +5,89 @@
 #include <iostream>
 #include <vector>
 
+#include "SwiftNetMLP.h"
+#include "json.hpp"
 #include "network_with_encodings.h"
 #include "result_check.h"
 
 using namespace sycl;
-using namespace sycl::ext::oneapi::experimental::matrix;
 using bf16 = sycl::ext::oneapi::bfloat16;
 
-#define INPUT_WIDTH 2
-#define OUTPUT_WIDTH_PADDED 64
-#define HIDDEN_LAYERS 1
-#define NET_WIDTH 64
+/// Function which applies a grid encoding to a R2 vector, resulting in a vector of size
+/// network_input_width, then applies the network and the output is the network_output_width
+// ATTENTION: currently only works for WIDTH=64
+template <typename T, int WIDTH = 64> void test_network_with_encoding(sycl::queue &q) {
 
+    static_assert(WIDTH == 64);
+    constexpr int n_hidden_layers = 1;
+    constexpr int batch_size = 8;
+    constexpr int input_width = WIDTH;
+    constexpr int output_width = WIDTH;
+    constexpr int unpadded_output_width = 1;
+    constexpr int encoding_input_width = 2;
+    constexpr int encoding_output_width = input_width;
+
+    json encoding_json = {
+        {"n_dims_to_encode", std::to_string(encoding_input_width)},
+        {"otype", "Grid"},
+        {"type", "Hash"},
+        {"n_levels", 16},
+        {"n_features_per_level", 2},
+        {"log2_hashmap_size", 15},
+        {"base_resolution", 16},
+        {"per_level_scale", 1.5},
+    };
+    // encoding output size has to be at least n_levels*n_features_per_level =32
+    static_assert(encoding_output_width >= 32); // TODO: generalize min encoding output size
+
+    SwiftNetMLP<T, WIDTH> network(q, input_width, unpadded_output_width, n_hidden_layers, Activation::ReLU,
+                                  Activation::None, Network<T>::WeightInitMode::none);
+    q.wait();
+    assert(input_width == network.get_inputs_width());
+    assert(output_width == network.get_output_width());
+
+    DeviceMem<T> inputs(input_width * batch_size, q);
+    inputs.fill((T)0.01);
+
+    DeviceMem<float> input_encoding_dm(encoding_input_width * batch_size, q);
+    input_encoding_dm.fill(1.0f).wait();
+    GPUMatrix<float> input_encoding(input_encoding_dm.data(), encoding_input_width, batch_size);
+
+    DeviceMem<float> output_encoding_dm(encoding_output_width * batch_size, q);
+    output_encoding_dm.fill(1.0f).wait();
+    GPUMatrix<float> output_encoding(output_encoding_dm.data(), encoding_output_width, batch_size);
+
+    GridEncoding<float> *encoding = create_grid_encoding<float>(encoding_input_width, encoding_json);
+
+    std::vector<float> params =
+        loadVectorFromCSV<float>("../test/ref_values/network_with_grid_encoding/full/encoding_params.csv");
+    assert(params.size() == encoding->n_params());
+
+    DeviceMem<float> params_full_precision(encoding->n_params(), q);
+    params_full_precision.copy_from_host(params).wait();
+
+    encoding->set_params(params_full_precision.data(), params_full_precision.data(), nullptr);
+
+    std::unique_ptr<Context> model_ctx = encoding->forward_impl(&q, input_encoding, &output_encoding);
+    q.wait();
+
+    DeviceMem<T>::copy_from_device(inputs, output_encoding.data(), q).wait();
+
+    DeviceMem<T> output_network(batch_size * output_width, q);
+    network.inference(inputs, output_network, batch_size, {});
+    q.wait();
+
+    std::vector<T> out_host(output_network.size());
+    output_network.copy_to_host(out_host).wait();
+    std::vector<float> output_ref =
+        loadVectorFromCSV<float>("../test/ref_values/network_with_grid_encoding/full/network_output.csv");
+
+    CHECK(areVectorsWithinTolerance(out_host, output_ref, 1e-3));
+
+    delete encoding;
+}
+
+/*
 void test_network_with_encoding() {
     int use_encoding = 1;
     // const int WIDTH = 64;
@@ -122,6 +193,8 @@ void test_network_with_encoding() {
 
     // saveCSV("output.csv", out_vec);
 }
+*/
+
 // void test_network_with_encoding() {
 //     // // const int WIDTH = 64;
 //     // const int input_width = 64;
@@ -279,4 +352,7 @@ void test_network_with_encoding() {
 //     network.free_memory();
 // }
 
-TEST_CASE("tinydpcppnn::network_with_encoding Fwd test") { test_network_with_encoding(); }
+TEST_CASE("tinydpcppnn::network_with_encoding step-by-step") {
+    sycl::queue q(gpu_selector_v);
+    test_network_with_encoding<bf16, 64>(q);
+}
