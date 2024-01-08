@@ -1,7 +1,8 @@
-// #include <cstdlib>
-// #include <ctime>
+#pragma once
+
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <vector>
 
 void saveImageToPGM(const std::string &filename, const int width, const int height,

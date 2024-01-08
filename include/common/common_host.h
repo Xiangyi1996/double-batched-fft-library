@@ -97,10 +97,6 @@ void set_verbose(bool verbose);
 #define STRINGIFY(x) #x
 #define STR(x) STRINGIFY(x)
 #define FILE_LINE __FILE__ ":" STR(__LINE__)
-#define CHECK_THROW(x)                                                                                                 \
-    do {                                                                                                               \
-        if (!(x)) throw std::runtime_error{FILE_LINE " check failed: " #x};                                            \
-    } while (0)
 
 //////////////////////////////
 // Enum<->string conversion //

@@ -1153,25 +1153,19 @@ class GridEncodingTemplated : public GridEncoding<T> {
         }
     }
 
-    std::unique_ptr<Context> forward_impl(sycl::queue *const q, const GPUMatrixDynamic<float> &input,
-                                          GPUMatrixDynamic<T> *output = nullptr, bool use_inference_params = false,
+    std::unique_ptr<Context> forward_impl(sycl::queue *const q, const GPUMatrix<float> &input,
+                                          GPUMatrix<T> *output = nullptr, bool use_inference_params = false,
                                           bool prepare_input_gradients = false) override {
+
+        auto forward = std::make_unique<Context>(); // alternative for now. remove later
+        /*
         auto forward = std::make_unique<ForwardContext>();
         const uint32_t num_elements = input.n();
         if ((!output && !prepare_input_gradients) || padded_output_width() == 0 || num_elements == 0) return forward;
 
-        // TODO: SyncedMultiStream synced_streams{q, m_n_to_pad > 0 ? 2u : 1u};
-
         // Take care of padding on the auxiliary stream
         if (output && m_n_to_pad > 0) {
             if (output->layout() == MatrixLayout::AoS) {
-                // Original:
-                // parallel_for_gpu_aos(q, num_elements, m_n_to_pad,
-                // [n_output_dims=m_n_output_dims, out=output->pitched_ptr()] (size_t
-                // elem, size_t dim) {
-                //    out(elem)[n_output_dims + dim] = 0;
-                //});
-
                 auto n_output_dims = m_n_output_dims;
                 auto out = output->pitched_ptr();
                 uint32_t n_dims = m_n_to_pad;
@@ -1276,14 +1270,16 @@ class GridEncodingTemplated : public GridEncoding<T> {
             q->wait();
         }
         q->wait();
-
+        */
         return forward;
     }
 
-    void backward_impl(sycl::queue *const q, const Context &ctx, const GPUMatrixDynamic<float> &input,
-                       const GPUMatrixDynamic<T> &output, const GPUMatrixDynamic<T> &dL_doutput,
-                       GPUMatrixDynamic<float> *dL_dinput = nullptr, bool use_inference_params = false,
+    void backward_impl(sycl::queue *const q, const Context &ctx, const GPUMatrix<float> &input,
+                       const GPUMatrix<T> &output, const GPUMatrix<T> &dL_doutput,
+                       GPUMatrix<float> *dL_dinput = nullptr, bool use_inference_params = false,
                        GradientMode param_gradients_mode = GradientMode::Overwrite) override {
+
+        /*
         const uint32_t num_elements = input.n();
         if ((!dL_dinput && param_gradients_mode == GradientMode::Ignore) || num_elements == 0) return;
 
@@ -1385,15 +1381,16 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
         linear_kernel(kernel_grid_backward_input<T, N_POS_DIMS>, 0, q, num_elements, m_n_features, dL_dy_rm,
                       forward.dy_dx.data(), dL_dinput->view());
+                      */
     }
 
-    void backward_backward_input_impl(sycl::queue *const q, const Context &ctx, const GPUMatrixDynamic<float> &input,
-                                      const GPUMatrixDynamic<float> &dL_ddLdinput,
-                                      const GPUMatrixDynamic<T> &dL_doutput,
-                                      GPUMatrixDynamic<T> *dL_ddLdoutput = nullptr,
-                                      GPUMatrixDynamic<float> *dL_dinput = nullptr, bool use_inference_params = false,
+    void backward_backward_input_impl(sycl::queue *const q, const Context &ctx, const GPUMatrix<float> &input,
+                                      const GPUMatrix<float> &dL_ddLdinput, const GPUMatrix<T> &dL_doutput,
+                                      GPUMatrix<T> *dL_ddLdoutput = nullptr, GPUMatrix<float> *dL_dinput = nullptr,
+                                      bool use_inference_params = false,
                                       GradientMode param_gradients_mode = GradientMode::Overwrite) // TODO: override
     {
+        /*
         const uint32_t num_elements = input.n();
         if ((!dL_ddLdoutput && param_gradients_mode == GradientMode::Ignore) || padded_output_width() == 0 ||
             num_elements == 0)
@@ -1537,6 +1534,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
                                  });
             });
         }
+        */
     }
 
     uint32_t input_width() const override { return N_POS_DIMS; }
@@ -1546,7 +1544,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
     uint32_t output_width() const override { return padded_output_width(); }
 
     void set_padded_output_width(uint32_t padded_output_width) override {
-        CHECK_THROW(padded_output_width >= m_n_output_dims);
+        if (padded_output_width < m_n_output_dims) throw std::invalid_argument("Invalid padding.");
         m_n_to_pad = padded_output_width - m_n_output_dims;
     }
 

@@ -198,7 +198,7 @@ inline std::stack<std::shared_ptr<MultiStream>> &get_multi_stream_stack(dpct::qu
 }
 
 inline void free_multi_streams(dpct::queue_ptr parent_stream) {
-    CHECK_THROW(parent_stream);
+    if (!parent_stream) throw std::invalid_argument("Invalid stream.");
 
     // Copy the multi stream shared_ptr's into a separate variable,
     // such that their destruction happens after unordered_map::erase(...)

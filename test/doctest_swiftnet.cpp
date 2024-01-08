@@ -31,7 +31,7 @@ void test_inference_1layer(sycl::queue &q, const int input_width, const int outp
 
     network_input.fill(input_val);
 
-    network.forward_pass(network_input, network_output, batch_size, {});
+    network.inference(network_input, network_output, batch_size, {});
 
     q.wait();
 

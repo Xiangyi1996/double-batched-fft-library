@@ -17,185 +17,99 @@
 
 template <typename T> class IdentityEncoding : public Encoding<T> {
   public:
-    IdentityEncoding(uint32_t n_dims_to_encode, float scale = 1.0f, float offset = 0.0f)
-        : m_n_dims_to_encode{n_dims_to_encode}, m_scale{scale}, m_offset{offset} {
-        m_n_output_dims = m_n_dims_to_encode;
-        // std::cout << "Making Identity encoding with n_dims_to_encode: "
-        //           << n_dims_to_encode << ", m_scale: " << m_scale
-        //           << ", m_offset: " << m_offset << std::endl;
-    }
+    IdentityEncoding(uint32_t n_dims_to_encode, const float scale = 1.0f, const float offset = 0.0f)
+        : m_n_dims_to_encode{n_dims_to_encode}, m_scale{scale}, m_offset{offset}, m_n_to_pad{0} {}
 
-    std::unique_ptr<Context> forward_impl(sycl::queue *const q, const GPUMatrixDynamic<float> &input,
-                                          GPUMatrixDynamic<T> *output = nullptr, bool use_inference_params = false,
+    std::unique_ptr<Context> forward_impl(sycl::queue *const q, const GPUMatrix<float> &input,
+                                          GPUMatrix<T> *output = nullptr, bool use_inference_params = false,
                                           bool prepare_input_gradients = false) override {
-        if (!output || padded_output_width() == 0) {
-            return std::make_unique<Context>();
-        }
-        // assert(input.n() == m_n_dims_to_encode);
-        uint32_t n_elements = input.n() * padded_output_width();
-        if (n_elements <= 0) {
-            return std::make_unique<Context>();
-        }
+        const uint32_t loc_padded_output_width = padded_output_width();
 
-        // std::cout << "padded_output_width: " << padded_output_width()
-        //           << ", input n: " << input.n() << ", input m: " << input.m()
-        //           << ", stride: " << input.stride() << ", n_elements " <<
-        //           n_elements
-        //           << std::endl;
-        {
-            // Wrap our data variable in a buffer
-            buffer<float, 1> inputBuf{input.data(), range<1>{n_elements}};
-            buffer<T, 1> outputBuf{output->data(), range<1>{n_elements}};
+        if (!output || loc_padded_output_width == 0) return std::make_unique<Context>();
+        if (input.n() != m_n_dims_to_encode)
+            throw std::invalid_argument("input dimensions do not coincide with encoder");
+        if (output->layout() != MatrixLayout::RowMajor) throw std::invalid_argument("Only rm allowed.");
+        if (input.layout() != MatrixLayout::RowMajor) throw std::invalid_argument("Only rm allowed.");
+        if (output->m() != input.m()) throw std::invalid_argument("Differing row numbers");
+        if (output->n() != loc_padded_output_width)
+            throw std::invalid_argument("number of cols has to be padded output width.");
 
-            auto loc_m_n_dims_to_encode = m_n_dims_to_encode;
-            auto loc_m_n_to_pad = m_n_to_pad;
-            auto loc_m_scale = m_scale;
-            auto loc_m_offset = m_offset;
+        const uint32_t n_elements = input.m() * loc_padded_output_width;
+        if (n_elements <= 0) return std::make_unique<Context>();
 
-            // manually, because we dont have MatrixView on device
-            auto loc_m_stride = padded_output_width();
-            auto unpadded_stride = input.stride();
-            //   auto loc_m_stride = input.stride();
-            // TODO: Check with NVCC, we cant forward MatrixView as is
-            // MatrixView<T> view() const {
-            // return {data(), layout() == MatrixLayout::ColumnMajor ? 1u : stride(), layout() ==
-            // MatrixLayout::ColumnMajor ? stride() : 1u};
-            // }
-            //   std::cout << "loc_m_stride: " << loc_m_stride
-            //             << ", loc_m_n_to_pad: " << loc_m_n_to_pad
-            //             << ", loc_m_n_dims_to_encode: " << loc_m_n_dims_to_encode
-            //             << std::endl;
+        float const *const loc_in = input.data();
+        T *const loc_out = output->data();
 
-            // Create a command group to issue commands to the queue
-            q->submit([&](handler &cgh) {
-                accessor input_acc{inputBuf, cgh, read_only};
-                accessor output_acc{outputBuf, cgh, write_only};
+        auto loc_n_dims_to_encode = m_n_dims_to_encode;
+        auto loc_scale = m_scale;
+        auto loc_offset = m_offset;
 
-                // Enqueue a parallel_for task with 1024 work-items
-                cgh.parallel_for(n_elements, [=](id<1> index) {
-                    // sycl::nd_range{n_blocks_linear(n_elements) *
-                    // 	sycl::range<3>(1, 1, N_THREADS_LINEAR),
-                    // 	sycl::range<3>(1, 1, N_THREADS_LINEAR)},
-                    // [=](sycl::nd_item<3> item_ct1) {
-                    const uint32_t encoded_index = index;
-                    // const uint32_t encoded_index =
-                    //     item_ct1.get_local_id(2) +
-                    //     item_ct1.get_group(2) *
-                    //     item_ct1.get_local_range(2);
-                    if (encoded_index >= n_elements) {
-                        // exit(0);
-                        return;
-                    }
+        // manually, because we dont have MatrixView on device
+        auto unpadded_stride = input.cols();
 
-                    // total padded amount
-                    const uint32_t fan_out = loc_m_n_dims_to_encode + loc_m_n_to_pad;
+        // Create a command group to issue commands to the queue
+        q->parallel_for(n_elements, [=](id<1> index) {
+             const uint32_t encoded_index = index;
 
-                    // columns which are batch size
-                    const uint32_t i = encoded_index / fan_out;
+             // columns which are batch size
+             const uint32_t i = encoded_index / loc_padded_output_width;
+             const uint32_t j = encoded_index - i * loc_padded_output_width;
 
-                    // rows which are the padded output dim
-                    const uint32_t j = encoded_index - i * fan_out;
+             const uint32_t idx = i * loc_padded_output_width + j;
+             const uint32_t unpadded_idx = i * unpadded_stride + j;
 
-                    // MatrixView(i,j) => i * stride_i + j * stride_j
-                    const uint32_t idx = i * loc_m_stride + j;
-                    const uint32_t unpadded_idx = i * unpadded_stride + j;
-                    //   const uint32_t idx = j * loc_m_stride + i;
-
-                    //   static const CONSTANT char FMT[] =
-                    //       "Enc idx: %d, i: %d, j: %d, idx: %d\n";
-                    //   sycl::ext::oneapi::experimental::printf(FMT, encoded_index, i, j,
-                    //                                           idx);
-                    if (j >= loc_m_n_dims_to_encode) {
-                        output_acc[idx] = 1;
-                        // output_acc[idx] = 0;
-                    } else {
-                        output_acc[idx] = input_acc[unpadded_idx] * loc_m_scale + loc_m_offset;
-                    }
-                }); // End of the kernel function
-            });     // End of our commands for this queue
-        }           // End of scope, so we wait for work producing resultBuf to complete
+             if (j >= loc_n_dims_to_encode)
+                 loc_out[idx] = (T)1;
+             else
+                 loc_out[idx] = loc_in[unpadded_idx] * loc_scale + loc_offset;
+         }).wait();
         return std::make_unique<Context>();
     }
 
-    void backward_impl(sycl::queue *const q, const Context &ctx, const GPUMatrixDynamic<float> &input,
-                       const GPUMatrixDynamic<T> &output, const GPUMatrixDynamic<T> &dL_doutput,
-                       GPUMatrixDynamic<float> *dL_dinput = nullptr, bool use_inference_params = false,
+    void backward_impl(sycl::queue *const q, const Context &ctx, const GPUMatrix<float> &input,
+                       const GPUMatrix<T> &output, const GPUMatrix<T> &dL_doutput,
+                       GPUMatrix<float> *dL_dinput = nullptr, bool use_inference_params = false,
                        GradientMode param_gradients_mode = GradientMode::Overwrite) override {
-        if (!dL_dinput) {
-            return;
-        }
+        throw std::logic_error("Not yet implemented.");
 
-        uint32_t n_elements = input.n() * m_n_dims_to_encode;
-        if (n_elements <= 0) {
-            return;
-        }
+        if (!dL_dinput) return;
 
-        {
-            // Wrap our data variable in a buffer
-            buffer<float, 1> buf_dL_dx{dL_dinput->data(), range<1>{n_elements}};
-            buffer<T, 1> buf_dL_dy{dL_doutput.data(), range<1>{n_elements}};
+        const uint32_t n_elements = input.n() * m_n_dims_to_encode;
+        if (n_elements <= 0) return; // nothing to do
 
-            auto loc_m_n_dims_to_encode = m_n_dims_to_encode;
-            auto loc_m_n_to_pad = m_n_to_pad;
-            auto loc_m_scale = m_scale;
-            auto loc_m_offset = m_offset;
+        float *const dL_dx = dL_dinput->data();
+        T const *const dL_dy = dL_doutput.data();
+        auto loc_scale = m_scale;
 
-            auto loc_m_stride = input.stride(); // manually, because we dont have MatrixView on device
-            // TODO: Check with NVCC, we cant forward MatrixView as is
-            // MatrixView<T> view() const {
-            // return {data(), layout() == MatrixLayout::ColumnMajor ? 1u : stride(), layout() ==
-            // MatrixLayout::ColumnMajor ? stride() : 1u};
-            // }
-
-            // Create a command group to issue commands to the queue
-            q->submit([&](handler &cgh) {
-                // Request write access to the buffer without initialization
-                accessor dL_dx{buf_dL_dx, cgh, write_only};
-                accessor dL_dy{buf_dL_dy, cgh, read_only};
-
-                // Enqueue a parallel_for task with 1024 work-items
-                cgh.parallel_for( // n_elements, [=](nd_item<1> item_ct1) {
-                    sycl::nd_range{n_blocks_linear(n_elements) * sycl::range<3>(1, 1, N_THREADS_LINEAR),
-                                   sycl::range<3>(1, 1, N_THREADS_LINEAR)},
-                    [=](sycl::nd_item<3> item_ct1) {
-                        const uint32_t output_index =
-                            item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
-                        if (output_index >= n_elements) return;
-
-                        const uint32_t i = output_index / loc_m_n_dims_to_encode;
-                        const uint32_t j = output_index - i * loc_m_n_dims_to_encode;
-
-                        // MatrixView(i,j) => i * stride_i + j * stride_j
-                        const uint32_t idx = j * loc_m_stride + i * loc_m_stride;
-
-                        // The identity encoding can simply pass through the
-                        // derivative.
-                        dL_dx[idx] = (T)((float)dL_dy[idx] * loc_m_scale);
-                    }); // End of the kernel function
-            });         // End of our commands for this queue
-        }               // End of scope, so we wait for work producing resultBuf to complete
+        q->parallel_for(n_elements, [=](auto item) {
+            const uint32_t idx = item;
+            dL_dx[idx] = (float)dL_dy[idx] * loc_scale;
+        });
     }
 
     uint32_t input_width() const override { return m_n_dims_to_encode; }
 
-    uint32_t padded_output_width() const override { return m_n_output_dims + m_n_to_pad; }
+    uint32_t padded_output_width() const override { return m_n_dims_to_encode + m_n_to_pad; }
 
     uint32_t output_width() const override { return padded_output_width(); }
 
-    void set_padded_output_width(uint32_t padded_output_width) override {
-        CHECK_THROW(padded_output_width >= m_n_output_dims);
-        m_n_to_pad = padded_output_width - m_n_output_dims;
+    void set_padded_output_width(const uint32_t padded_output_width) override {
+        if (padded_output_width < m_n_dims_to_encode)
+            throw std::invalid_argument("Padded width has to be larger than unpadded.");
+
+        m_n_to_pad = padded_output_width - m_n_dims_to_encode;
     }
 
     void initialize_params(float *params_full_precision, float scale = 1) override {}
 
   private:
+    /// number of elements before padding in padding dimension
+    ///(cols)
     uint32_t m_n_dims_to_encode;
 
     float m_scale;
     float m_offset;
 
     // derived sizes
-    uint32_t m_n_output_dims;
-    uint32_t m_n_to_pad = 0;
+    uint32_t m_n_to_pad;
 };

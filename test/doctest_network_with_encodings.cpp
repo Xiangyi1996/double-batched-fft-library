@@ -49,13 +49,11 @@ template <typename T, int WIDTH = 64> void test_network_with_encoding(sycl::queu
     DeviceMem<T> inputs(input_width * batch_size, q);
     inputs.fill((T)0.01);
 
-    DeviceMem<float> input_encoding_dm(encoding_input_width * batch_size, q);
-    input_encoding_dm.fill(1.0f).wait();
-    GPUMatrix<float> input_encoding(input_encoding_dm.data(), encoding_input_width, batch_size);
+    GPUMatrix<float> input_encoding(batch_size, encoding_input_width, q);
+    input_encoding.fill(1.0f).wait();
 
-    DeviceMem<float> output_encoding_dm(encoding_output_width * batch_size, q);
-    output_encoding_dm.fill(1.0f).wait();
-    GPUMatrix<float> output_encoding(output_encoding_dm.data(), encoding_output_width, batch_size);
+    GPUMatrix<float> output_encoding(batch_size, encoding_output_width, q);
+    output_encoding.fill(1.0f).wait();
 
     GridEncoding<float> *encoding = create_grid_encoding<float>(encoding_input_width, encoding_json);
 

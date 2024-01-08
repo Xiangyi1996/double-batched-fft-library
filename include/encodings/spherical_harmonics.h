@@ -1,93 +1,63 @@
 #pragma once
 
+// Encoding which takes exactly 3 input cols and a spherical harmonics
+// degree and a padding. Performs spherical harmonics + identity encoding
 template <typename T> class SphericalHarmonicsEncoding : public Encoding<T> {
   public:
-    SphericalHarmonicsEncoding(uint32_t degree, uint32_t n_dims_to_encode)
-        : m_degree{degree}, m_n_dims_to_encode{n_dims_to_encode} {
-        m_n_output_dims = degree * degree;
+    SphericalHarmonicsEncoding(const uint32_t degree, const uint32_t n_dims_to_encode)
+        : m_degree{degree}, m_n_dims_to_encode{n_dims_to_encode}, m_n_output_dims(degree * degree), m_n_to_pad(0) {
 
-        if (n_dims_to_encode != 3) {
-            throw std::runtime_error{"Can only encode 3D directions in spherical harmonics."};
-        }
+        if (n_dims_to_encode != 3) throw std::runtime_error{"Can only encode 3D directions in spherical harmonics."};
 
-        if (m_degree <= 0) {
-            throw std::runtime_error{"Spherical harmonics must have positive degree."};
-        }
+        if (m_degree <= 0) throw std::runtime_error{"Spherical harmonics must have positive degree."};
 
-        if (m_degree > 8) {
-            throw std::runtime_error{"Spherical harmonics are only implemented up to degree 8."};
-        }
+        if (m_degree > 8) throw std::runtime_error{"Spherical harmonics are only implemented up to degree 8."};
     }
 
-    std::unique_ptr<Context> forward_impl(sycl::queue *const q, const GPUMatrixDynamic<float> &input,
-                                          GPUMatrixDynamic<T> *output = nullptr, bool use_inference_params = false,
+    std::unique_ptr<Context> forward_impl(sycl::queue *const q, const GPUMatrix<float> &input,
+                                          GPUMatrix<T> *output = nullptr, bool use_inference_params = false,
                                           bool prepare_input_gradients = false) override {
-        const uint32_t n_elements = input.n();
-        // std::cout << "n_elements: " << n_elements << ", stride: " <<
-        // input.stride()
-        //           << std::endl;
-        if (!output || padded_output_width() == 0) {
-            return std::make_unique<Context>();
-        }
 
-        {
-            // Wrap our data variable in a buffer
-            buffer<float, 1> inputBuf{input.data(), range<1>{input.n() * input.m()}};
-            buffer<T, 1> outputBuf{output->data(), range<1>{output->n() * output->m()}};
+        const uint32_t n_rows = input.m();
+        if (!output || padded_output_width() == 0) return std::make_unique<Context>();
+        if (input.n() != m_n_dims_to_encode)
+            throw std::invalid_argument("input dimensions do not coincide with encoder");
+        if (output->layout() != MatrixLayout::RowMajor) throw std::invalid_argument("Only rm allowed.");
+        if (input.layout() != MatrixLayout::RowMajor) throw std::invalid_argument("Only rm allowed.");
+        if (output->m() != input.m()) throw std::invalid_argument("Differing row numbers");
+        if (output->n() != padded_output_width())
+            throw std::invalid_argument("number of cols has to be padded output width.");
 
-            auto loc_m_stride = input.stride();
-            auto local_m_degree = m_degree;
-            auto local_m_n_to_pad = m_n_to_pad;
-            auto local_padded_output_width = padded_output_width();
-            auto local_m_n_output_dims = m_n_output_dims;
-            // Create a command group to issue commands to the queue
-            q->submit([&](handler &cgh) {
-                accessor input_acc{inputBuf, cgh, read_only};
-                accessor output_acc{outputBuf, cgh, write_only};
+        // Wrap our data variable in a buffer
+        float const *const loc_in = input.data();
+        T *const loc_out = output->data();
 
-                // Enqueue a parallel_for task with 1024 work-items
-                cgh.parallel_for(range<1>(n_elements), [=](id<1> index) {
-                    const uint32_t batch_idx = index;
+        auto loc_stride = input.n();
+        auto loc_degree = m_degree;
+        auto loc_n_to_pad = m_n_to_pad;
+        auto loc_padded_output_width = padded_output_width();
+        auto loc_n_output_dims = m_n_output_dims;
+        // Create a command group to issue commands to the queue
+        q->parallel_for(range<1>(n_rows), [=](id<1> index) {
+            const uint32_t row = index;
 
-                    // kernel_sh(n_elements, local_m_degree, local_m_n_to_pad,
-                    // input.view(),
-                    //           output->view(), index);
+            for (uint32_t j = 0; j < loc_n_to_pad; ++j) {
+                loc_out[row * loc_padded_output_width + (loc_n_output_dims + j)] = (T)1.0f;
+            }
 
-                    //   if (encoded_idx >= n_elements) {
-                    //     exit(0);
-                    //   };
-
-                    // output.advance_cols(encoded_idx);
-
-                    // #pragma unroll
-                    for (uint32_t j = 0; j < local_m_n_to_pad; ++j) {
-                        output_acc[batch_idx * local_padded_output_width + (local_m_n_output_dims + j)] = (T)1.0f;
-                    }
-                    // data_out.advance_rows(m_n_to_pad);
-                    sh_enc<T>(local_m_degree, input_acc[0 + batch_idx * loc_m_stride] * 2.f - 1.f,
-                              input_acc[1 + batch_idx * loc_m_stride] * 2.f - 1.f,
-                              input_acc[2 + batch_idx * loc_m_stride] * 2.f - 1.f, output_acc,
-                              batch_idx * local_padded_output_width);
-
-                    // kernel_sh(n_elements, local_m_degree, local_m_n_to_pad);
-                }); // End of the kernel function
-            });     // End of our commands for this queue
-        }           // End of scope, so we wait for work producing resultBuf to complete
+            // this does degree^2 contiguous elements
+            sh_enc<T>(loc_degree, loc_in[0 + row * loc_stride] * 2.f - 1.f, loc_in[1 + row * loc_stride] * 2.f - 1.f,
+                      loc_in[2 + row * loc_stride] * 2.f - 1.f, loc_out, row * loc_padded_output_width);
+        });
 
         return std::make_unique<Context>();
     }
 
-    void backward_impl(sycl::queue *const q, const Context &ctx, const GPUMatrixDynamic<float> &input,
-                       const GPUMatrixDynamic<T> &output, const GPUMatrixDynamic<T> &dL_doutput,
-                       GPUMatrixDynamic<float> *dL_dinput = nullptr, bool use_inference_params = false,
+    void backward_impl(sycl::queue *const q, const Context &ctx, const GPUMatrix<float> &input,
+                       const GPUMatrix<T> &output, const GPUMatrix<T> &dL_doutput,
+                       GPUMatrix<float> *dL_dinput = nullptr, bool use_inference_params = false,
                        GradientMode param_gradients_mode = GradientMode::Overwrite) override {
-        //   if (!dL_dinput) {
-        //     return;
-        //   }
-
-        //   linear_kernel(kernel_sh_backward<T>, 0, q, input.n(), m_degree,
-        //                 m_n_to_pad, dL_doutput.view(), input.view(),
-        //                 dL_dinput->view());
+        throw std::logic_error("Not yet impplemented.");
     }
 
     uint32_t input_width() const override { return m_n_dims_to_encode; }
@@ -97,7 +67,7 @@ template <typename T> class SphericalHarmonicsEncoding : public Encoding<T> {
     uint32_t output_width() const override { return padded_output_width(); }
 
     void set_padded_output_width(uint32_t padded_output_width) override {
-        CHECK_THROW(padded_output_width >= m_n_output_dims);
+        if (padded_output_width < m_n_output_dims) throw std::invalid_argument("Invalid padding value.");
         m_n_to_pad = padded_output_width - m_n_output_dims;
     }
 
@@ -109,5 +79,5 @@ template <typename T> class SphericalHarmonicsEncoding : public Encoding<T> {
 
     // derived sizes
     uint32_t m_n_output_dims;
-    uint32_t m_n_to_pad = 0;
+    uint32_t m_n_to_pad;
 };

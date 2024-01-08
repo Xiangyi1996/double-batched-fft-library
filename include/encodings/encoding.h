@@ -22,14 +22,13 @@ template <typename T> class Encoding {
     Encoding() {}
     virtual ~Encoding() {}
 
-    virtual std::unique_ptr<Context> forward_impl(sycl::queue *const q, const GPUMatrixDynamic<float> &input,
-                                                  GPUMatrixDynamic<T> *output = nullptr,
-                                                  bool use_inference_params = false,
+    virtual std::unique_ptr<Context> forward_impl(sycl::queue *const q, const GPUMatrix<float> &input,
+                                                  GPUMatrix<T> *output = nullptr, bool use_inference_params = false,
                                                   bool prepare_input_gradients = false) = 0;
 
-    virtual void backward_impl(sycl::queue *const q, const Context &ctx, const GPUMatrixDynamic<float> &input,
-                               const GPUMatrixDynamic<T> &output, const GPUMatrixDynamic<T> &dL_doutput,
-                               GPUMatrixDynamic<float> *dL_dinput = nullptr, bool use_inference_params = false,
+    virtual void backward_impl(sycl::queue *const q, const Context &ctx, const GPUMatrix<float> &input,
+                               const GPUMatrix<T> &output, const GPUMatrix<T> &dL_doutput,
+                               GPUMatrix<float> *dL_dinput = nullptr, bool use_inference_params = false,
                                GradientMode param_gradients_mode = GradientMode::Overwrite) = 0;
 
     virtual void set_padded_output_width(uint32_t padded_output_width) = 0;
@@ -62,7 +61,7 @@ template <typename T> class Encoding {
     T *m_gradients = nullptr;
 
     struct ForwardContext : public Context {
-        GPUMatrixDynamic<T> network_input;
+        GPUMatrix<T> network_input;
         std::unique_ptr<Context> encoding_ctx;
         std::unique_ptr<Context> network_ctx;
     };
