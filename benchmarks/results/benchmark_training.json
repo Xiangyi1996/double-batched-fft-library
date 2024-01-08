@@ -1,9 +1,0 @@
-{
-    "SwiftNet": [
-        {
-            "batch_size": 524288,
-            "inference_throughput": 1746285419.8767705,
-            "training_throughput": 271120663.7868786
-        }
-    ]
-}
