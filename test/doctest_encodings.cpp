@@ -99,12 +99,13 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         // SWIFTNET
         const int input_width = 3;
         const int batch_size = 1;
+        const int padded_output_width = 32;
         sycl::queue q;
 
         DeviceMatrix<float> input(batch_size, input_width, q);
         input.fill(1.0f).wait();
 
-        DeviceMatrix<float> output_float(32, batch_size, q);
+        DeviceMatrix<float> output_float(batch_size, padded_output_width, q);
         output_float.fill(0.0f).wait();
 
         json encoding_json = {
