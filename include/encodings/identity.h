@@ -2,7 +2,6 @@
 #pragma once
 
 #include "DeviceMatrix.h"
-#include "DeviceMem.h"
 #include "common.h"
 #include "common_device.h"
 #include "common_host.h"

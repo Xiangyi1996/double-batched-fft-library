@@ -1,5 +1,4 @@
 #pragma once
-#include "DeviceMem.h"
 #include "Network.h"
 #include "encoding_factory.h"
 
