@@ -19,11 +19,11 @@ torch::Tensor EncodingModule::forward_pass(torch::Tensor input_tensor, torch::Te
     //          "Tensor length for Encoding forward is not equal to 2!");
     //   std::cout << "Input tensor sizes: " << input_tensor.sizes() << std::endl;
     int batch_size = input_tensor.sizes()[1];
-    GPUMatrix<float> input_matrix = GPUMatrix<float>(input_tensor.data_ptr<float>(), m_input_width, batch_size);
+    DeviceMatrix<float> input_matrix = DeviceMatrix<float>(input_tensor.data_ptr<float>(), m_input_width, batch_size);
 
     torch::Tensor output_tensor = torch::empty({encoding->output_width(), batch_size},
                                                torch::TensorOptions().dtype(torch::kFloat32).device(m_device));
-    GPUMatrix<float> output_matrix = GPUMatrix<float>(output_tensor.data_ptr<float>(), m_input_width, batch_size);
+    DeviceMatrix<float> output_matrix = DeviceMatrix<float>(output_tensor.data_ptr<float>(), m_input_width, batch_size);
 
     std::unique_ptr<Context> model_ctx = encoding->forward_impl(&sycl_queue, input_matrix, &output_matrix);
 
@@ -57,7 +57,7 @@ torch::Tensor NetworkWithEncodingModule::forward_pass(torch::Tensor input_tensor
         malloc_device<float>(batch_size * (m_input_width + m_output_width + m_width * m_n_hidden_layers), sycl_queue);
     DeviceMem<bf16> network_output = DeviceMem<bf16>(m_output_width * batch_size, sycl_queue);
 
-    GPUMatrix<float> input_matrix = GPUMatrix<float>(input_tensor.data_ptr<float>(), m_input_width, batch_size);
+    DeviceMatrix<float> input_matrix = DeviceMatrix<float>(input_tensor.data_ptr<float>(), m_input_width, batch_size);
     network->forward_pass(input_matrix, use_inference, network_output, forward);
     torch::Tensor output_tensor = get_converted_tensor_from_dev_mem(network_output);
 

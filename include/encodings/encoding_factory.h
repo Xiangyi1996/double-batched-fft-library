@@ -10,27 +10,27 @@
 template <typename T> class EncodingFactory {
   public:
     virtual ~EncodingFactory() {}
-    virtual Encoding<T> *create(const std::unordered_map<std::string, std::string> &params) const = 0;
+    virtual std::shared_ptr<Encoding<T>> create(const std::unordered_map<std::string, std::string> &params) const = 0;
 };
 
 // EncodingFactory for IdentityEncoding
 template <typename T> class IdentityEncodingFactory : public EncodingFactory<T> {
   public:
-    Encoding<T> *create(const std::unordered_map<std::string, std::string> &params) const override {
+    std::shared_ptr<Encoding<T>> create(const std::unordered_map<std::string, std::string> &params) const override {
         uint32_t n_dims_to_encode = std::stoi(params.at("n_dims_to_encode"));
         float scale = std::stof(params.at("scale"));
         float offset = std::stof(params.at("offset"));
-        return new IdentityEncoding<T>(n_dims_to_encode, scale, offset);
+        return std::make_shared<IdentityEncoding<T>>(n_dims_to_encode, scale, offset);
     }
 };
 
 // EncodingFactory for SphericalHarmonicsEncoding
 template <typename T> class SphericalHarmonicsEncodingFactory : public EncodingFactory<T> {
   public:
-    Encoding<T> *create(const std::unordered_map<std::string, std::string> &params) const override {
+    std::shared_ptr<Encoding<T>> create(const std::unordered_map<std::string, std::string> &params) const override {
         uint32_t degree = std::stoi(params.at("degree"));
         uint32_t n_dims_to_encode = std::stoi(params.at("n_dims_to_encode"));
-        return new SphericalHarmonicsEncoding<T>(degree, n_dims_to_encode);
+        return std::make_shared<SphericalHarmonicsEncoding<T>>(degree, n_dims_to_encode);
     }
 };
 
@@ -39,7 +39,7 @@ template <typename T> class GridEncodingFactory;
 // Specialization for T = bf16 (exclude implementation)
 template <> class GridEncodingFactory<bf16> : public EncodingFactory<bf16> {
   public:
-    Encoding<bf16> *create(const std::unordered_map<std::string, std::string> &params) const override {
+    std::shared_ptr<Encoding<bf16>> create(const std::unordered_map<std::string, std::string> &params) const override {
         // Throw an error or handle the unsupported case for bf16
         throw std::runtime_error("GridEncodingFactory does not support bf16");
     }
@@ -49,7 +49,7 @@ template <> class GridEncodingFactory<bf16> : public EncodingFactory<bf16> {
 // EncodingFactory for GridEncodingTemplated
 template <typename T> class GridEncodingFactory : public EncodingFactory<T> {
   public:
-    Encoding<T> *create(const std::unordered_map<std::string, std::string> &params) const override {
+    std::shared_ptr<Encoding<T>> create(const std::unordered_map<std::string, std::string> &params) const override {
         uint32_t n_levels = params.count("n_levels") ? std::stoi(params.at("n_levels")) : 16u;
         uint32_t n_features_per_level =
             params.count("n_features_per_level") ? std::stoi(params.at("n_features_per_level")) : 2u;
@@ -83,7 +83,8 @@ template <typename T> class EncodingFactoryRegistry {
         factories_[name] = std::move(factory);
     }
 
-    Encoding<T> *create(const std::string &name, const std::unordered_map<std::string, std::string> &params) const {
+    std::shared_ptr<Encoding<T>> create(const std::string &name,
+                                        const std::unordered_map<std::string, std::string> &params) const {
         auto it = factories_.find(name);
         if (it != factories_.end()) {
             return it->second->create(params);
@@ -98,7 +99,8 @@ template <typename T> class EncodingFactoryRegistry {
 };
 
 template <typename T>
-Encoding<T> *create_encoding(std::string name, std::unordered_map<std::string, std::string> encoding_config) {
+std::shared_ptr<Encoding<T>> create_encoding(std::string name,
+                                             std::unordered_map<std::string, std::string> encoding_config) {
     //   std::cout << "Contents of encoding config:" << std::endl;
     //   for (const auto& pair : encoding_config) {
     //     std::cout << pair.first << ": " << pair.second << std::endl;
@@ -111,8 +113,7 @@ Encoding<T> *create_encoding(std::string name, std::unordered_map<std::string, s
         encodingRegistry.registerFactory("Identity", std::make_unique<IdentityEncodingFactory<T>>());
 
         // Create an IdentityEncoding instance using the factory and parameters
-        Encoding<T> *identityEncoding = encodingRegistry.create("Identity", encoding_config);
-        return identityEncoding;
+        return encodingRegistry.create("Identity", encoding_config);
 
     } else if (name == "SphericalHarmonics") {
         // Register the SphericalHarmonicsEncoding factory
@@ -121,18 +122,14 @@ Encoding<T> *create_encoding(std::string name, std::unordered_map<std::string, s
 
         // Create an SphericalHarmonicsEncoding instance using the factory and
         // parameters
-        Encoding<T> *sphericalHarmonicsEncoding = encodingRegistry.create("SphericalHarmonics", encoding_config);
-        return sphericalHarmonicsEncoding;
+        return encodingRegistry.create("SphericalHarmonics", encoding_config);
     } else if (name.find("Grid") != std::string::npos) {
         // Register the GridEncodings factory
         encodingRegistry.registerFactory("Grid", std::make_unique<GridEncodingFactory<T>>());
 
-        // Create an GridEncoding instance using the factory and
-        // parameters
-        Encoding<T> *gridEncoding = encodingRegistry.create("Grid", encoding_config);
-        return gridEncoding;
+        return encodingRegistry.create("Grid", encoding_config);
+        ;
     } else {
-        std::cout << name << " not implemented. Exiting." << std::endl;
-        exit(0);
+        throw std::invalid_argument("Encoding name unknown");
     }
 }

@@ -1,6 +1,6 @@
+#include "DeviceMatrix.h"
 #include "DeviceMem.h"
 #include "doctest/doctest.h"
-#include "gpu_matrix.h"
 
 using namespace sycl;
 using bf16 = sycl::ext::oneapi::bfloat16;
@@ -174,17 +174,17 @@ TEST_CASE("Zero Padding Input Test") {
     int input_width_padded = 4;
     int output_width_padded = 5;
     queue q = queue();
-    // Create a GPUMatrix with DeviceMem
+    // Create a DeviceMatrix with DeviceMem
     DeviceMem<float> dm(input_width_padded * output_width_padded, q);
     dm.initialize_constant(1.0f, q);
     // dm.initialize_arange(q);
 
-    // GPUMatrix<float, MatrixLayout::RowMajor> gpuMatrix(dm.data(), output_width_padded, input_width_padded);
+    // DeviceMatrix<float, MatrixLayout::RowMajor> DeviceMatrix(dm.data(), output_width_padded, input_width_padded);
 
     std::vector<float> result(dm.size());
     q.memcpy(result.data(), dm.data(), sizeof(float) * result.size()).wait();
-    // gpuMatrix.print(0);
-    // gpuMatrix.print(1);
+    // DeviceMatrix.print(0);
+    // DeviceMatrix.print(1);
     // Zero pad the input
     // for (int i = 0; i < out.size(); i++) {
     //     std::cout << i << ": " << out[i] << std::endl;
@@ -228,7 +228,7 @@ TEST_CASE("Zero pad output") {
     int net_width = 5;
     int output_width_padded = 4;
     queue q = queue();
-    // Create a GPUMatrix with DeviceMem
+    // Create a DeviceMatrix with DeviceMem
     DeviceMem<float> dm(
         net_width * input_width + (net_width * net_width) * n_hidden_matrices + net_width * output_width_padded, q);
     dm.initialize_constant(1.0f, q);

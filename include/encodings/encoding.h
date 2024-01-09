@@ -5,8 +5,8 @@
 #include <cstdint>
 #include <sycl/sycl.hpp>
 
+#include "DeviceMatrix.h"
 #include "common_host.h"
-#include "gpu_matrix.h"
 #include "json.hpp"
 
 using json = nlohmann::json;
@@ -22,13 +22,13 @@ template <typename T> class Encoding {
     Encoding() {}
     virtual ~Encoding() {}
 
-    virtual std::unique_ptr<Context> forward_impl(sycl::queue *const q, const GPUMatrix<float> &input,
-                                                  GPUMatrix<T> *output = nullptr, bool use_inference_params = false,
+    virtual std::unique_ptr<Context> forward_impl(sycl::queue *const q, const DeviceMatrix<float> &input,
+                                                  DeviceMatrix<T> *output = nullptr, bool use_inference_params = false,
                                                   bool prepare_input_gradients = false) = 0;
 
-    virtual void backward_impl(sycl::queue *const q, const Context &ctx, const GPUMatrix<float> &input,
-                               const GPUMatrix<T> &output, const GPUMatrix<T> &dL_doutput,
-                               GPUMatrix<float> *dL_dinput = nullptr, bool use_inference_params = false,
+    virtual void backward_impl(sycl::queue *const q, const Context &ctx, const DeviceMatrix<float> &input,
+                               const DeviceMatrix<T> &output, const DeviceMatrix<T> &dL_doutput,
+                               DeviceMatrix<float> *dL_dinput = nullptr, bool use_inference_params = false,
                                GradientMode param_gradients_mode = GradientMode::Overwrite) = 0;
 
     virtual void set_padded_output_width(uint32_t padded_output_width) = 0;
@@ -61,7 +61,7 @@ template <typename T> class Encoding {
     T *m_gradients = nullptr;
 
     struct ForwardContext : public Context {
-        GPUMatrix<T> network_input;
+        DeviceMatrix<T> network_input;
         std::unique_ptr<Context> encoding_ctx;
         std::unique_ptr<Context> network_ctx;
     };

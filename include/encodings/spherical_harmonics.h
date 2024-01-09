@@ -14,8 +14,8 @@ template <typename T> class SphericalHarmonicsEncoding : public Encoding<T> {
         if (m_degree > 8) throw std::runtime_error{"Spherical harmonics are only implemented up to degree 8."};
     }
 
-    std::unique_ptr<Context> forward_impl(sycl::queue *const q, const GPUMatrix<float> &input,
-                                          GPUMatrix<T> *output = nullptr, bool use_inference_params = false,
+    std::unique_ptr<Context> forward_impl(sycl::queue *const q, const DeviceMatrix<float> &input,
+                                          DeviceMatrix<T> *output = nullptr, bool use_inference_params = false,
                                           bool prepare_input_gradients = false) override {
 
         const uint32_t n_rows = input.m();
@@ -53,9 +53,9 @@ template <typename T> class SphericalHarmonicsEncoding : public Encoding<T> {
         return std::make_unique<Context>();
     }
 
-    void backward_impl(sycl::queue *const q, const Context &ctx, const GPUMatrix<float> &input,
-                       const GPUMatrix<T> &output, const GPUMatrix<T> &dL_doutput,
-                       GPUMatrix<float> *dL_dinput = nullptr, bool use_inference_params = false,
+    void backward_impl(sycl::queue *const q, const Context &ctx, const DeviceMatrix<float> &input,
+                       const DeviceMatrix<T> &output, const DeviceMatrix<T> &dL_doutput,
+                       DeviceMatrix<float> *dL_dinput = nullptr, bool use_inference_params = false,
                        GradientMode param_gradients_mode = GradientMode::Overwrite) override {
         throw std::logic_error("Not yet impplemented.");
     }

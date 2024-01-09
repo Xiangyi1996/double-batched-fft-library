@@ -17,7 +17,7 @@ template <typename T> void initialize_arange(std::vector<T> &vec) {
     }
 }
 
-template <typename T> bool check_output_non_zero(GPUMatrix<T> &matrix) {
+template <typename T> bool check_output_non_zero(DeviceMatrix<T> &matrix) {
 
     // Check actual data
     std::vector<T> data = matrix.copy_to_host();
@@ -38,24 +38,22 @@ TEST_CASE("tinydpcppnn::encoding Identity") {
         const int output_width = 3;
 
         sycl::queue q;
-        GPUMatrix<float> input(batch_size, input_width, q);
+        DeviceMatrix<float> input(batch_size, input_width, q);
         input.fill(1.23f).wait();
 
-        GPUMatrix<float> output_float(batch_size, output_width, q);
+        DeviceMatrix<float> output_float(batch_size, output_width, q);
         output_float.fill(0.0f).wait();
 
         // Define the parameters for creating IdentityEncoding
         std::unordered_map<std::string, std::string> encoding = {
             {"n_dims_to_encode", std::to_string(input_width)}, {"scale", "1.0"}, {"offset", "0.0"}};
-        Encoding<float> *network = create_encoding<float>("Identity", encoding);
+        std::shared_ptr<Encoding<float>> network = create_encoding<float>("Identity", encoding);
         network->set_padded_output_width(output_width);
 
         std::unique_ptr<Context> model_ctx = network->forward_impl(&q, input, &output_float);
         q.wait();
 
         CHECK(input == output_float);
-
-        delete network;
     }
 }
 
@@ -70,15 +68,15 @@ TEST_CASE("tinydpcppnn::encoding Spherical Harmonics") {
         sycl::queue q;
         std::vector<float> input_float(input_width * batch_size);
         initialize_arange(input_float);
-        GPUMatrix<float> input(batch_size, input_width, q);
+        DeviceMatrix<float> input(batch_size, input_width, q);
         input.copy_from_host(input_float).wait();
 
-        GPUMatrix<float> output_float(batch_size, output_width, q);
+        DeviceMatrix<float> output_float(batch_size, output_width, q);
         output_float.fill(0.0f).wait();
 
         std::unordered_map<std::string, std::string> encoding = {{"n_dims_to_encode", std::to_string(input_width)},
                                                                  {"degree", std::to_string(DEGREE)}};
-        Encoding<float> *network = create_encoding<float>("SphericalHarmonics", encoding);
+        std::shared_ptr<Encoding<float>> network = create_encoding<float>("SphericalHarmonics", encoding);
         network->set_padded_output_width(output_float.n());
         std::unique_ptr<Context> model_ctx = network->forward_impl(&q, input, &output_float);
         q.wait();
@@ -93,8 +91,6 @@ TEST_CASE("tinydpcppnn::encoding Spherical Harmonics") {
         for (size_t i = 0; i < out.size(); i++) {
             CHECK(out[i] == doctest::Approx(reference_out[i]).epsilon(epsilon));
         }
-
-        delete network;
     }
 }
 
@@ -105,10 +101,10 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         const int batch_size = 1;
         sycl::queue q;
 
-        GPUMatrix<float> input(batch_size, input_width, q);
+        DeviceMatrix<float> input(batch_size, input_width, q);
         input.fill(1.0f).wait();
 
-        GPUMatrix<float> output_float(32, batch_size, q);
+        DeviceMatrix<float> output_float(32, batch_size, q);
         output_float.fill(0.0f).wait();
 
         json encoding_json = {
@@ -122,7 +118,7 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
             {"per_level_scale", 2.0},
         };
 
-        GridEncoding<float> *network = create_grid_encoding<float>(input_width, encoding_json);
+        std::shared_ptr<GridEncoding<float>> network = create_grid_encoding<float>(input_width, encoding_json);
 
         std::vector<float> tmp_params_host(network->n_params());
         initialize_arange(tmp_params_host);
@@ -148,8 +144,6 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         for (size_t i = 0; i < out.size(); ++i) {
             CHECK(out[i] == doctest::Approx(reference_out[i]).epsilon(epsilon));
         }
-
-        delete network;
     }
 
     SUBCASE("Check results loaded") {
@@ -158,10 +152,10 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         const int batch_size = 8;
         sycl::queue q;
 
-        GPUMatrix<float> input(batch_size, input_width, q);
+        DeviceMatrix<float> input(batch_size, input_width, q);
         input.fill(0.0f).wait();
 
-        GPUMatrix<float> output_float(batch_size, 32, q);
+        DeviceMatrix<float> output_float(batch_size, 32, q);
         output_float.fill(0.0f);
 
         json encoding_json = {
@@ -175,7 +169,7 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
             {"per_level_scale", 1.5},
         };
 
-        GridEncoding<float> *network = create_grid_encoding<float>(input_width, encoding_json);
+        std::shared_ptr<GridEncoding<float>> network = create_grid_encoding<float>(input_width, encoding_json);
         DeviceMem<float> params_full_precision(network->n_params(), q);
 
         std::vector<float> params =
@@ -207,7 +201,5 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         for (size_t i = 0; i < out.size(); ++i) {
             CHECK(out[i] == doctest::Approx(reference_out[i]).epsilon(epsilon));
         }
-
-        delete network;
     }
 }

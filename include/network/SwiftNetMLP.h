@@ -163,7 +163,7 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
 
     void SanityCheckInference(const DeviceMem<T> &input, DeviceMem<T> &output, const size_t batch_size) const {
         if ((batch_size % 8) != 0) throw std::invalid_argument("Batch size is not divisible by 8.");
-        if (input.size() < batch_size * Network<T>::get_inputs_width())
+        if (input.size() < batch_size * Network<T>::get_input_width())
             throw std::invalid_argument("Input array too small");
         if (output.size() < batch_size * Network<T>::get_output_width())
             throw std::invalid_argument("Output array too small");
@@ -173,10 +173,10 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
                             const size_t batch_size) const {
         // Static assertion and assertion checks
         if ((batch_size % 8) != 0) throw std::invalid_argument("Batch size is not divisible by 8.");
-        if (input.size() < batch_size * Network<T>::get_inputs_width())
+        if (input.size() < batch_size * Network<T>::get_input_width())
             throw std::invalid_argument("Input array too small");
         if (intermediate_output_forward.size() <
-            batch_size * (Network<T>::get_inputs_width() + Network<T>::get_output_width() +
+            batch_size * (Network<T>::get_input_width() + Network<T>::get_output_width() +
                           WIDTH * Network<T>::get_n_hidden_layers()))
             throw std::invalid_argument("Output array too small");
     }
@@ -188,13 +188,13 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
         if (input.size() < batch_size * Network<T>::get_output_width())
             throw std::invalid_argument("Input array in backward pass too small");
         if (intermediate_output_forward.size() <
-            batch_size * (Network<T>::get_inputs_width() + Network<T>::get_output_width() +
+            batch_size * (Network<T>::get_input_width() + Network<T>::get_output_width() +
                           WIDTH * Network<T>::get_n_hidden_matrices()))
             throw std::invalid_argument("intermediate_output_forward array too small");
         if (intermediate_output_backward.size() <
             batch_size * (Network<T>::get_output_width() + WIDTH * Network<T>::get_n_hidden_layers()))
             throw std::invalid_argument("intermediate_output_backward array too small");
-        if (output.size() < WIDTH * (Network<T>::get_n_hidden_matrices() * WIDTH + Network<T>::get_inputs_width() +
+        if (output.size() < WIDTH * (Network<T>::get_n_hidden_matrices() * WIDTH + Network<T>::get_input_width() +
                                      Network<T>::get_output_width()))
             throw std::invalid_argument("Output of backward pass too small.");
     }

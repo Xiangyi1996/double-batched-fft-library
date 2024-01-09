@@ -3,26 +3,12 @@
 #include "DeviceMem.h"
 #include "common.h"
 
-// Base class for neural network
-template <typename T> class Network {
-
+// completely generic Network.
+template <typename T> class NetworkBase {
   public:
-    enum WeightInitMode { arange, constant_pos, constant_negative, he_normal, none };
+    NetworkBase() {}
 
-    Network(sycl::queue &q, const int n_hidden_layers, const int inputs_width, const int network_width,
-            const int output_width, const WeightInitMode mode)
-        : m_q(q), n_hidden_layers_(NonNegative(n_hidden_layers)), inputs_width_(PadWidths(inputs_width, network_width)),
-          network_width_(NonNegative(network_width)), output_width_(PadWidths(output_width, network_width)),
-          m_weights_matrices(
-              (size_t)network_width_ * (inputs_width_ + network_width_ * (n_hidden_layers_ - 1) + output_width_), m_q),
-          m_weightsT_matrices(
-              (size_t)network_width_ * (inputs_width_ + network_width_ * (n_hidden_layers_ - 1) + output_width_), m_q) {
-
-        SanityCheck();
-        initialize_weights_matrices(inputs_width, output_width, mode);
-    }
-
-    virtual ~Network() {}
+    virtual ~NetworkBase() {}
 
     // Perform forward pass through the network
     virtual std::vector<sycl::event> forward_pass(const DeviceMem<T> &input, DeviceMem<T> &intermediate_output_forward,
@@ -44,9 +30,34 @@ template <typename T> class Network {
                                               DeviceMem<T> &intermediate_output_backward,
                                               DeviceMem<T> &intermediate_output_forward, const size_t batch_size,
                                               const std::vector<sycl::event> &deps) = 0;
+};
+
+// Network Base class for all networks with weights matrices and width restrictions
+template <typename T> class Network : public NetworkBase<T> {
+
+  public:
+    enum WeightInitMode { arange, constant_pos, constant_negative, he_normal, none };
+
+    Network(sycl::queue &q, const int n_hidden_layers, const int input_width, const int network_width,
+            const int output_width, const WeightInitMode mode)
+        : m_q(q), input_width_(PadWidths(input_width, network_width)),
+          output_width_(PadWidths(output_width, network_width)), n_hidden_layers_(NonNegative(n_hidden_layers)),
+          network_width_(NonNegative(network_width)),
+          m_weights_matrices((size_t)network_width_ *
+                                 (get_input_width() + network_width_ * (n_hidden_layers_ - 1) + get_output_width()),
+                             m_q),
+          m_weightsT_matrices((size_t)network_width_ *
+                                  (get_input_width() + network_width_ * (n_hidden_layers_ - 1) + get_output_width()),
+                              m_q) {
+
+        SanityCheck();
+        initialize_weights_matrices(input_width, output_width, mode);
+    }
+
+    virtual ~Network() {}
 
     /// @brief Get the SYCL queue associated with the network
-    queue &get_queue() { return m_q; }
+    sycl::queue &get_queue() { return m_q; }
 
     virtual void set_weights_matrices(const std::vector<T> &weights) {
         m_weights_matrices.copy_from_host(weights);
@@ -61,33 +72,33 @@ template <typename T> class Network {
     /// @brief returns hidden layers - 1
     /// @return n_hidden_layers - 1
     virtual int get_n_hidden_matrices() const { return n_hidden_layers_ - 1; }
-    virtual int get_inputs_width() const { return inputs_width_; }
     virtual int get_network_width() const { return network_width_; }
-    virtual int get_output_width() const { return output_width_; }
+    virtual uint32_t get_input_width() const { return input_width_; }
+    virtual uint32_t get_output_width() const { return output_width_; }
 
   private:
     virtual void SanityCheck() const {
-        if (inputs_width_ <= 0) {
-            std::string errorMessage =
-                "Input width of " + std::to_string(inputs_width_) + " is not supported. Value must be larger than 0.";
+        if (get_input_width() <= 0) {
+            std::string errorMessage = "Input width of " + std::to_string(get_input_width()) +
+                                       " is not supported. Value must be larger than 0.";
             throw std::runtime_error(errorMessage);
         }
 
-        if (output_width_ <= 0) {
-            std::string errorMessage =
-                "Output width of " + std::to_string(output_width_) + " is not supported. Value must be larger than 0.";
+        if (get_output_width() <= 0) {
+            std::string errorMessage = "Output width of " + std::to_string(get_output_width()) +
+                                       " is not supported. Value must be larger than 0.";
             throw std::runtime_error(errorMessage);
         }
 
-        if (inputs_width_ > network_width_) {
-            std::string errorMessage = "Input width of " + std::to_string(inputs_width_) +
+        if (get_input_width() > network_width_) {
+            std::string errorMessage = "Input width of " + std::to_string(get_input_width()) +
                                        " is not supported. Value must be <= network width (" +
                                        std::to_string(network_width_) + ").";
             throw std::runtime_error(errorMessage);
         }
 
-        if (output_width_ > network_width_) {
-            std::string errorMessage = "Input width of " + std::to_string(output_width_) +
+        if (get_output_width() > network_width_) {
+            std::string errorMessage = "Input width of " + std::to_string(get_output_width()) +
                                        " is not supported. Value must be <= network width (" +
                                        std::to_string(network_width_) + ").";
             throw std::runtime_error(errorMessage);
@@ -102,19 +113,19 @@ template <typename T> class Network {
         if (network_width_ != 16 && network_width_ != 32 && network_width_ != 64 && network_width_ != 128)
             throw std::invalid_argument("Network width has to be a power of 2 between 16 and 128.");
 
-        if (network_width_ != inputs_width_ || network_width_ != output_width_)
+        if (network_width_ != get_input_width() || network_width_ != get_output_width())
             throw std::invalid_argument("Only networks with same input, layer and output width are allowed.");
     }
 
     ///@brief Helper function which sets values of the weights matrices to 0 if
     /// the actual input/output width was padded to the network-allowed input/output width.
     void ZeroWeightsPadding(const int unpadded_input_width, const int unpadded_output_width) {
-        if (unpadded_input_width > inputs_width_ || unpadded_output_width > output_width_)
+        if (unpadded_input_width > get_input_width() || unpadded_output_width > get_output_width())
             throw std::invalid_argument("Padded weights width cannot be less than the unpadded.");
 
         T *const weights = m_weights_matrices.data();
         /// we need to copy everything here since we do not want to have an implicit copy of 'this'
-        const int padded_input_width = get_inputs_width();
+        const int padded_input_width = get_input_width();
         const int network_width = get_network_width();
         const int padded_output_width = get_output_width();
         const int output_offset =
@@ -161,23 +172,23 @@ template <typename T> class Network {
     }
 
     void TransposeWeights(const DeviceMem<T> &weights, DeviceMem<T> &weightsT) {
-        const size_t nelems = get_inputs_width() * get_network_width() +
+        const size_t nelems = get_input_width() * get_network_width() +
                               get_n_hidden_matrices() * get_network_width() * get_network_width() +
                               get_network_width() * get_output_width();
         assert(weights.size() >= nelems);
         assert(weightsT.size() >= nelems);
 
         // input matrix transpose
-        TransposeWeightMatrix(weights.data(), get_network_width(), get_inputs_width(), weightsT.data(), m_q);
+        TransposeWeightMatrix(weights.data(), get_network_width(), get_input_width(), weightsT.data(), m_q);
         // hidden matrices transpose
         for (int matiter = 0; matiter < get_n_hidden_matrices(); matiter++) {
             const size_t offset =
-                get_network_width() * get_inputs_width() + matiter * get_network_width() * get_network_width();
+                get_network_width() * get_input_width() + matiter * get_network_width() * get_network_width();
             TransposeWeightMatrix(weights.data() + offset, get_network_width(), get_network_width(),
                                   weightsT.data() + offset, m_q);
         }
         // output matrix transpose
-        const size_t offset = get_network_width() * get_inputs_width() +
+        const size_t offset = get_network_width() * get_input_width() +
                               get_n_hidden_matrices() * get_network_width() * get_network_width();
         TransposeWeightMatrix(weights.data() + offset, get_network_width(), get_output_width(),
                               weightsT.data() + offset, m_q);
@@ -300,10 +311,10 @@ template <typename T> class Network {
 
     sycl::queue &m_q;
 
+    const uint32_t input_width_;
+    const uint32_t output_width_;
     const int n_hidden_layers_;
-    const int inputs_width_;
     const int network_width_;
-    const int output_width_;
 
     DeviceMem<T> m_weights_matrices;
     DeviceMem<T> m_weightsT_matrices;

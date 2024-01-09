@@ -43,19 +43,19 @@ template <typename T, int WIDTH = 64> void test_network_with_encoding(sycl::queu
     SwiftNetMLP<T, WIDTH> network(q, input_width, unpadded_output_width, n_hidden_layers, Activation::ReLU,
                                   Activation::None, Network<T>::WeightInitMode::constant_pos);
     q.wait();
-    assert(input_width == network.get_inputs_width());
+    assert(input_width == network.get_input_width());
     assert(output_width == network.get_output_width());
 
     DeviceMem<T> inputs(input_width * batch_size, q);
     inputs.fill((T)0.01);
 
-    GPUMatrix<float> input_encoding(batch_size, encoding_input_width, q);
+    DeviceMatrix<float> input_encoding(batch_size, encoding_input_width, q);
     input_encoding.fill(1.0f).wait();
 
-    GPUMatrix<float> output_encoding(batch_size, encoding_output_width, q);
+    DeviceMatrix<float> output_encoding(batch_size, encoding_output_width, q);
     output_encoding.fill(1.0f).wait();
 
-    GridEncoding<float> *encoding = create_grid_encoding<float>(encoding_input_width, encoding_json);
+    std::shared_ptr<GridEncoding<float>> encoding = create_grid_encoding<float>(encoding_input_width, encoding_json);
 
     std::vector<float> params =
         loadVectorFromCSV<float>("../../test/ref_values/network_with_grid_encoding/full/encoding_params.csv");
@@ -93,8 +93,6 @@ template <typename T, int WIDTH = 64> void test_network_with_encoding(sycl::queu
     std::cout << std::endl;
 
     CHECK(areVectorsWithinTolerance(out_host, output_ref, 1e-3));
-
-    delete encoding;
 }
 
 /*
@@ -141,11 +139,11 @@ void test_network_with_encoding() {
     // load weights, infer image first before benchmark
     DeviceMem<float> input_encoding_dm(encoding_input_width * batch_size, q);
     input_encoding_dm.initialize_constant(1.0f, q);
-    GPUMatrix<float> input_encoding(input_encoding_dm.data(), encoding_input_width, batch_size);
+    DeviceMatrix<float> input_encoding(input_encoding_dm.data(), encoding_input_width, batch_size);
 
     DeviceMem<float> output_encoding_dm(input_width * batch_size, q);
     output_encoding_dm.initialize_constant(1.0f, q);
-    GPUMatrix<float> output_encoding(output_encoding_dm.data(), input_width, batch_size);
+    DeviceMatrix<float> output_encoding(output_encoding_dm.data(), input_width, batch_size);
     GridEncoding<float> *encoding = create_grid_encoding<float>(encoding_input_width, encoding_json);
 
     std::vector<float> params =
@@ -260,11 +258,11 @@ void test_network_with_encoding() {
 //     // // load weights, infer image first before benchmark
 //     // DeviceMem<float> input_encoding_dm(encoding_input_width * batch_size, q);
 //     // input_encoding_dm.initialize_constant(1.0f, q);
-//     // GPUMatrix<float> input_encoding(input_encoding_dm.data(), encoding_input_width, batch_size);
+//     // DeviceMatrix<float> input_encoding(input_encoding_dm.data(), encoding_input_width, batch_size);
 
 //     // DeviceMem<float> output_encoding_dm(input_width * batch_size, q);
 //     // output_encoding_dm.initialize_constant(1.0f, q);
-//     // GPUMatrix<float> output_encoding(output_encoding_dm.data(), input_width, batch_size);
+//     // DeviceMatrix<float> output_encoding(output_encoding_dm.data(), input_width, batch_size);
 
 //     // GridEncoding<float> *encoding = create_grid_encoding<float>(encoding_input_width, encoding_json);
 
@@ -319,8 +317,8 @@ void test_network_with_encoding() {
 //     const int output_width = 64;
 //     const int m_n_hidden_layers = HIDDEN_LAYERS;
 
-//     GPUMatrix<float> input(INPUT_WIDTH, batch_size);
-//     //   GPUMatrix<float> input(batch_size, INPUT_WIDTH);
+//     DeviceMatrix<float> input(INPUT_WIDTH, batch_size);
+//     //   DeviceMatrix<float> input(batch_size, INPUT_WIDTH);
 //     input.initialize_constant(0.1f);
 
 //     //   Define the parameters for creating IdentityEncoding

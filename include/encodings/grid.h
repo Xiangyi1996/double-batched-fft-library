@@ -1153,8 +1153,8 @@ class GridEncodingTemplated : public GridEncoding<T> {
         }
     }
 
-    std::unique_ptr<Context> forward_impl(sycl::queue *const q, const GPUMatrix<float> &input,
-                                          GPUMatrix<T> *output = nullptr, bool use_inference_params = false,
+    std::unique_ptr<Context> forward_impl(sycl::queue *const q, const DeviceMatrix<float> &input,
+                                          DeviceMatrix<T> *output = nullptr, bool use_inference_params = false,
                                           bool prepare_input_gradients = false) override {
 
         auto forward = std::make_unique<Context>(); // alternative for now. remove later
@@ -1213,7 +1213,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
         }
 
         if (prepare_input_gradients) {
-            forward->dy_dx = GPUMatrix<float, MatrixLayout::RowMajor>{N_POS_DIMS * m_n_features, input.n(), *q};
+            forward->dy_dx = DeviceMatrix<float, MatrixLayout::RowMajor>{N_POS_DIMS * m_n_features, input.n(), *q};
         }
         auto use_inference_params2 = use_inference_params ? this->inference_params() : this->params();
         // std::cout << "use_inference_params: " << use_inference_params << ", pointer: " << use_inference_params2
@@ -1274,9 +1274,9 @@ class GridEncodingTemplated : public GridEncoding<T> {
         return forward;
     }
 
-    void backward_impl(sycl::queue *const q, const Context &ctx, const GPUMatrix<float> &input,
-                       const GPUMatrix<T> &output, const GPUMatrix<T> &dL_doutput,
-                       GPUMatrix<float> *dL_dinput = nullptr, bool use_inference_params = false,
+    void backward_impl(sycl::queue *const q, const Context &ctx, const DeviceMatrix<float> &input,
+                       const DeviceMatrix<T> &output, const DeviceMatrix<T> &dL_doutput,
+                       DeviceMatrix<float> *dL_dinput = nullptr, bool use_inference_params = false,
                        GradientMode param_gradients_mode = GradientMode::Overwrite) override {
 
         /*
@@ -1384,10 +1384,10 @@ class GridEncodingTemplated : public GridEncoding<T> {
                       */
     }
 
-    void backward_backward_input_impl(sycl::queue *const q, const Context &ctx, const GPUMatrix<float> &input,
-                                      const GPUMatrix<float> &dL_ddLdinput, const GPUMatrix<T> &dL_doutput,
-                                      GPUMatrix<T> *dL_ddLdoutput = nullptr, GPUMatrix<float> *dL_dinput = nullptr,
-                                      bool use_inference_params = false,
+    void backward_backward_input_impl(sycl::queue *const q, const Context &ctx, const DeviceMatrix<float> &input,
+                                      const DeviceMatrix<float> &dL_ddLdinput, const DeviceMatrix<T> &dL_doutput,
+                                      DeviceMatrix<T> *dL_ddLdoutput = nullptr,
+                                      DeviceMatrix<float> *dL_dinput = nullptr, bool use_inference_params = false,
                                       GradientMode param_gradients_mode = GradientMode::Overwrite) // TODO: override
     {
         /*
@@ -1607,8 +1607,8 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
   private:
     struct ForwardContext : public Context {
-        GPUMatrix<float, MatrixLayout::RowMajor> positions;
-        GPUMatrix<float, MatrixLayout::RowMajor> dy_dx;
+        DeviceMatrix<float, MatrixLayout::RowMajor> positions;
+        DeviceMatrix<float, MatrixLayout::RowMajor> dy_dx;
     };
 
     uint32_t m_n_features;
@@ -1632,7 +1632,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
 };
 
 template <typename T, uint32_t N_FEATURES_PER_LEVEL, HashType HASH_TYPE>
-GridEncoding<T> *create_grid_encoding_templated_2(uint32_t n_dims_to_encode, const json &encoding) {
+std::shared_ptr<GridEncoding<T>> create_grid_encoding_templated_2(uint32_t n_dims_to_encode, const json &encoding) {
     const uint32_t log2_hashmap_size = encoding.value("log2_hashmap_size", 19u);
     const std::string encoding_type = encoding.value("otype", "Grid");
     const std::string default_type = equals_case_insensitive(encoding_type, "TiledGrid")
@@ -1660,7 +1660,7 @@ GridEncoding<T> *create_grid_encoding_templated_2(uint32_t n_dims_to_encode, con
                                               ? std::exp(std::log(256.0f / (float)base_resolution) / (n_levels - 1))   \
                                               : 2.0f),                                                                 \
         encoding.value("stochastic_interpolation", false),                                                             \
-        string_to_interpolation_type(encoding.value("interpolation", "Linear")), grid_type,
+        string_to_interpolation_type(encoding.value("interpolation", "Linear")), grid_type
 
     // If higher-dimensional hash encodings are desired, corresponding switch
     // cases can be added
@@ -1668,11 +1668,11 @@ GridEncoding<T> *create_grid_encoding_templated_2(uint32_t n_dims_to_encode, con
     // case 1: return new GridEncodingTemplated<T, 1, N_FEATURES_PER_LEVEL,
     // HASH_TYPE>{ TCNN_GRID_PARAMS };
     case 2:
-        return new GridEncodingTemplated<T, 2, N_FEATURES_PER_LEVEL, HASH_TYPE>{TCNN_GRID_PARAMS};
+        return std::make_shared<GridEncodingTemplated<T, 2, N_FEATURES_PER_LEVEL, HASH_TYPE>>(TCNN_GRID_PARAMS);
     case 3:
-        return new GridEncodingTemplated<T, 3, N_FEATURES_PER_LEVEL, HASH_TYPE>{TCNN_GRID_PARAMS};
+        return std::make_shared<GridEncodingTemplated<T, 3, N_FEATURES_PER_LEVEL, HASH_TYPE>>(TCNN_GRID_PARAMS);
     case 4:
-        return new GridEncodingTemplated<T, 4, N_FEATURES_PER_LEVEL, HASH_TYPE>{TCNN_GRID_PARAMS};
+        return std::make_shared<GridEncodingTemplated<T, 4, N_FEATURES_PER_LEVEL, HASH_TYPE>>(TCNN_GRID_PARAMS);
     // case 5: return new GridEncodingTemplated<T, 5, N_FEATURES_PER_LEVEL,
     // HASH_TYPE>{ TCNN_GRID_PARAMS }; case 6: return new
     // GridEncodingTemplated<T, 6, N_FEATURES_PER_LEVEL, HASH_TYPE>{
@@ -1685,7 +1685,7 @@ GridEncoding<T> *create_grid_encoding_templated_2(uint32_t n_dims_to_encode, con
 }
 
 template <typename T, HashType HASH_TYPE>
-GridEncoding<T> *create_grid_encoding_templated_1(uint32_t n_dims_to_encode, const json &encoding) {
+std::shared_ptr<GridEncoding<T>> create_grid_encoding_templated_1(uint32_t n_dims_to_encode, const json &encoding) {
     const uint32_t n_features_per_level = encoding.value("n_features_per_level", 2u);
     switch (n_features_per_level) {
     case 1:
@@ -1701,7 +1701,8 @@ GridEncoding<T> *create_grid_encoding_templated_1(uint32_t n_dims_to_encode, con
     }
 }
 
-template <typename T> GridEncoding<T> *create_grid_encoding(uint32_t n_dims_to_encode, const json &encoding) {
+template <typename T>
+std::shared_ptr<GridEncoding<T>> create_grid_encoding(uint32_t n_dims_to_encode, const json &encoding) {
     const HashType hash_type = string_to_hash_type(encoding.value("hash", "CoherentPrime"));
     switch (hash_type) {
     case HashType::Prime:

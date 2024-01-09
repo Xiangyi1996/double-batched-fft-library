@@ -1,12 +1,12 @@
 
 #pragma once
 
+#include "DeviceMatrix.h"
+#include "DeviceMem.h"
+#include "common.h"
+#include "common_device.h"
 #include "common_host.h"
-#include <DeviceMem.h>
-#include <common.h>
-#include <common_device.h>
-#include <encoding.h>
-#include <gpu_matrix.h>
+#include "encoding.h"
 #include <stdint.h>
 
 #include <numeric>
@@ -20,8 +20,8 @@ template <typename T> class IdentityEncoding : public Encoding<T> {
     IdentityEncoding(uint32_t n_dims_to_encode, const float scale = 1.0f, const float offset = 0.0f)
         : m_n_dims_to_encode{n_dims_to_encode}, m_scale{scale}, m_offset{offset}, m_n_to_pad{0} {}
 
-    std::unique_ptr<Context> forward_impl(sycl::queue *const q, const GPUMatrix<float> &input,
-                                          GPUMatrix<T> *output = nullptr, bool use_inference_params = false,
+    std::unique_ptr<Context> forward_impl(sycl::queue *const q, const DeviceMatrix<float> &input,
+                                          DeviceMatrix<T> *output = nullptr, bool use_inference_params = false,
                                           bool prepare_input_gradients = false) override {
         const uint32_t loc_padded_output_width = padded_output_width();
 
@@ -66,9 +66,9 @@ template <typename T> class IdentityEncoding : public Encoding<T> {
         return std::make_unique<Context>();
     }
 
-    void backward_impl(sycl::queue *const q, const Context &ctx, const GPUMatrix<float> &input,
-                       const GPUMatrix<T> &output, const GPUMatrix<T> &dL_doutput,
-                       GPUMatrix<float> *dL_dinput = nullptr, bool use_inference_params = false,
+    void backward_impl(sycl::queue *const q, const Context &ctx, const DeviceMatrix<float> &input,
+                       const DeviceMatrix<T> &output, const DeviceMatrix<T> &dL_doutput,
+                       DeviceMatrix<float> *dL_dinput = nullptr, bool use_inference_params = false,
                        GradientMode param_gradients_mode = GradientMode::Overwrite) override {
         throw std::logic_error("Not yet implemented.");
 

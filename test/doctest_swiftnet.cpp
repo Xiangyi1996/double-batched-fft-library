@@ -27,7 +27,7 @@ void test_inference_1layer(sycl::queue &q, const int input_width, const int outp
                                   Network<T>::WeightInitMode::constant_pos);
 
     DeviceMem<T> network_output(batch_size * network.get_output_width(), q);
-    DeviceMem<T> network_input(network.get_inputs_width() * batch_size, q);
+    DeviceMem<T> network_input(network.get_input_width() * batch_size, q);
 
     network_input.fill(input_val);
 
@@ -58,10 +58,10 @@ void test_forward_1layer(sycl::queue &q, const int input_width, const int output
     SwiftNetMLP<T, WIDTH> network(q, input_width, output_width, n_hidden_layers, Activation::ReLU, Activation::None,
                                   Network<T>::WeightInitMode::constant_pos);
 
-    DeviceMem<T> network_interm_forw(batch_size * (network.get_inputs_width() + network.get_output_width() +
+    DeviceMem<T> network_interm_forw(batch_size * (network.get_input_width() + network.get_output_width() +
                                                    network.get_network_width() * network.get_n_hidden_layers()),
                                      q);
-    DeviceMem<T> network_input(network.get_inputs_width() * batch_size, q);
+    DeviceMem<T> network_input(network.get_input_width() * batch_size, q);
 
     network_input.fill(input_val);
 
@@ -75,16 +75,16 @@ void test_forward_1layer(sycl::queue &q, const int input_width, const int output
     // Check result of fwd_host. First block = input, second block is the
     // hidden layer, last block is output.
     for (int i = 0; i < fwd_host.size(); i++) {
-        if (i < batch_size * network.get_inputs_width()) {
+        if (i < batch_size * network.get_input_width()) {
             // std::cout << static_cast<double>(fwd_host[i]) << ": ";
             CHECK(static_cast<double>(fwd_host[i]) == doctest::Approx(input_val).epsilon(1e-3));
-        } else if ((i >= batch_size * network.get_inputs_width()) &&
-                   (i < batch_size * (network.get_inputs_width() + network.get_network_width()))) {
+        } else if ((i >= batch_size * network.get_input_width()) &&
+                   (i < batch_size * (network.get_input_width() + network.get_network_width()))) {
             const double ref_result = weight_val * input_width * input_val;
             CHECK(static_cast<double>(fwd_host[i]) == doctest::Approx(ref_result).epsilon(1e-3));
             // std::cout << static_cast<double>(fwd_host[i]) << ", ";
         } else {
-            const int output_idx = i - batch_size * (network.get_inputs_width() + network.get_network_width());
+            const int output_idx = i - batch_size * (network.get_input_width() + network.get_network_width());
             const int nonzero_value = (output_idx % network.get_output_width()) < output_width ? 1 : 0;
             const double ref_result =
                 nonzero_value * weight_val * input_width * input_val * network.get_network_width() * weight_val;
@@ -396,49 +396,49 @@ TEST_CASE("Swiftnet - Zero Padding") {
     typedef sycl::ext::oneapi::bfloat16 T;
     SUBCASE("Input 1-64") {
         SwiftNetMLP<T, 64> network(q, 1, 64, 4, Activation::ReLU, Activation::None);
-        CHECK(network.get_inputs_width() == 64);
+        CHECK(network.get_input_width() == 64);
         CHECK(network.get_network_width() == 64);
         CHECK(network.get_output_width() == 64);
     }
     SUBCASE("Input 1-16") {
         SwiftNetMLP<T, 16> network(q, 1, 16, 4, Activation::ReLU, Activation::None);
-        CHECK(network.get_inputs_width() == 16);
+        CHECK(network.get_input_width() == 16);
         CHECK(network.get_network_width() == 16);
         CHECK(network.get_output_width() == 16);
     }
     SUBCASE("Input 17-32") {
         SwiftNetMLP<T, 32> network(q, 17, 32, 4, Activation::ReLU, Activation::None);
-        CHECK(network.get_inputs_width() == 32);
+        CHECK(network.get_input_width() == 32);
         CHECK(network.get_network_width() == 32);
         CHECK(network.get_output_width() == 32);
     }
     SUBCASE("Input 17-128") {
         SwiftNetMLP<T, 128> network(q, 17, 128, 4, Activation::ReLU, Activation::None);
-        CHECK(network.get_inputs_width() == 128);
+        CHECK(network.get_input_width() == 128);
         CHECK(network.get_network_width() == 128);
         CHECK(network.get_output_width() == 128);
     }
     SUBCASE("Output 1-64") {
         SwiftNetMLP<T, 64> network(q, 64, 1, 4, Activation::ReLU, Activation::None);
-        CHECK(network.get_inputs_width() == 64);
+        CHECK(network.get_input_width() == 64);
         CHECK(network.get_network_width() == 64);
         CHECK(network.get_output_width() == 64);
     }
     SUBCASE("Output 1-16") {
         SwiftNetMLP<T, 16> network(q, 16, 1, 4, Activation::ReLU, Activation::None);
-        CHECK(network.get_inputs_width() == 16);
+        CHECK(network.get_input_width() == 16);
         CHECK(network.get_network_width() == 16);
         CHECK(network.get_output_width() == 16);
     }
     SUBCASE("Output 17-32") {
         SwiftNetMLP<T, 32> network(q, 32, 17, 4, Activation::ReLU, Activation::None);
-        CHECK(network.get_inputs_width() == 32);
+        CHECK(network.get_input_width() == 32);
         CHECK(network.get_network_width() == 32);
         CHECK(network.get_output_width() == 32);
     }
     SUBCASE("Output 17-128") {
         SwiftNetMLP<T, 128> network(q, 128, 17, 4, Activation::ReLU, Activation::None);
-        CHECK(network.get_inputs_width() == 128);
+        CHECK(network.get_input_width() == 128);
         CHECK(network.get_network_width() == 128);
         CHECK(network.get_output_width() == 128);
     }
