@@ -7,18 +7,48 @@
 #include <sycl/sycl.hpp>
 #include <vector>
 
+// view class which can even be used on the device,
+// does not own any more
+// is always associated with a DeviceMatrix.
+// The associated DeviceMatrix owns the memory
+// if the associated DeviceMatrix is deleted, behaviour of DeviceMatrixView is undefined
+template <typename T> class DeviceMatrixView {
+    DeviceMatrixView() = delete;
+    DeviceMatrixView(const uint32_t m, const uint32_t n, const uint32_t stride_col, T *const ptr)
+        : m_(m), n_(n), stride_col_(stride_col_), ptr_(ptr) {}
+
+    T &operator()(const int i, const int j) noexcept { return ptr_[j + i * stride_col_]; }
+    const T &operator()(const int i, const int j) const noexcept { return ptr_[j + i * stride_col_]; }
+
+    DeviceMatrixView GetSubMatrix(const uint32_t m, const uint32_t n, const uint32_t offset_m,
+                                  const uint32_t offset_n) {
+        return DeviceMatrixView(m, n, stride_col_, ptr_ + offset_n + offset_m * stride_col_);
+    }
+
+  private:
+    const uint32_t m_;
+    const uint32_t n_;
+    const uint32_t stride_col_;
+    T *const ptr_;
+};
+
 template <typename T, MatrixLayout _layout = MatrixLayout::RowMajor> class DeviceMatrix {
   public:
     // Owning its memory as an allocation from a stream's memory arena
     DeviceMatrix(const uint32_t m, const uint32_t n, sycl::queue &stream)
-        : m_rows(m), m_cols(n), m_q(stream), m_data(sycl::malloc_device<T>(m * n, stream)) {}
+        : m_rows(m), m_cols(n), m_q(stream), m_data(sycl::malloc_device<T>(m * n, stream)) {
+        static_assert(_layout == MatrixLayout::RowMajor);
+    }
     DeviceMatrix() = delete;
 
     DeviceMatrix(const DeviceMatrix<T, _layout> &other) : m_rows(other.m_rows), m_cols(other.m_cols), m_q(other.m_q) {
         m_data = sycl::malloc_device<T>(n_elements(), m_q);
         m_q.memcpy(m_data, other.m_data, n_bytes()).wait();
     }
-    DeviceMatrix(DeviceMatrix<T, _layout> &&other) noexcept { *this = std::move(other); }
+    DeviceMatrix(DeviceMatrix<T, _layout> &&other) noexcept {
+        *this = std::move(other);
+        m_data = nullptr;
+    }
 
     virtual ~DeviceMatrix() { sycl::free(m_data, m_q); }
 
@@ -65,9 +95,9 @@ template <typename T, MatrixLayout _layout = MatrixLayout::RowMajor> class Devic
         return m_q.memcpy(data(), vec.data(), n_bytes());
     }
 
-    MatrixView<T> view() const {
-        return {data(), layout() == MatrixLayout::ColumnMajor ? 1u : n(),
-                layout() == MatrixLayout::ColumnMajor ? m() : 1u};
+    template <typename Ts> void copy_from_device(Ts const *const src) {
+        T *const ptr = m_data;
+        m_q.parallel_for(size(), [=](auto idx) { ptr[idx] = static_cast<T>(src[idx]); }).wait();
     }
 
     T *data() { return m_data; }
@@ -79,12 +109,20 @@ template <typename T, MatrixLayout _layout = MatrixLayout::RowMajor> class Devic
     uint32_t cols() const { return m_cols; }
     uint32_t n() const { return cols(); }
 
-    uint32_t n_elements() const { return rows() * cols(); }
+    size_t n_elements() const { return rows() * cols(); }
+    size_t size() const { return n_elements(); }
     size_t n_bytes() const { return n_elements() * sizeof(T); }
 
     constexpr MatrixLayout layout() const { return _layout; }
     constexpr MatrixLayout transposed_layout() const {
         return _layout == MatrixLayout::RowMajor ? MatrixLayout::ColumnMajor : MatrixLayout::RowMajor;
+    }
+
+    DeviceMatrixView<T> GetView(const uint32_t m, const uint32_t n, const uint32_t offset_m, const uint32_t offset_n) {
+        if (offset_m + m > m_rows) throw std::invalid_argument("Potential OOB access.");
+        if (offset_n + n > m_cols) throw std::invalid_argument("Potential OOB access.");
+
+        return DeviceMatrixView(m, n, m_cols, m_data + offset_n + offset_m * m_cols);
     }
 
     // Function to print the matrix values

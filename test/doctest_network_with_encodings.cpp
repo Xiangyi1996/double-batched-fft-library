@@ -46,7 +46,7 @@ template <typename T, int WIDTH = 64> void test_network_with_encoding(sycl::queu
     assert(input_width == network.get_input_width());
     assert(output_width == network.get_output_width());
 
-    DeviceMem<T> inputs(input_width * batch_size, q);
+    DeviceMatrix<T> inputs(batch_size, input_width, q);
     inputs.fill((T)0.01);
 
     DeviceMatrix<float> input_encoding(batch_size, encoding_input_width, q);
@@ -69,20 +69,18 @@ template <typename T, int WIDTH = 64> void test_network_with_encoding(sycl::queu
     std::unique_ptr<Context> model_ctx = encoding->forward_impl(&q, input_encoding, &output_encoding);
     q.wait();
 
-    DeviceMem<T>::copy_from_device(inputs, output_encoding.data(), q).wait();
-    std::vector<T> input_host(inputs.size());
-    inputs.copy_to_host(input_host).wait();
+    inputs.copy_from_device(output_encoding.data());
+    std::vector<T> input_host = inputs.copy_to_host();
     for (auto val : input_host) {
         std::cout << val << ", ";
     }
     std::cout << std::endl;
 
-    DeviceMem<T> output_network(batch_size * output_width, q);
-    network.inference(inputs, output_network, batch_size, {});
+    DeviceMatrix<T> output_network(batch_size, output_width, q);
+    network.inference(inputs, output_network, {});
     q.wait();
 
-    std::vector<T> out_host(output_network.size());
-    output_network.copy_to_host(out_host).wait();
+    std::vector<T> out_host = output_network.copy_to_host();
     std::vector<float> output_ref =
         loadVectorFromCSV<float>("../../test/ref_values/network_with_grid_encoding/full/network_output.csv");
 

@@ -28,17 +28,21 @@ template <typename T> class NetworkWithEncoding {
         return network_->inference(encoding_output, network_output, batch_size, new_deps);
     }
 
-    std::vector<sycl::event> forward_pass(const DeviceMatrix<float> &input, DeviceMatrix<T> &encoding_output,
-                                          DeviceMatrix<T> &intermediate_forward, const std::vector<sycl::event> &deps) {
+    DeviceMatrixView<T> forward_pass(const DeviceMatrix<float> &input, DeviceMatrix<T> &encoding_output,
+                                     DeviceMatrix<T> &intermediate_forward, const std::vector<sycl::event> &deps) {
         const int batch_size = input.m();
-        const int network_input_width = network_->get_inputs_width();
+        const int network_input_width = network_->get_input_width();
 
         if (intermediate_forward.m() != batch_size || encoding_output.m() != batch_size)
             throw std::invalid_argument("Wrong dimensions.");
         if (encoding_output.n() != network_input_width) throw std::invalid_argument("Wrong dimensions.");
 
         auto new_deps = encoding_->forward_impl(&network_->get_queue(), input, &encoding_output, deps);
-        return network_->forward_pass(encoding_output, intermediate_forward, batch_size, new_deps);
+        network_->forward_pass(encoding_output, intermediate_forward, batch_size, new_deps);
+        network_->get_queue().wait();
+        return intermediate_forward.GetView(batch_size, network_->get_unpadded_output_width(), 0,
+                                            network_->get_input_width() +
+                                                network_->get_network_width() * network_->get_n_hidden_layers());
     }
 
     std::vector<sycl::event> backward_pass(const DeviceMatrix<T> &input_backward, DeviceMatrix<T> &output,
@@ -47,6 +51,34 @@ template <typename T> class NetworkWithEncoding {
                                            const std::vector<sycl::event> &deps) {
         return network_->backward_pass(input_backward, output, intermediate_backward, intermediate_forward, batch_size,
                                        deps);
+    }
+
+    // functions which simplify the usage by generating the intermediate arrays
+    DeviceMatrix<T> GenerateIntermediateForwardMatrix(const size_t batch_size) {
+        const uint32_t tmp_n_cols = network_->get_input_width() +
+                                    network_->get_network_width() * network_->get_n_hidden_layers() +
+                                    network_->get_output_width();
+        return std::move(DeviceMatrix<T>(batch_size, tmp_n_cols, network_->get_queue()));
+    }
+
+    DeviceMatrix<T> GenerateIntermediateBackwardMatrix(const size_t batch_size) {
+        const uint32_t tmp_n_cols =
+            network_->get_network_width() * network_->get_n_hidden_layers() + network_->get_output_width();
+        return std::move(DeviceMatrix<T>(batch_size, tmp_n_cols, network_->get_queue()));
+    }
+    DeviceMatrix<T> GenerateEncodingOutputMatrix(const size_t batch_size) {
+        const uint32_t tmp_n_cols = network_->get_input_width();
+        return std::move(DeviceMatrix<T>(batch_size, tmp_n_cols, network_->get_queue()));
+    }
+    DeviceMatrix<T> GenerateForwardOutputMatrix(const size_t batch_size) {
+        const uint32_t tmp_n_cols = network_->get_output_width();
+        return std::move(DeviceMatrix<T>(batch_size, tmp_n_cols, network_->get_queue()));
+    }
+    DeviceMatrix<T> GenerateBackwardOutputMatrix() {
+        const uint32_t tmp_n_rows = network_->get_network_width();
+        const uint32_t tmp_n_cols = network_->get_n_hidden_matrices() * network_->get_network_width() +
+                                    network_->get_input_width() + network_->get_output_width();
+        return std::move(DeviceMatrix<T>(tmp_n_rows, tmp_n_cols, network_->get_queue()));
     }
 
     std::shared_ptr<Network<T>> get_network() { return network_; }

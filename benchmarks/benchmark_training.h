@@ -26,15 +26,14 @@ void benchmark_training(const size_t batch_size, const int n_hidden_layers, cons
     constexpr int input_width = WIDTH;
     constexpr int output_width = WIDTH;
 
-    DeviceMem<T> inputs(input_width * batch_size, q);
-    DeviceMem<T> outputs_backw(input_width * WIDTH + output_width * WIDTH + (n_hidden_layers - 1) * WIDTH * WIDTH, q);
-    DeviceMem<T> losses(batch_size * output_width, q);
-    const size_t out_inter_forw_size =
-        batch_size * (input_width + output_width +
-                      WIDTH * n_hidden_layers); // includes input and output (thus +1 of the back interm)
-    const size_t out_inter_backw_size = batch_size * (output_width + WIDTH * n_hidden_layers);
-    DeviceMem<T> out_inter_forw(out_inter_forw_size, q);
-    DeviceMem<T> out_inter_backw(out_inter_backw_size, q);
+    DeviceMatrix<T> inputs(batch_size, input_width, q);
+    DeviceMatrix<T> outputs_backw(WIDTH, input_width + output_width + (n_hidden_layers - 1) * WIDTH, q);
+    DeviceMatrix<T> losses(batch_size, output_width, q);
+    // includes input and output (thus +1 of the back interm)
+    const size_t out_inter_forw_size = (input_width + output_width + WIDTH * n_hidden_layers);
+    const size_t out_inter_backw_size = (output_width + WIDTH * n_hidden_layers);
+    DeviceMatrix<T> out_inter_forw(batch_size, out_inter_forw_size, q);
+    DeviceMatrix<T> out_inter_backw(batch_size, out_inter_backw_size, q);
 
     const T input_val = static_cast<T>(0.1);
     inputs.fill(input_val);
@@ -50,7 +49,7 @@ void benchmark_training(const size_t batch_size, const int n_hidden_layers, cons
     constexpr int n_iterations_warmup = 5;
     // Do a warmup loop, not benched.
     for (int iter = 0; iter < n_iterations_warmup; iter++) {
-        train.training_step(inputs, outputs_backw, losses, out_inter_forw, out_inter_backw, batch_size, {});
+        train.training_step(inputs, outputs_backw, losses, out_inter_forw, out_inter_backw, {});
         q.wait();
     }
 
@@ -58,8 +57,8 @@ void benchmark_training(const size_t batch_size, const int n_hidden_layers, cons
     const auto begin_time = std::chrono::steady_clock::now();
     std::vector<sycl::event> dependencies;
     for (int iter = 0; iter < n_iterations; iter++) {
-        dependencies = train.training_step(inputs, outputs_backw, losses, out_inter_forw, out_inter_backw, batch_size,
-                                           dependencies);
+        dependencies =
+            train.training_step(inputs, outputs_backw, losses, out_inter_forw, out_inter_backw, dependencies);
     }
     q.wait();
     MPI_Barrier(MPI_COMM_WORLD);
@@ -74,9 +73,7 @@ void benchmark_training(const size_t batch_size, const int n_hidden_layers, cons
     // TODO: check all the elements in the interm forw array.
     // expect that the output of the backward pass is 0 since losses are set to 0
     std::vector<T> expected_result(outputs_backw.size(), 0);
-
-    std::vector<T> out_host(expected_result.size(), 0);
-    outputs_backw.copy_to_host(out_host).wait();
+    std::vector<T> out_host = outputs_backw.copy_to_host();
 
     areVectorsWithinTolerance(out_host, expected_result, 0.01f);
 }

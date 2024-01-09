@@ -12,7 +12,7 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 int main() {
     try {
         MPI_Init(NULL, NULL);
-        sycl::queue q(gpu_selector_v);
+        sycl::queue q(sycl::gpu_selector_v);
 
         const int batch_size = 1 << 22;
         benchmark_inference<bf16, 64>(batch_size, 4, 1000, q);

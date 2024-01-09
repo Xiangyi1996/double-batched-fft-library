@@ -6,7 +6,7 @@
 #include <json/json.hpp>
 #include <vector>
 
-#include "DeviceMem.h"
+#include "DeviceMatrix.h"
 #include "Network.h"
 #include "common.h"
 // #include "kernel.h"
@@ -43,9 +43,10 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
      * @param forward Pointer to the forward intermediate array.
      * The output is stored at the end of the array 'forward'
      */
-    std::vector<sycl::event> forward_pass(const DeviceMem<T> &input, DeviceMem<T> &intermediate_output_forward,
-                                          const size_t batch_size, const std::vector<sycl::event> &deps) override {
-        SanityCheckForward(input, intermediate_output_forward, batch_size);
+    std::vector<sycl::event> forward_pass(const DeviceMatrix<T> &input, DeviceMatrix<T> &intermediate_output_forward,
+                                          const std::vector<sycl::event> &deps) override {
+        SanityCheckForward(input, intermediate_output_forward);
+        const size_t batch_size = input.m();
 
         // input = batch_size * input_width 1) W = input_width*WIDTH, (n_hidden_layer-1)*WIDTH*WIDTH, WIDTH*output_width
         // intermediate_output_forward = batch_size * (input_width + n_hidden_layer*WIDTH + output_width)
@@ -76,9 +77,10 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
      * @param forward Pointer to the forward intermediate array. In inference this is not used for intermediate values.
      * The output is stored at the end of the array 'forward'
      */
-    std::vector<sycl::event> inference(const DeviceMem<T> &input, DeviceMem<T> &output, const size_t batch_size,
+    std::vector<sycl::event> inference(const DeviceMatrix<T> &input, DeviceMatrix<T> &output,
                                        const std::vector<sycl::event> &deps) override {
-        SanityCheckInference(input, output, batch_size);
+        SanityCheckInference(input, output);
+        const size_t batch_size = input.m();
 
         switch (m_activation) {
         case Activation::None:
@@ -105,19 +107,12 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
      * @param out_inter Intermediate array for storing outputs. This is filled as part of the backward pass
      * @param forward Pointer to the forward intermediate array which was filled in the forw pass
      */
-    std::vector<sycl::event> backward_pass(const DeviceMem<T> &input, DeviceMem<T> &output,
-                                           DeviceMem<T> &intermediate_output_backward,
-                                           const DeviceMem<T> &intermediate_output_forward, const size_t batch_size,
+    std::vector<sycl::event> backward_pass(const DeviceMatrix<T> &input, DeviceMatrix<T> &output,
+                                           DeviceMatrix<T> &intermediate_output_backward,
+                                           const DeviceMatrix<T> &intermediate_output_forward,
                                            const std::vector<sycl::event> &deps) override {
-        SanityCheckBackward(input, output, intermediate_output_backward, intermediate_output_forward, batch_size);
-
-        // input = loss : batch_size*output_width
-        // W^T = output_width*WIDTH, (n_hidden_layer-1)*WIDTH*WIDTH, WIDTH*input_width
-        // intermediate_output_backward : batch_size*output_width,
-        // n_hidden_layer*batch_size*WIDTH,batch_size*input_width intermediate_output_forward = batch_size *
-        // (input_width + n_hidden_layer*WIDTH + output_width) output = gradients of loss wrt to weights : SOllten selbe
-        // dimensionen wie weights haben output = intermediate_output_forw^T * interm_output_backw für jedes W :
-        // input_width*input_width, (n_hidden_layer-1)WIDTH*WIDTH, output_width*output_width
+        SanityCheckBackward(input, output, intermediate_output_backward, intermediate_output_forward);
+        const size_t batch_size = input.m();
 
         // Choose appropriate mlp_swiftnet_backward based on activation
         // We are onyl doinh output_activation==none right now
@@ -141,13 +136,6 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
         }
     }
 
-    std::vector<sycl::event> training(const DeviceMem<T> &input, const DeviceMem<T> &target,
-                                      DeviceMem<T> &intermediate_output_backward,
-                                      DeviceMem<T> &intermediate_output_forward, const size_t batch_size,
-                                      const std::vector<sycl::event> &deps) override {
-        throw std::logic_error("Fused not yet implemented.");
-    }
-
   private:
     virtual void SanityCheck() const override {
         static_assert(WIDTH == 16 || WIDTH == 32 || WIDTH == 64 || WIDTH == 128);
@@ -161,41 +149,39 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
         }
     }
 
-    void SanityCheckInference(const DeviceMem<T> &input, DeviceMem<T> &output, const size_t batch_size) const {
-        if ((batch_size % 8) != 0) throw std::invalid_argument("Batch size is not divisible by 8.");
-        if (input.size() < batch_size * Network<T>::get_input_width())
-            throw std::invalid_argument("Input array too small");
-        if (output.size() < batch_size * Network<T>::get_output_width())
+    void SanityCheckInference(const DeviceMatrix<T> &input, DeviceMatrix<T> &output) const {
+        if ((input.m() % 8) != 0) throw std::invalid_argument("Batch size is not divisible by 8.");
+        if (input.n() < Network<T>::get_input_width()) throw std::invalid_argument("Input array too small");
+        if (output.m() != input.m() || output.n() < Network<T>::get_output_width())
             throw std::invalid_argument("Output array too small");
     }
 
-    void SanityCheckForward(const DeviceMem<T> &input, DeviceMem<T> &intermediate_output_forward,
-                            const size_t batch_size) const {
+    void SanityCheckForward(const DeviceMatrix<T> &input, DeviceMatrix<T> &intermediate_output_forward) const {
         // Static assertion and assertion checks
-        if ((batch_size % 8) != 0) throw std::invalid_argument("Batch size is not divisible by 8.");
-        if (input.size() < batch_size * Network<T>::get_input_width())
-            throw std::invalid_argument("Input array too small");
-        if (intermediate_output_forward.size() <
-            batch_size * (Network<T>::get_input_width() + Network<T>::get_output_width() +
-                          WIDTH * Network<T>::get_n_hidden_layers()))
+        if ((input.m() % 8) != 0) throw std::invalid_argument("Batch size is not divisible by 8.");
+        if (input.n() < Network<T>::get_input_width()) throw std::invalid_argument("Input array too small");
+        if (intermediate_output_forward.m() != input.m() ||
+            intermediate_output_forward.n() < (Network<T>::get_input_width() + Network<T>::get_output_width() +
+                                               WIDTH * Network<T>::get_n_hidden_layers()))
             throw std::invalid_argument("Output array too small");
     }
 
-    void SanityCheckBackward(const DeviceMem<T> &input, DeviceMem<T> &output,
-                             DeviceMem<T> &intermediate_output_backward,
-                             const DeviceMem<T> &intermediate_output_forward, const size_t batch_size) const {
-        if ((batch_size % 8) != 0) throw std::invalid_argument("Batch size is not divisible by 8.");
-        if (input.size() < batch_size * Network<T>::get_output_width())
+    void SanityCheckBackward(const DeviceMatrix<T> &input, DeviceMatrix<T> &output,
+                             DeviceMatrix<T> &intermediate_output_backward,
+                             const DeviceMatrix<T> &intermediate_output_forward) const {
+        if ((input.m() % 8) != 0) throw std::invalid_argument("Batch size is not divisible by 8.");
+        if (input.m() != input.m() || input.n() < Network<T>::get_output_width())
             throw std::invalid_argument("Input array in backward pass too small");
-        if (intermediate_output_forward.size() <
-            batch_size * (Network<T>::get_input_width() + Network<T>::get_output_width() +
-                          WIDTH * Network<T>::get_n_hidden_matrices()))
+        if (intermediate_output_forward.m() != input.m() ||
+            intermediate_output_forward.n() < (Network<T>::get_input_width() + Network<T>::get_output_width() +
+                                               WIDTH * Network<T>::get_n_hidden_layers()))
             throw std::invalid_argument("intermediate_output_forward array too small");
-        if (intermediate_output_backward.size() <
-            batch_size * (Network<T>::get_output_width() + WIDTH * Network<T>::get_n_hidden_layers()))
+        if (intermediate_output_backward.m() != input.m() ||
+            intermediate_output_backward.n() <
+                (Network<T>::get_output_width() + WIDTH * Network<T>::get_n_hidden_layers()))
             throw std::invalid_argument("intermediate_output_backward array too small");
-        if (output.size() < WIDTH * (Network<T>::get_n_hidden_matrices() * WIDTH + Network<T>::get_input_width() +
-                                     Network<T>::get_output_width()))
+        if (output.m() < WIDTH || output.n() < (Network<T>::get_n_hidden_matrices() * WIDTH +
+                                                Network<T>::get_input_width() + Network<T>::get_output_width()))
             throw std::invalid_argument("Output of backward pass too small.");
     }
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DeviceMem.h"
+#include "DeviceMatrix.h"
 #include "common.h"
 
 // completely generic Network.
@@ -11,25 +11,26 @@ template <typename T> class NetworkBase {
     virtual ~NetworkBase() {}
 
     // Perform forward pass through the network
-    virtual std::vector<sycl::event> forward_pass(const DeviceMem<T> &input, DeviceMem<T> &intermediate_output_forward,
-                                                  const size_t batch_size, const std::vector<sycl::event> &deps) = 0;
+    virtual std::vector<sycl::event> forward_pass(const DeviceMatrix<T> &input,
+                                                  DeviceMatrix<T> &intermediate_output_forward,
+                                                  const std::vector<sycl::event> &deps) = 0;
 
     // Perform inference through the network
-    virtual std::vector<sycl::event> inference(const DeviceMem<T> &input, DeviceMem<T> &output, const size_t batch_size,
+    virtual std::vector<sycl::event> inference(const DeviceMatrix<T> &input, DeviceMatrix<T> &output,
                                                const std::vector<sycl::event> &deps) = 0;
 
     ///@brief input are the derivatives of the losses
     /// output are the updates of the weights for the optimization step.
     /// intermediate arrays are not used after this function
-    virtual std::vector<sycl::event> backward_pass(const DeviceMem<T> &input, DeviceMem<T> &output,
-                                                   DeviceMem<T> &intermediate_output_backward,
-                                                   const DeviceMem<T> &intermediate_output_forward,
-                                                   const size_t batch_size, const std::vector<sycl::event> &deps) = 0;
+    virtual std::vector<sycl::event> backward_pass(const DeviceMatrix<T> &input, DeviceMatrix<T> &output,
+                                                   DeviceMatrix<T> &intermediate_output_backward,
+                                                   const DeviceMatrix<T> &intermediate_output_forward,
+                                                   const std::vector<sycl::event> &deps) = 0;
 
-    virtual std::vector<sycl::event> training(const DeviceMem<T> &input, const DeviceMem<T> &target,
-                                              DeviceMem<T> &intermediate_output_backward,
-                                              DeviceMem<T> &intermediate_output_forward, const size_t batch_size,
-                                              const std::vector<sycl::event> &deps) = 0;
+    // virtual std::vector<sycl::event> training(const DeviceMatrix<T> &input, const DeviceMatrix<T> &target,
+    //                                           DeviceMatrix<T> &intermediate_output_backward,
+    //                                           DeviceMatrix<T> &intermediate_output_forward,
+    //                                           const std::vector<sycl::event> &deps) = 0;
 };
 
 // Network Base class for all networks with weights matrices and width restrictions
@@ -41,14 +42,12 @@ template <typename T> class Network : public NetworkBase<T> {
     Network(sycl::queue &q, const int n_hidden_layers, const int input_width, const int network_width,
             const int output_width, const WeightInitMode mode)
         : m_q(q), input_width_(PadWidths(input_width, network_width)),
-          output_width_(PadWidths(output_width, network_width)), n_hidden_layers_(NonNegative(n_hidden_layers)),
-          network_width_(NonNegative(network_width)),
-          m_weights_matrices((size_t)network_width_ *
-                                 (get_input_width() + network_width_ * (n_hidden_layers_ - 1) + get_output_width()),
-                             m_q),
-          m_weightsT_matrices((size_t)network_width_ *
-                                  (get_input_width() + network_width_ * (n_hidden_layers_ - 1) + get_output_width()),
-                              m_q) {
+          output_width_(PadWidths(output_width, network_width)), original_output_width_(output_width),
+          n_hidden_layers_(NonNegative(n_hidden_layers)), network_width_(NonNegative(network_width)),
+          m_weights_matrices(network_width_,
+                             (get_input_width() + network_width_ * (n_hidden_layers_ - 1) + get_output_width()), m_q),
+          m_weightsT_matrices(network_width_,
+                              (get_input_width() + network_width_ * (n_hidden_layers_ - 1) + get_output_width()), m_q) {
 
         SanityCheck();
         initialize_weights_matrices(input_width, output_width, mode);
@@ -65,8 +64,8 @@ template <typename T> class Network : public NetworkBase<T> {
     };
 
     // this is the result from the backward pass. Not sure why this is here to be honest.
-    virtual const DeviceMem<T> &get_weights_matrices() const { return m_weights_matrices; }
-    virtual const DeviceMem<T> &get_weightsT_matrices() const { return m_weightsT_matrices; }
+    virtual const DeviceMatrix<T> &get_weights_matrices() const { return m_weights_matrices; }
+    virtual const DeviceMatrix<T> &get_weightsT_matrices() const { return m_weightsT_matrices; }
 
     virtual int get_n_hidden_layers() const { return n_hidden_layers_; }
     /// @brief returns hidden layers - 1
@@ -75,6 +74,7 @@ template <typename T> class Network : public NetworkBase<T> {
     virtual int get_network_width() const { return network_width_; }
     virtual uint32_t get_input_width() const { return input_width_; }
     virtual uint32_t get_output_width() const { return output_width_; }
+    virtual uint32_t get_unpadded_output_width() const { return original_output_width_; }
 
   private:
     virtual void SanityCheck() const {
@@ -134,8 +134,8 @@ template <typename T> class Network : public NetworkBase<T> {
         // input matrix: set rows to 0.
         if (unpadded_input_width != padded_input_width) {
             m_q.parallel_for(
-                   range<1>(padded_input_width * network_width),
-                   [=](id<1> idx) {
+                   padded_input_width * network_width,
+                   [=](auto idx) {
                        const int i = idx / network_width; // rows
                        const int j = idx % network_width; // cols
 
@@ -148,8 +148,8 @@ template <typename T> class Network : public NetworkBase<T> {
 
         // output matrix set columns to 0
         if (unpadded_output_width != padded_output_width) {
-            m_q.parallel_for(range<1>(padded_output_width * network_width),
-                             [=](id<1> idx) {
+            m_q.parallel_for(padded_output_width * network_width,
+                             [=](auto idx) {
                                  const int i = idx / padded_output_width; // rows
                                  const int j = idx % padded_output_width; // cols
 
@@ -171,7 +171,7 @@ template <typename T> class Network : public NetworkBase<T> {
         });
     }
 
-    void TransposeWeights(const DeviceMem<T> &weights, DeviceMem<T> &weightsT) {
+    void TransposeWeights(const DeviceMatrix<T> &weights, DeviceMatrix<T> &weightsT) {
         const size_t nelems = get_input_width() * get_network_width() +
                               get_n_hidden_matrices() * get_network_width() * get_network_width() +
                               get_network_width() * get_output_width();
@@ -203,8 +203,6 @@ template <typename T> class Network : public NetworkBase<T> {
     ///@todo: remove this from the network class.
     void initialize_weights_matrices(const int unpadded_input_width, const int unpadded_output_width,
                                      WeightInitMode mode) {
-        // Initialize weights matrices with uniform random values, you can choose a
-        // different initialization ( see in DeviceMem.cpp )
 
         if (mode == WeightInitMode::arange)
             initialize_arange(m_weights_matrices, network_width_);
@@ -233,7 +231,7 @@ template <typename T> class Network : public NetworkBase<T> {
      * @param dev   The standard deviation of the normal distribution.
      * @param q     The SYCL queue for parallel computation.
      */
-    static void initialize_normal(DeviceMem<T> &vec, const double dev) {
+    static void initialize_normal(DeviceMatrix<T> &vec, const double dev) {
         std::default_random_engine gen;
         std::normal_distribution<double> distrib(0.0, dev);
         std::vector<T> data(vec.size());
@@ -253,7 +251,7 @@ template <typename T> class Network : public NetworkBase<T> {
      * @param q       The SYCL queue for memory operations.
      * @param scale   The scale of the uniform distribution.
      */
-    static void initialize_uniform(DeviceMem<T> &vec, const double scale) {
+    static void initialize_uniform(DeviceMatrix<T> &vec, const double scale) {
         std::default_random_engine gen;
         std::uniform_real_distribution<double> distrib(0.0, scale);
         std::vector<T> data(vec.size());
@@ -265,7 +263,7 @@ template <typename T> class Network : public NetworkBase<T> {
     }
 
     // Initialize memory with constant values
-    static void initialize_constant(DeviceMem<T> &vec, const T &constant) { vec.fill(constant); }
+    static void initialize_constant(DeviceMatrix<T> &vec, const T &constant) { vec.fill(constant); }
 
     /**
      * Initialize the device memory with values sampled from a He normal
@@ -277,12 +275,12 @@ template <typename T> class Network : public NetworkBase<T> {
      * @param input_width   The width of the input.
      * @param q             The SYCL queue for memory operations.
      */
-    static void initialize_he_normal(DeviceMem<T> &vec, const int width) {
+    static void initialize_he_normal(DeviceMatrix<T> &vec, const int width) {
         const double dev = std::sqrt(2.0 / width);
         initialize_normal(vec, dev);
     }
 
-    static void initialize_arange(DeviceMem<T> &vec, const int range) {
+    static void initialize_arange(DeviceMatrix<T> &vec, const int range) {
         std::vector<T> tmp_host(vec.size());
         for (size_t blockiter = 0; blockiter < vec.size(); blockiter += range * range) {
             for (int rowiter = 0; rowiter < range; rowiter++) {
@@ -313,9 +311,10 @@ template <typename T> class Network : public NetworkBase<T> {
 
     const uint32_t input_width_;
     const uint32_t output_width_;
+    const uint32_t original_output_width_; // unpadded
     const int n_hidden_layers_;
     const int network_width_;
 
-    DeviceMem<T> m_weights_matrices;
-    DeviceMem<T> m_weightsT_matrices;
+    DeviceMatrix<T> m_weights_matrices;
+    DeviceMatrix<T> m_weightsT_matrices;
 };

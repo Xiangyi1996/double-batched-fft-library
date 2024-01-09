@@ -26,17 +26,16 @@ void test_inference_1layer(sycl::queue &q, const int input_width, const int outp
     SwiftNetMLP<T, WIDTH> network(q, input_width, output_width, n_hidden_layers, Activation::ReLU, Activation::None,
                                   Network<T>::WeightInitMode::constant_pos);
 
-    DeviceMem<T> network_output(batch_size * network.get_output_width(), q);
-    DeviceMem<T> network_input(network.get_input_width() * batch_size, q);
+    DeviceMatrix<T> network_output(batch_size, network.get_output_width(), q);
+    DeviceMatrix<T> network_input(batch_size, network.get_input_width(), q);
 
     network_input.fill(input_val);
 
-    network.inference(network_input, network_output, batch_size, {});
+    network.inference(network_input, network_output, {});
 
     q.wait();
 
-    std::vector<T> out_host(network_output.size());
-    network_output.copy_to_host(out_host).wait();
+    std::vector<T> out_host = network_output.copy_to_host();
 
     for (int output_idx = 0; output_idx < out_host.size(); output_idx++) {
 
@@ -58,19 +57,19 @@ void test_forward_1layer(sycl::queue &q, const int input_width, const int output
     SwiftNetMLP<T, WIDTH> network(q, input_width, output_width, n_hidden_layers, Activation::ReLU, Activation::None,
                                   Network<T>::WeightInitMode::constant_pos);
 
-    DeviceMem<T> network_interm_forw(batch_size * (network.get_input_width() + network.get_output_width() +
-                                                   network.get_network_width() * network.get_n_hidden_layers()),
-                                     q);
-    DeviceMem<T> network_input(network.get_input_width() * batch_size, q);
+    DeviceMatrix<T> network_interm_forw(batch_size,
+                                        (network.get_input_width() + network.get_output_width() +
+                                         network.get_network_width() * network.get_n_hidden_layers()),
+                                        q);
+    DeviceMatrix<T> network_input(batch_size, network.get_input_width(), q);
 
     network_input.fill(input_val);
 
-    network.forward_pass(network_input, network_interm_forw, batch_size, {});
+    network.forward_pass(network_input, network_interm_forw, {});
 
     q.wait();
 
-    std::vector<T> fwd_host(network_interm_forw.size());
-    network_interm_forw.copy_to_host(fwd_host).wait();
+    std::vector<T> fwd_host = network_interm_forw.copy_to_host();
 
     // Check result of fwd_host. First block = input, second block is the
     // hidden layer, last block is output.

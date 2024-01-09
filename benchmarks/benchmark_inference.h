@@ -23,8 +23,8 @@ void benchmark_inference(const size_t batch_size, const int n_hidden_layers, con
     constexpr int input_width = WIDTH;
     constexpr int output_width = WIDTH;
 
-    DeviceMem<T> inputs(input_width * batch_size, q);
-    DeviceMem<T> output(batch_size * output_width, q);
+    DeviceMatrix<T> inputs(batch_size, input_width, q);
+    DeviceMatrix<T> output(batch_size, output_width, q);
 
     const T input_val = static_cast<T>(0.1);
     inputs.fill(input_val);
@@ -37,7 +37,7 @@ void benchmark_inference(const size_t batch_size, const int n_hidden_layers, con
     constexpr int n_iterations_warmup = 5;
     // Do a warmup loop, not benched.
     for (int iter = 0; iter < n_iterations_warmup; iter++) {
-        network.inference(inputs, output, batch_size, {});
+        network.inference(inputs, output, {});
         q.wait();
     }
 
@@ -45,7 +45,7 @@ void benchmark_inference(const size_t batch_size, const int n_hidden_layers, con
     const auto begin_time = std::chrono::steady_clock::now();
     std::vector<sycl::event> dependencies;
     for (int iter = 0; iter < n_iterations; iter++) {
-        dependencies = network.inference(inputs, output, batch_size, dependencies);
+        dependencies = network.inference(inputs, output, dependencies);
     }
     q.wait();
     MPI_Barrier(MPI_COMM_WORLD);
@@ -58,8 +58,7 @@ void benchmark_inference(const size_t batch_size, const int n_hidden_layers, con
 
     std::vector<T> expected_result(batch_size * output_width, std::pow(WIDTH * 0.01, n_hidden_layers + 1) * input_val);
 
-    std::vector<T> out_host(batch_size * output_width, 0);
-    output.copy_to_host(out_host).wait();
+    std::vector<T> out_host = output.copy_to_host();
 
     areVectorsWithinTolerance(out_host, expected_result, 0.01f);
 }
