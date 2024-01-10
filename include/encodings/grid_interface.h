@@ -95,16 +95,9 @@ template <typename T> class GridEncoding : public Encoding<T> {
 
     void set_max_level(float value) { m_max_level = value; }
 
-    float *max_level_gpu() const { return m_max_level_gpu; }
-
-    void set_max_level_gpu(float *value) { m_max_level_gpu = value; }
-
   protected:
     // Disables lookups of finer levels than this.
     // The default value of 1000 effectively disables the feature
     float m_max_level = 1000.f;
     uint32_t m_n_params;
-    // If this pointer is non-null, it is expected to point to per-element
-    // m_max_level
-    float *m_max_level_gpu = nullptr;
 };

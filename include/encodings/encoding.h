@@ -42,6 +42,7 @@ template <typename T> class Encoding {
     virtual uint32_t output_width() const = 0;
 
     // TODO: Remove; should be inherited from object.h at soe point
+    // These are the weights
     T *params() const { return m_params; }
 
     T *inference_params() const { return m_inference_params; }

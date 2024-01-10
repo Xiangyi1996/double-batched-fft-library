@@ -17,19 +17,6 @@ template <typename T> void initialize_arange(std::vector<T> &vec) {
     }
 }
 
-template <typename T> bool check_output_non_zero(DeviceMatrix<T> &matrix) {
-
-    // Check actual data
-    std::vector<T> data = matrix.copy_to_host();
-
-    // Compare each element
-    for (size_t i = 0; i < data.size(); ++i) {
-        if (data[i] == 0.0) return false;
-    }
-
-    return true;
-}
-
 TEST_CASE("tinydpcppnn::encoding Identity") {
     SUBCASE("Not padded") {
         const int batch_size = 2;
@@ -80,7 +67,6 @@ TEST_CASE("tinydpcppnn::encoding Spherical Harmonics") {
         network->set_padded_output_width(output_float.n());
         std::unique_ptr<Context> model_ctx = network->forward_impl(&q, input, &output_float);
         q.wait();
-        CHECK(check_output_non_zero(output_float));
 
         std::vector<float> out = output_float.copy_to_host();
         const std::vector<float> reference_out = {0.2821, 1.0, 1.0, 0.2821, 1.0, 1.0};
@@ -106,7 +92,7 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         input.fill(1.0f).wait();
 
         DeviceMatrix<float> output_float(batch_size, padded_output_width, q);
-        output_float.fill(0.0f).wait();
+        output_float.fill(1.23f).wait(); // fill with something to check if it is written to
 
         json encoding_json = {
             {"n_dims_to_encode", std::to_string(input_width)},
@@ -120,6 +106,7 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         };
 
         std::shared_ptr<GridEncoding<float>> network = create_grid_encoding<float>(input_width, encoding_json);
+        q.wait();
 
         std::vector<float> tmp_params_host(network->n_params());
         initialize_arange(tmp_params_host);
@@ -130,8 +117,6 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
 
         std::unique_ptr<Context> model_ctx = network->forward_impl(&q, input, &output_float);
         q.wait();
-
-        CHECK(check_output_non_zero(output_float));
 
         const std::vector<float> out = output_float.copy_to_host();
         const std::vector<float> reference_out = {
@@ -182,17 +167,15 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         CHECK(params.size() == network->n_params());
 
         params_full_precision.copy_from_host(params).wait();
-        input.copy_from_host(input_ref);
+        std::vector<float> input_ref_cut(input_ref.begin(), input_ref.begin() + batch_size * input_width);
+        input.copy_from_host(input_ref_cut).wait();
 
         network->set_params(params_full_precision.data(), params_full_precision.data(), nullptr);
 
         std::unique_ptr<Context> model_ctx = network->forward_impl(&q, input, &output_float);
         q.wait();
 
-        CHECK(check_output_non_zero(output_float));
-
         std::vector<float> out = output_float.copy_to_host();
-        q.wait();
         std::vector<float> reference_out =
             loadVectorFromCSV<float>("../../test/ref_values/network_with_grid_encoding/full/encoding_output.csv");
 

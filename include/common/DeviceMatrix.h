@@ -13,16 +13,17 @@
 // The associated DeviceMatrix owns the memory
 // if the associated DeviceMatrix is deleted, behaviour of DeviceMatrixView is undefined
 template <typename T> class DeviceMatrixView {
+  public:
     DeviceMatrixView() = delete;
     DeviceMatrixView(const uint32_t m, const uint32_t n, const uint32_t stride_col, T *const ptr)
-        : m_(m), n_(n), stride_col_(stride_col_), ptr_(ptr) {}
+        : m_(m), n_(n), stride_col_(stride_col), ptr_(ptr) {}
 
     T &operator()(const int i, const int j) noexcept { return ptr_[j + i * stride_col_]; }
     const T &operator()(const int i, const int j) const noexcept { return ptr_[j + i * stride_col_]; }
 
-    DeviceMatrixView GetSubMatrix(const uint32_t m, const uint32_t n, const uint32_t offset_m,
-                                  const uint32_t offset_n) {
-        return DeviceMatrixView(m, n, stride_col_, ptr_ + offset_n + offset_m * stride_col_);
+    DeviceMatrixView<T> GetSubMatrix(const uint32_t m, const uint32_t n, const uint32_t offset_m,
+                                     const uint32_t offset_n) {
+        return DeviceMatrixView<T>(m, n, stride_col_, ptr_ + offset_n + offset_m * stride_col_);
     }
 
   private:
@@ -118,11 +119,22 @@ template <typename T, MatrixLayout _layout = MatrixLayout::RowMajor> class Devic
         return _layout == MatrixLayout::RowMajor ? MatrixLayout::ColumnMajor : MatrixLayout::RowMajor;
     }
 
+    DeviceMatrixView<T> GetView() { return GetView(m_rows, m_cols, 0, 0); }
+    const DeviceMatrixView<T> GetView() const { return GetView(m_rows, m_cols, 0, 0); }
+
     DeviceMatrixView<T> GetView(const uint32_t m, const uint32_t n, const uint32_t offset_m, const uint32_t offset_n) {
         if (offset_m + m > m_rows) throw std::invalid_argument("Potential OOB access.");
         if (offset_n + n > m_cols) throw std::invalid_argument("Potential OOB access.");
 
-        return DeviceMatrixView(m, n, m_cols, m_data + offset_n + offset_m * m_cols);
+        return DeviceMatrixView<T>(m, n, m_cols, m_data + offset_n + offset_m * m_cols);
+    }
+
+    const DeviceMatrixView<T> GetView(const uint32_t m, const uint32_t n, const uint32_t offset_m,
+                                      const uint32_t offset_n) const {
+        if (offset_m + m > m_rows) throw std::invalid_argument("Potential OOB access.");
+        if (offset_n + n > m_cols) throw std::invalid_argument("Potential OOB access.");
+
+        return DeviceMatrixView<T>(m, n, m_cols, m_data + offset_n + offset_m * m_cols);
     }
 
     // Function to print the matrix values
