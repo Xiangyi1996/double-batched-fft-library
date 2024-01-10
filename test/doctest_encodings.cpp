@@ -12,8 +12,10 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 template <typename T> void initialize_arange(std::vector<T> &vec) {
 
     // Repeat the col_vector and perform the operations
-    for (int i = 0; i < vec.size(); i++) {
-        vec[i] = static_cast<T>((i - vec.size() / 2)) / static_cast<T>(vec.size() / 2);
+    double offset = (double)vec.size() / 2.0;
+
+    for (long long i = 0; i < vec.size(); i++) {
+        vec[i] = static_cast<T>(i / offset - 1.0);
     }
 }
 
@@ -107,8 +109,9 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
 
         std::shared_ptr<GridEncoding<float>> network = create_grid_encoding<float>(input_width, encoding_json);
         q.wait();
+        network->set_padded_output_width(output_float.n());
 
-        std::vector<float> tmp_params_host(network->n_params());
+        std::vector<float> tmp_params_host(network->n_params(), 1.0f);
         initialize_arange(tmp_params_host);
         DeviceMem<float> params_full_precision(network->n_params(), q);
         params_full_precision.copy_from_host(tmp_params_host).wait();
@@ -129,19 +132,22 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         // Check if the actual vector is equal to the expected vector within the tolerance
         for (size_t i = 0; i < out.size(); ++i) {
             CHECK(out[i] == doctest::Approx(reference_out[i]).epsilon(epsilon));
+            std::cout << out[i] << ", ";
         }
+        std::cout << std::endl;
     }
 
     SUBCASE("Check results loaded") {
         // SWIFTNET
         const int input_width = 2;
         const int batch_size = 8;
+        const int padded_output_width = 32;
         sycl::queue q;
 
         DeviceMatrix<float> input(batch_size, input_width, q);
         input.fill(0.0f).wait();
 
-        DeviceMatrix<float> output_float(batch_size, 32, q);
+        DeviceMatrix<float> output_float(batch_size, padded_output_width, q);
         output_float.fill(0.0f);
 
         json encoding_json = {
@@ -156,6 +162,7 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         };
 
         std::shared_ptr<GridEncoding<float>> network = create_grid_encoding<float>(input_width, encoding_json);
+        network->set_padded_output_width(output_float.n());
         DeviceMem<float> params_full_precision(network->n_params(), q);
 
         std::vector<float> params =
@@ -184,6 +191,8 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         // Check if the actual vector is equal to the expected vector within the tolerance
         for (size_t i = 0; i < out.size(); ++i) {
             CHECK(out[i] == doctest::Approx(reference_out[i]).epsilon(epsilon));
+            // std::cout << out[i] << ", " << reference_out[i] << std::endl;
         }
+        std::cout << std::endl;
     }
 }

@@ -78,7 +78,6 @@ void kernel_grid(const uint32_t num_elements, const uint32_t num_grid_features, 
 
     grid += offset_table.data[level] * N_FEATURES_PER_LEVEL;
     const uint32_t hashmap_size = offset_table.data[level + 1] - offset_table.data[level];
-
     const float scale = grid_scale(level, log2_per_level_scale, base_resolution);
     const uint32_t resolution = grid_resolution(scale);
 
@@ -113,22 +112,17 @@ void kernel_grid(const uint32_t num_elements, const uint32_t num_grid_features, 
                  PARAMS_ALIGNED ? sizeof(T) * N_FEATURES_PER_LEVEL : sizeof(T) > *)&grid[index];
     };
 
-    auto assign_result = [&](DeviceMatrixView<T> &pos, const auto &result) {
-        for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f) {
-            pos(i, level * N_FEATURES_PER_LEVEL + f) = result[f];
-        }
-    };
-
     if (interpolation_type == InterpolationType::Nearest) {
         auto result = grid_val(pos_grid);
-
-        assign_result(encoded_positions, result);
+        for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f) {
+            encoded_positions(i, level * N_FEATURES_PER_LEVEL + f) = result[f];
+        }
     } else {
         // N-linear interpolation
-        tnn::tvec<T, N_FEATURES_PER_LEVEL, PARAMS_ALIGNED ? sizeof(T) * N_FEATURES_PER_LEVEL : sizeof(T)> result;
+        tnn::tvec<T, N_FEATURES_PER_LEVEL, PARAMS_ALIGNED ? sizeof(T) * N_FEATURES_PER_LEVEL : sizeof(T)> result((T)0);
 
         for (uint32_t idx = 0; idx < (1 << N_POS_DIMS); ++idx) {
-            float weight = 1;
+            float weight = 1.0f;
             tnn::uvec<N_POS_DIMS> pos_grid_local;
 
             for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
@@ -141,10 +135,12 @@ void kernel_grid(const uint32_t num_elements, const uint32_t num_grid_features, 
                 }
             }
 
-            result = fma((T)weight, grid_val(pos_grid_local), result);
+            result = tnn::fma((T)weight, grid_val(pos_grid_local), result);
         }
 
-        assign_result(encoded_positions, result);
+        for (uint32_t f = 0; f < N_FEATURES_PER_LEVEL; ++f) {
+            encoded_positions(i, level * N_FEATURES_PER_LEVEL + f) = result[f];
+        }
     }
 }
 
@@ -199,11 +195,9 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
             if (grid_type == GridType::Dense) {
             } // No-op
-            else if (grid_type ==
-                     GridType::Tiled) // If tiled grid needs fewer params than dense, then use fewer and tile.
+            else if (grid_type == GridType::Tiled)
                 params_in_level = std::min(params_in_level, powi(base_resolution, N_POS_DIMS));
-            else if (grid_type == GridType::Hash) // If hash table needs fewer params than dense, then use fewer and
-                                                  // rely on the hash.
+            else if (grid_type == GridType::Hash)
                 params_in_level = std::min(params_in_level, (1u << log2_hashmap_size));
             else
                 throw std::runtime_error{
@@ -279,8 +273,8 @@ class GridEncodingTemplated : public GridEncoding<T> {
                                     batch_size, loc_n_features, loc_offset_table, loc_base_resolution,
                                     loc_log2_per_level_scale, loc_max_level, loc_interpolation_type, loc_grid_type,
                                     loc_weights, loc_input_view, loc_output_view, item);
-                            });
-            q->wait();
+                            })
+                .wait();
         }
 
         return nullptr;

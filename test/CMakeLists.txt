@@ -13,10 +13,10 @@ target_include_directories(test-lib PUBLIC ${PROJECT_SOURCE_DIR}/extern)
 target_compile_features(test-lib PUBLIC cxx_std_20)
 add_common_flags(test-lib)
 
-# add_executable(test-common doctest_common.cpp)
-# add_sycl_to_target(TARGET test-common SOURCES doctest_common.cpp)
-# target_link_libraries(test-common PRIVATE test-lib common)
-# doctest_discover_tests(test-common)
+add_executable(test-common doctest_common.cpp)
+add_sycl_to_target(TARGET test-common SOURCES doctest_common.cpp)
+target_link_libraries(test-common PRIVATE test-lib common)
+doctest_discover_tests(test-common)
 
 add_executable(test-network-with-encoding doctest_network_with_encodings.cpp)
 add_sycl_to_target(TARGET test-network-with-encoding SOURCES doctest_network_with_encodings.cpp)
@@ -32,6 +32,11 @@ add_executable(test-swiftnet doctest_swiftnet.cpp)
 add_sycl_to_target(TARGET test-swiftnet SOURCES doctest_swiftnet.cpp)
 target_link_libraries(test-swiftnet PRIVATE test-lib network)
 doctest_discover_tests(test-swiftnet)
+
+add_executable(test-kernelhelper-esimd doctest_kernelhelper_esimd.cpp)
+add_sycl_to_target(TARGET test-kernelhelper-esimd SOURCES doctest_kernelhelper_esimd.cpp)
+target_link_libraries(test-kernelhelper-esimd PRIVATE test-lib network)
+doctest_discover_tests(test-kernelhelper-esimd)
 
 # add_executable(test-devicemem doctest_devicemem.cpp)
 # add_sycl_to_target(TARGET test-devicemem SOURCES doctest_devicemem.cpp)
@@ -60,10 +65,7 @@ doctest_discover_tests(test-swiftnet)
 # target_compile_options(test-kernelhelper PUBLIC -fsycl-targets=spir64_gen)
 # target_link_options(test-kernelhelper PUBLIC -fsycl-targets=spir64_gen -Xsycl-target-backend "-device pvc")
 
-add_executable(test-kernelhelper-esimd doctest_kernelhelper_esimd.cpp)
-add_sycl_to_target(TARGET test-kernelhelper-esimd SOURCES doctest_kernelhelper_esimd.cpp)
-target_link_libraries(test-kernelhelper-esimd PRIVATE test-lib network)
-doctest_discover_tests(test-kernelhelper-esimd)
+
 
 # add_executable(test-save-image doctest_image_save.cpp)
 # add_sycl_to_target(TARGET test-save-image SOURCES doctest_image_save.cpp)
