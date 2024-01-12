@@ -1,7 +1,5 @@
 #pragma once
 
-#ifdef __SYCL_DEVICE_ONLY__
-
 #include "common.h"
 
 #include <oneapi/dpl/random>
@@ -804,5 +802,3 @@ inline float quartic_cdf(const float x, const float inv_radius) {
     return sycl::fmax(0.0f,
                       sycl::fmin(1.0f, ((float)15 / 16) * u * (1 - ((float)2 / 3) * u2 + ((float)1 / 5) * u4) + 0.5f));
 }
-
-#endif

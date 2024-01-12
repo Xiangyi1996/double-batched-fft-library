@@ -167,17 +167,28 @@ inline bool equals_case_insensitive(const std::string &str1, const std::string &
     return to_lower(str1) == to_lower(str2);
 }
 
-template <typename T> std::string type_to_string() { return "unknown"; }
-template <> std::string type_to_string<bool>() { return "bool"; }
-template <> std::string type_to_string<int>() { return "int"; }
-template <> std::string type_to_string<char>() { return "char"; }
-template <> std::string type_to_string<uint8_t>() { return "uint8_t"; }
-template <> std::string type_to_string<uint16_t>() { return "uint16_t"; }
-template <> std::string type_to_string<uint32_t>() { return "uint32_t"; }
-template <> std::string type_to_string<double>() { return "double"; }
-template <> std::string type_to_string<float>() { return "float"; }
-template <> std::string type_to_string<sycl::half>() { return "sycl::half"; }
-template <> std::string type_to_string<sycl::ext::oneapi::bfloat16>() { return "bf16"; }
+template <typename T> std::string type_to_string() {
+    if constexpr (std::is_same<T, bool>::value)
+        return "bool";
+    else if constexpr (std::is_same<T, int>::value)
+        return "int";
+    else if constexpr (std::is_same<T, uint8_t>::value)
+        return "uint8_t";
+    else if constexpr (std::is_same<T, uint16_t>::value)
+        return "uint16_t";
+    else if constexpr (std::is_same<T, uint32_t>::value)
+        return "uint32_t";
+    else if constexpr (std::is_same<T, double>::value)
+        return "double";
+    else if constexpr (std::is_same<T, float>::value)
+        return "float";
+    else if constexpr (std::is_same<T, sycl::half>::value)
+        return "sycl::half";
+    else if constexpr (std::is_same<T, sycl::ext::oneapi::bfloat16>::value)
+        return "bf16";
+
+    return "unknown";
+}
 
 inline std::string bytes_to_string(size_t bytes) {
     std::array<std::string, 7> suffixes = {{"B", "KB", "MB", "GB", "TB", "PB", "EB"}};

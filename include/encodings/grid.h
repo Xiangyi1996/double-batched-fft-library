@@ -38,6 +38,7 @@
 #include "DeviceMem.h"
 #include "common.h"
 #include "common_device.h"
+#include "common_host.h"
 #include "encoding.h"
 #include "grid_interface.h"
 #include "vec.h"
@@ -57,8 +58,6 @@ namespace encodings {
 namespace grid {
 namespace kernels {
 
-// encoded positions is the output
-// it may need a transpose after this kernel
 template <typename T, uint32_t N_POS_DIMS, uint32_t N_FEATURES_PER_LEVEL, HashType HASH_TYPE>
 void kernel_grid(const uint32_t num_elements, const uint32_t num_grid_features, const GridOffsetTable offset_table,
                  const uint32_t base_resolution, const float log2_per_level_scale, float max_level,
@@ -568,8 +567,9 @@ class GridEncodingTemplated : public GridEncoding<T> {
             const uint32_t resolution = grid_resolution(grid_scale(i, std::log2(per_level_scale), base_resolution));
 
             uint32_t max_params = std::numeric_limits<uint32_t>::max() / 2;
-            uint32_t params_in_level =
-                std::pow((float)resolution, N_POS_DIMS) > (float)max_params ? max_params : powi(resolution, N_POS_DIMS);
+            uint32_t params_in_level = std::pow((float)resolution, N_POS_DIMS) > (float)max_params
+                                           ? max_params
+                                           : tinydpcppnn::math::powi(resolution, N_POS_DIMS);
 
             // Make sure memory accesses will be aligned
             params_in_level = tinydpcppnn::math::next_multiple(params_in_level, 8u);
@@ -577,7 +577,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
             if (grid_type == GridType::Dense) {
             } // No-op
             else if (grid_type == GridType::Tiled)
-                params_in_level = std::min(params_in_level, powi(base_resolution, N_POS_DIMS));
+                params_in_level = std::min(params_in_level, tinydpcppnn::math::powi(base_resolution, N_POS_DIMS));
             else if (grid_type == GridType::Hash)
                 params_in_level = std::min(params_in_level, (1u << log2_hashmap_size));
             else

@@ -31,11 +31,11 @@ void WriteBenchmarkHeader(const std::string &str, const size_t batch_size, const
 void WritePerformanceData(const int n_iterations, const double time, const double oi, const double bw,
                           const double tp) {
     std::cout << "Finished benchmark." << std::endl;
-    std::cout << "#Iterations = " << n_iterations << std::endl;
-    std::cout << "Time = " << time << " s" << std::endl;
-    std::cout << "AI = " << oi << " flops/byte" << std::endl;
-    std::cout << "BW = " << bw << " GB/s" << std::endl;
-    std::cout << "Throughput = " << tp << " Gflops/s" << std::endl;
+    std::cout << "#Iterations =\t\t" << n_iterations << std::endl;
+    std::cout << "Time =\t\t" << time << " \ts" << std::endl;
+    std::cout << "AI (infinite $) =\t\t" << oi << " \tflops/byte" << std::endl;
+    std::cout << "BW (infinite $) =\t\t" << bw << " \tGB/s" << std::endl;
+    std::cout << "Throughput =\t\t" << tp << " \tGflops/s" << std::endl;
 }
 
 // TODO: consolidate WritePerformanceData inference and training and just write functions

@@ -42,41 +42,6 @@ namespace tinydpcppnn {
 namespace encodings {
 namespace grid {
 
-template <typename T>
-void extract_position(const uint32_t num_elements, PitchedPtr<const float> data_in, T *__restrict__ output,
-                      const sycl::nd_item<3> &item_ct1) {
-    const uint32_t i = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
-    if (i >= num_elements) return;
-
-    const uint32_t dim_idx = item_ct1.get_local_id(1);
-
-    output[i + dim_idx * num_elements] = (T)data_in(i)[dim_idx];
-}
-
-template <typename T>
-void transpose_encoded_position(const uint32_t n_elements, const T *__restrict__ encoded_positions,
-                                PitchedPtr<T> output, const sycl::nd_item<3> &item_ct1) {
-    const uint32_t i = item_ct1.get_local_id(1) + item_ct1.get_group(2) * item_ct1.get_local_range(1);
-    if (i >= n_elements) return;
-
-    const uint32_t elem_idx = i;
-    const uint32_t dim_idx = item_ct1.get_local_id(2);
-
-    output(elem_idx)[dim_idx] = encoded_positions[elem_idx + n_elements * dim_idx];
-}
-
-template <typename T>
-void transpose_gradients(const uint32_t n_elements, T *__restrict__ transposed_dL_dy, PitchedPtr<const T> dL_dy,
-                         const sycl::nd_item<3> &item_ct1) {
-    const uint32_t i = item_ct1.get_local_id(1) + item_ct1.get_group(2) * item_ct1.get_local_range(1);
-    if (i >= n_elements) return;
-
-    const uint32_t elem_idx = i;
-    const uint32_t dim_idx = item_ct1.get_local_id(2);
-
-    transposed_dL_dy[elem_idx + n_elements * dim_idx] = dL_dy(elem_idx)[dim_idx];
-}
-
 static constexpr uint32_t MAX_N_LEVELS = 128;
 struct GridOffsetTable {
     uint32_t data[MAX_N_LEVELS + 1] = {};
