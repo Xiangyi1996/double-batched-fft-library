@@ -1,5 +1,7 @@
 #pragma once
 
+#ifdef __SYCL_DEVICE_ONLY__
+
 #include "common.h"
 
 #include <oneapi/dpl/random>
@@ -787,57 +789,6 @@ inline float identity_derivative(float val) { return 1.0f; }
 
 inline float identity_2nd_derivative(float val) { return 0.0f; }
 
-template <typename F, typename FPRIME, typename FPRIMEPRIME>
-inline void pos_fract(const float input, float *pos, float *pos_derivative, float *pos_2nd_derivative,
-                      uint32_t *pos_grid, float scale, F interpolation_fun, FPRIME interpolation_fun_derivative,
-                      FPRIMEPRIME interpolation_fun_2nd_derivative) {
-    // The offset of 0.5 causes different scales to be staggered with respect to
-    // each other, thus preventing spurious alignment of fractional coordinates
-    // upon integer scales (or powers thereof). This is mentioned in Appendix A of
-    // the "Instant Neural Graphics Primitives" paper. The offset can cause
-    // wraparound indexing in dense grids, which didn't negatively impact the
-    // approximation quality in any of our tests.
-    *pos = sycl::fma(scale, (float)input, 0.5f);
-    float tmp = sycl::floor(*pos);
-    *pos_grid = (uint32_t)(int)tmp;
-    *pos -= (float)tmp;
-    *pos_2nd_derivative = interpolation_fun_2nd_derivative(*pos);
-    *pos_derivative = interpolation_fun_derivative(*pos);
-    *pos = interpolation_fun(*pos);
-}
-
-template <typename F, typename FPRIME>
-inline void pos_fract(const float input, float *pos, float *pos_derivative, uint32_t *pos_grid, float scale,
-                      F interpolation_fun, FPRIME interpolation_fun_derivative) {
-    // The offset of 0.5 causes different scales to be staggered with respect to
-    // each other, thus preventing spurious alignment of fractional coordinates
-    // upon integer scales (or powers thereof). This is mentioned in Appendix A of
-    // the "Instant Neural Graphics Primitives" paper. The offset can cause
-    // wraparound indexing in dense grids, which didn't negatively impact the
-    // approximation quality in any of our tests.
-    *pos = sycl::fma(scale, (float)input, 0.5f);
-    float tmp = sycl::floor(*pos);
-    *pos_grid = (uint32_t)(int)tmp;
-    *pos -= tmp;
-    *pos_derivative = interpolation_fun_derivative(*pos);
-    *pos = interpolation_fun(*pos);
-}
-
-template <typename F>
-inline void pos_fract(const float input, float *pos, uint32_t *pos_grid, float scale, F interpolation_fun) {
-    // The offset of 0.5 causes different scales to be staggered with respect to
-    // each other, thus preventing spurious alignment of fractional coordinates
-    // upon integer scales (or powers thereof). This is mentioned in Appendix A of
-    // the "Instant Neural Graphics Primitives" paper. The offset can cause
-    // wraparound indexing in dense grids, which didn't negatively impact the
-    // approximation quality in any of our tests.
-    *pos = sycl::fma(scale, (float)input, 0.5f);
-    float tmp = sycl::floor(*pos);
-    *pos_grid = (uint32_t)(int)tmp;
-    *pos -= tmp;
-    *pos = interpolation_fun(*pos);
-}
-
 inline float quartic(const float x, const float inv_radius) {
     const float u = x * inv_radius;
     const float tmp = sycl::fmax(1 - u * u, 0.0f);
@@ -854,29 +805,4 @@ inline float quartic_cdf(const float x, const float inv_radius) {
                       sycl::fmin(1.0f, ((float)15 / 16) * u * (1 - ((float)2 / 3) * u2 + ((float)1 / 5) * u4) + 0.5f));
 }
 
-template <typename T1, typename T2, typename T3>
-void add(const uint32_t num_elements, const T1 *data_in_1, const T2 *data_in_2, T3 *data_out,
-         const sycl::nd_item<3> &item_ct1) {
-    const uint32_t i = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
-    if (i >= num_elements) return;
-
-    data_out[i] = (T3)((float)data_in_1[i] + (float)data_in_2[i]);
-}
-
-template <typename T>
-void add(const uint32_t num_elements, const T *__restrict__ data_in, T *__restrict__ data_in_out,
-         const sycl::nd_item<3> &item_ct1) {
-    const uint32_t i = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
-    if (i >= num_elements) return;
-
-    data_in_out[i] = data_in[i] + data_in_out[i];
-}
-
-template <typename T>
-void cast(const uint32_t num_elements, const float *__restrict__ full_precision, T *__restrict__ target,
-          const sycl::nd_item<3> &item_ct1) {
-    const uint32_t i = item_ct1.get_local_id(2) + item_ct1.get_group(2) * item_ct1.get_local_range(2);
-    if (i >= num_elements) return;
-
-    target[i] = (T)full_precision[i];
-}
+#endif

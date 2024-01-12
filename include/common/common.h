@@ -19,8 +19,6 @@ static constexpr bool PARAMS_ALIGNED = false;
 static constexpr bool PARAMS_ALIGNED = true;
 #endif
 
-constexpr uint32_t N_THREADS_LINEAR = 128;
-
 enum class Activation {
     ReLU,
     LeakyReLU,
@@ -52,14 +50,6 @@ enum class InterpolationType {
     Smoothstep,
 };
 
-enum class MatrixLayout {
-    RowMajor = 0,
-    SoA = 0, // For data matrices TCNN's convention is RowMajor == SoA (struct of
-             // arrays)
-    ColumnMajor = 1,
-    AoS = 1,
-};
-
 enum class ReductionType {
     Concatenation,
     Sum,
@@ -84,6 +74,15 @@ template <typename T> T next_multiple(T val, T divisor) { return div_round_up(va
 
 template <typename T> T previous_multiple(T val, T divisor) { return (val / divisor) * divisor; }
 
+inline uint32_t powi(uint32_t base, uint32_t exponent) {
+    uint32_t result = 1;
+    for (uint32_t i = 0; i < exponent; ++i) {
+        result *= base;
+    }
+
+    return result;
+}
+
 } // namespace math
 } // namespace tinydpcppnn
 
@@ -105,56 +104,6 @@ template <typename T> struct PitchedPtr {
 
     T *ptr;
     uint32_t stride_in_bytes;
-};
-
-template <typename T> struct MatrixView {
-    MatrixView() : data{nullptr}, stride_i{0}, stride_j{0} {}
-    MatrixView(T *data, uint32_t stride_i, uint32_t stride_j) : data{data}, stride_i{stride_i}, stride_j{stride_j} {}
-    MatrixView(const MatrixView<std::remove_const_t<T>> &other)
-        : data{other.data}, stride_i{other.stride_i}, stride_j{other.stride_j} {}
-
-    T &operator()(uint32_t i, uint32_t j = 0) const { return data[i * stride_i + j * stride_j]; }
-
-    void advance(uint32_t m, uint32_t n) { data = &(*this)(m, n); }
-
-    void advance_rows(uint32_t m) { advance(m, 0); }
-
-    void advance_cols(uint32_t n) { advance(0, n); }
-
-    template <uint32_t N> tnn::tvec<std::remove_const_t<T>, N> row(uint32_t m) const {
-        tnn::tvec<std::remove_const_t<T>, N> result;
-
-        for (uint32_t i = 0; i < N; ++i) {
-            result[i] = (*this)(m, i);
-        }
-        return result;
-    }
-
-    template <uint32_t N> tnn::tvec<std::remove_const_t<T>, N> col(uint32_t n) const {
-        tnn::tvec<std::remove_const_t<T>, N> result;
-
-        for (uint32_t i = 0; i < N; ++i) {
-            result[i] = (*this)(i, n);
-        }
-        return result;
-    }
-
-    template <typename U, uint32_t N, size_t A> void set_row(uint32_t m, const tnn::tvec<U, N, A> &val) {
-        for (uint32_t i = 0; i < N; ++i) {
-            (*this)(m, i) = val[i];
-        }
-    }
-
-    template <typename U, uint32_t N, size_t A> void set_col(uint32_t n, const tnn::tvec<U, N, A> &val) {
-        for (uint32_t i = 0; i < N; ++i) {
-            (*this)(i, n) = val[i];
-        }
-    }
-
-    explicit operator bool() const { return data; }
-
-    T *data;
-    uint32_t stride_i, stride_j;
 };
 
 /**

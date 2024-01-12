@@ -7,6 +7,8 @@
 #include <sycl/sycl.hpp>
 #include <vector>
 
+enum class MatrixLayout { RowMajor = 0, ColumnMajor = 1 };
+
 // view class which can even be used on the device,
 // does not own any more
 // is always associated with a DeviceMatrix.

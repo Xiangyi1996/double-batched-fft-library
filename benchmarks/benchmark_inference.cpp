@@ -14,11 +14,26 @@ int main() {
         MPI_Init(NULL, NULL);
         sycl::queue q(sycl::gpu_selector_v);
 
-        const int batch_size = 1 << 22;
-        benchmark_inference<bf16, 64>(batch_size, 4, 1000, q);
+        benchmark_inference<bf16, 64>(1 << 22, 4, 1000, q);
         q.wait();
-        benchmark_inference<sycl::half, 64>(batch_size, 4, 1000, q);
+        benchmark_inference<sycl::half, 64>(1 << 22, 4, 1000, q);
         q.wait();
+        benchmark_inference<bf16, 16>(1 << 22, 4, 1000, q);
+        q.wait();
+        benchmark_inference<bf16, 32>(1 << 22, 4, 1000, q);
+        q.wait();
+        benchmark_inference<bf16, 128>(1 << 22, 4, 1000, q);
+        q.wait();
+        benchmark_inference<sycl::half, 128>(1 << 22, 4, 1000, q);
+        q.wait();
+        for (int iter = 10; iter < 25; iter++) {
+            benchmark_inference<bf16, 64>(1 << iter, 4, 100, q);
+            q.wait();
+        }
+        for (int iter = 2; iter < 20; iter++) {
+            benchmark_inference<bf16, 64>(1 << 22, iter, 100, q);
+            q.wait();
+        }
         MPI_Finalize();
 
     } catch (const std::exception &e) {
@@ -29,5 +44,5 @@ int main() {
         return 2;
     }
 
-    return 0;
+        return 0;
 }

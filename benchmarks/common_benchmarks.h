@@ -12,7 +12,7 @@ namespace common {
 
 /// Put all the common functionalities for the performance benchmarks here.
 void WriteBenchmarkHeader(const std::string &str, const size_t batch_size, const int WIDTH, const int n_hidden_layers,
-                          const int typesize, sycl::queue &q) {
+                          const int typesize, const std::string &name_of_type, sycl::queue &q) {
 
     int world_rank;
     int world_size;
@@ -23,20 +23,19 @@ void WriteBenchmarkHeader(const std::string &str, const size_t batch_size, const
         std::cout << str << std::endl;
         std::cout << "Running on " << q.get_device().get_info<sycl::info::device::name>() << std::endl;
         std::cout << "n_hidden_layers = " << n_hidden_layers << ", WIDTH = " << WIDTH << ", batch_size = " << batch_size
-                  << ", type size = " << typesize << " bytes" << std::endl
-                  << "MPI world_size = " << world_size << std::endl
-                  << std::endl;
+                  << ", typename = " << name_of_type << ", type size = " << typesize << " bytes" << std::endl
+                  << "MPI world_size = " << world_size << std::endl;
     }
 }
 
 void WritePerformanceData(const int n_iterations, const double time, const double oi, const double bw,
                           const double tp) {
-    std::cout << "Finished training benchmark." << std::endl;
+    std::cout << "Finished benchmark." << std::endl;
     std::cout << "#Iterations = " << n_iterations << std::endl;
     std::cout << "Time = " << time << " s" << std::endl;
     std::cout << "AI = " << oi << " flops/byte" << std::endl;
     std::cout << "BW = " << bw << " GB/s" << std::endl;
-    std::cout << "Throughput = " << tp << " Gflops/s" << std::endl << std::endl;
+    std::cout << "Throughput = " << tp << " Gflops/s" << std::endl;
 }
 
 // TODO: consolidate WritePerformanceData inference and training and just write functions

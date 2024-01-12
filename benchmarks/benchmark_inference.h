@@ -10,6 +10,7 @@
 #include "SwiftNetMLP.h"
 #include "common.h"
 #include "common_benchmarks.h"
+#include "common_host.h"
 #include "mpi.h"
 #include "result_check.h"
 
@@ -18,7 +19,7 @@ template <typename T, int WIDTH>
 void benchmark_inference(const size_t batch_size, const int n_hidden_layers, const int n_iterations, sycl::queue &q) {
 
     tinydpcppnn::benchmarks::common::WriteBenchmarkHeader("Inference", batch_size, WIDTH, n_hidden_layers, sizeof(T),
-                                                          q);
+                                                          type_to_string<T>(), q);
 
     constexpr int input_width = WIDTH;
     constexpr int output_width = WIDTH;
@@ -33,6 +34,8 @@ void benchmark_inference(const size_t batch_size, const int n_hidden_layers, con
     // need a factory here for different widths
     SwiftNetMLP<T, WIDTH> network(q, input_width, output_width, n_hidden_layers, Activation::ReLU, Activation::None,
                                   Network<T>::WeightInitMode::constant_pos);
+    std::vector<T> new_weights(network.get_weights_matrices().size(), 1.0 / WIDTH);
+    network.set_weights_matrices(new_weights);
 
     constexpr int n_iterations_warmup = 5;
     // Do a warmup loop, not benched.
@@ -55,10 +58,9 @@ void benchmark_inference(const size_t batch_size, const int n_hidden_layers, con
                                                                    n_hidden_layers, n_iterations, sizeof(T));
 
     MPI_Barrier(MPI_COMM_WORLD);
-
-    std::vector<T> expected_result(batch_size * output_width, std::pow(WIDTH * 0.01, n_hidden_layers + 1) * input_val);
-
+    std::vector<T> expected_result(batch_size * output_width,
+                                   /*std::pow(WIDTH * 0.01, n_hidden_layers + 1) **/ input_val);
     std::vector<T> out_host = output.copy_to_host();
-
     areVectorsWithinTolerance(out_host, expected_result, 0.01f);
+    std::cout << std::endl;
 }

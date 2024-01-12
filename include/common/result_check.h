@@ -38,7 +38,8 @@ bool areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector
         if (diff > tolerance) {
             is_same = false;
             count++;
-            std::cout << "At " << i << ", Val: " << (double)value[i] << ", target: " << (double)target[i] << std::endl;
+            // std::cout << "At " << i << ", Val: " << (double)value[i] << ", target: " << (double)target[i] <<
+            // std::endl;
         }
     }
     std::cout << count << "/" << target.size() << " are wrong. Max diff = " << max_diff << std::endl;

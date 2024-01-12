@@ -10,6 +10,7 @@
 #include "SwiftNetMLP.h"
 #include "common.h"
 #include "common_benchmarks.h"
+#include "common_host.h"
 #include "mpi.h"
 #include "result_check.h"
 #include "trainer.h"
@@ -21,7 +22,7 @@ template <typename T, int WIDTH>
 void benchmark_training(const size_t batch_size, const int n_hidden_layers, const int n_iterations, sycl::queue &q) {
 
     tinydpcppnn::benchmarks::common::WriteBenchmarkHeader("Training (forw+backw, no opt, no loss)", batch_size, WIDTH,
-                                                          n_hidden_layers, sizeof(T), q);
+                                                          n_hidden_layers, sizeof(T), type_to_string<T>(), q);
 
     constexpr int input_width = WIDTH;
     constexpr int output_width = WIDTH;

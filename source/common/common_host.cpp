@@ -35,8 +35,6 @@
 #include <iostream>
 #include <unordered_map>
 
-template <typename T> std::string type_to_string();
-
 bool g_verbose = false;
 bool verbose() { return g_verbose; }
 void set_verbose(bool verbose) { g_verbose = verbose; }
@@ -283,12 +281,4 @@ std::string to_upper(std::string str) {
     return str;
 }
 
-template <> std::string type_to_string<bool>() { return "bool"; }
-template <> std::string type_to_string<int>() { return "int"; }
-template <> std::string type_to_string<char>() { return "char"; }
-template <> std::string type_to_string<uint8_t>() { return "uint8_t"; }
-template <> std::string type_to_string<uint16_t>() { return "uint16_t"; }
-template <> std::string type_to_string<uint32_t>() { return "uint32_t"; }
-template <> std::string type_to_string<double>() { return "double"; }
-template <> std::string type_to_string<float>() { return "float"; }
-template <> std::string type_to_string<sycl::half>() { return "sycl::half"; }
+
