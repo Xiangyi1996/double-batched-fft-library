@@ -38,6 +38,10 @@
 #include <cstdint>
 #include <sycl/sycl.hpp>
 
+namespace tinydpcppnn {
+namespace encodings {
+namespace grid {
+
 template <typename T>
 void extract_position(const uint32_t num_elements, PitchedPtr<const float> data_in, T *__restrict__ output,
                       const sycl::nd_item<3> &item_ct1) {
@@ -101,3 +105,7 @@ template <typename T> class GridEncoding : public Encoding<T> {
     float m_max_level = 1000.f;
     uint32_t m_n_params;
 };
+
+} // namespace grid
+} // namespace encodings
+} // namespace tinydpcppnn

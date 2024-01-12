@@ -196,19 +196,3 @@ inline uint32_t powi(uint32_t base, uint32_t exponent) {
 
     return result;
 }
-
-template <typename T> constexpr uint32_t n_blocks_linear(T n_elements, uint32_t n_threads = N_THREADS_LINEAR) {
-    return (uint32_t)tinydpcppnn::math::div_round_up(n_elements, (T)n_threads);
-}
-
-template <typename K, typename T, typename... Types>
-inline void linear_kernel(K kernel, uint32_t shmem_size, sycl::queue *const q, T n_elements, Types... args) {
-    if (n_elements <= 0) {
-        return;
-    }
-
-    static_assert(N_THREADS_LINEAR <= 1024);
-    q->parallel_for(sycl::nd_range<3>(n_blocks_linear(n_elements) * sycl::range<3>(1, 1, N_THREADS_LINEAR),
-                                      sycl::range<3>(1, 1, N_THREADS_LINEAR)),
-                    [=](sycl::nd_item<3> item_ct1) { int a = 3; });
-}

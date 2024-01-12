@@ -52,6 +52,11 @@
 
 using json = nlohmann::json;
 
+namespace tinydpcppnn {
+namespace encodings {
+namespace grid {
+namespace kernels {
+
 // encoded positions is the output
 // it may need a transpose after this kernel
 template <typename T, uint32_t N_POS_DIMS, uint32_t N_FEATURES_PER_LEVEL, HashType HASH_TYPE>
@@ -144,30 +149,406 @@ void kernel_grid(const uint32_t num_elements, const uint32_t num_grid_features, 
     }
 }
 
+template <typename T, typename GRAD_T, uint32_t N_POS_DIMS, uint32_t N_FEATURES_PER_LEVEL,
+          uint32_t N_FEATURES_PER_THREAD, HashType HASH_TYPE>
+void kernel_grid_backward(const size_t num_elements, const uint32_t num_grid_features,
+                          const GridOffsetTable offset_table, const uint32_t base_resolution,
+                          const float log2_per_level_scale, float max_level, const bool stochastic_interpolation,
+                          const InterpolationType interpolation_type, const GridType grid_type,
+                          GRAD_T *__restrict__ grid_gradient, DeviceMatrixView<float> positions_in,
+                          DeviceMatrixView<T> dL_dy, const sycl::nd_item<3> &item) {
+    const size_t i = (item.get_global_id(2) * N_FEATURES_PER_THREAD) / N_FEATURES_PER_LEVEL;
+    if (i >= num_elements) return;
+
+    const uint32_t level = item.get_group(1); // <- the level is the same for all threads.
+    const uint32_t feature = item.get_global_id(2) * N_FEATURES_PER_THREAD - i * N_FEATURES_PER_LEVEL;
+
+    max_level = ((max_level * num_grid_features) / N_FEATURES_PER_LEVEL);
+
+    if (level >= max_level + 1e-3f) return;
+
+    grid_gradient += offset_table.data[level] * N_FEATURES_PER_LEVEL;
+    const uint32_t hashmap_size = offset_table.data[level + 1] - offset_table.data[level];
+    const float scale = grid_scale(level, log2_per_level_scale, base_resolution);
+    const uint32_t resolution = grid_resolution(scale);
+
+    auto add_grid_gradient = [&](const tnn::uvec<N_POS_DIMS> &local_pos,
+                                 const tnn::tvec<GRAD_T, N_FEATURES_PER_THREAD> &grad, const float weight) {
+        uint32_t index =
+            grid_index<N_POS_DIMS, HASH_TYPE>(grid_type, hashmap_size, resolution, local_pos) * N_FEATURES_PER_LEVEL +
+            feature;
+
+        for (size_t i = 0; i < N_FEATURES_PER_THREAD; ++i) {
+            sycl::atomic_ref<GRAD_T, sycl::memory_order::relaxed, sycl::memory_scope::device,
+                             sycl::access::address_space::global_space>
+                atomic_op(grid_gradient[index + i]);
+            atomic_op += (GRAD_T)weight * grad[i];
+        }
+    };
+
+    float pos[N_POS_DIMS];
+    tnn::uvec<N_POS_DIMS> pos_grid;
+
+    if (interpolation_type == InterpolationType::Nearest || interpolation_type == InterpolationType::Linear) {
+        for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
+            pos[dim] = sycl::fma(scale, positions_in(i, dim), 0.5f);
+            const float tmp = sycl::floor(pos[dim]);
+            pos_grid[dim] = (uint32_t)(int)tmp;
+            pos[dim] -= tmp;
+            pos[dim] = identity_fun(pos[dim]);
+        }
+    } else {
+        for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
+            pos[dim] = sycl::fma(scale, positions_in(i, dim), 0.5f);
+            const float tmp = sycl::floor(pos[dim]);
+            pos_grid[dim] = (uint32_t)(int)tmp;
+            pos[dim] -= tmp;
+            pos[dim] = smoothstep(pos[dim]);
+        }
+    }
+
+    tnn::tvec<T, N_FEATURES_PER_THREAD> grad;
+
+    for (uint32_t f = 0; f < N_FEATURES_PER_THREAD; ++f) {
+        grad[f] = dL_dy(i, level * N_FEATURES_PER_LEVEL + feature + f);
+    }
+
+    if (interpolation_type == InterpolationType::Nearest) {
+        add_grid_gradient(pos_grid, grad, 1.0f);
+    } else if (stochastic_interpolation) {
+        const float sample = random_val(1337, i + level * num_elements);
+        tnn::uvec<N_POS_DIMS> pos_grid_local;
+
+        for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
+            pos_grid_local[dim] = (sample >= pos[dim]) ? (pos_grid[dim]) : (pos_grid[dim] + 1);
+        }
+
+        add_grid_gradient(pos_grid_local, grad, 1.0f);
+    } else { // N-linear interpolation
+
+        for (uint32_t idx = 0; idx < (1 << N_POS_DIMS); ++idx) {
+            float weight = 1;
+            tnn::uvec<N_POS_DIMS> pos_grid_local;
+
+            for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
+                if ((idx & (1 << dim)) == 0) {
+                    weight *= 1 - pos[dim];
+                    pos_grid_local[dim] = pos_grid[dim];
+                } else {
+                    weight *= pos[dim];
+                    pos_grid_local[dim] = pos_grid[dim] + 1;
+                }
+            }
+
+            add_grid_gradient(pos_grid_local, grad, weight);
+        }
+    }
+}
+
+template <typename T, uint32_t N_POS_DIMS>
+void kernel_grid_backward_input(const size_t num_elements, const uint32_t num_grid_features,
+                                DeviceMatrixView<T> dL_dy_rm, DeviceMatrixView<float> dy_dx,
+                                DeviceMatrixView<float> dL_dx, const sycl::nd_item<1> &item) {
+    const size_t i = item.get_global_linear_id();
+    if (i >= num_elements) return;
+
+    for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
+        dL_dx(i, dim) = 0.0f;
+    }
+
+    for (int k = 0; k < num_grid_features; ++k) {
+        const float dL_dy_local = (float)dL_dy_rm(i, k);
+
+        for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
+            dL_dx(i, dim) += dL_dy_local * dy_dx(i + dim, k);
+        }
+    }
+}
+
+template <typename T, typename GRAD_T, uint32_t N_POS_DIMS, uint32_t N_FEATURES_PER_LEVEL,
+          uint32_t N_FEATURES_PER_THREAD, HashType HASH_TYPE>
+void kernel_grid_backward_input_backward_grid(const size_t num_elements, const uint32_t num_grid_features,
+                                              const GridOffsetTable offset_table, const uint32_t base_resolution,
+                                              const float log2_per_level_scale, float max_level,
+                                              const InterpolationType interpolation_type, const GridType grid_type,
+                                              const DeviceMatrixView<float> dL_ddLdx,
+                                              const DeviceMatrixView<float> positions_in,
+                                              const DeviceMatrixView<T> dL_dy, GRAD_T *__restrict__ grid_gradient,
+                                              const sycl::nd_item<3> &item) {
+    const size_t i = (item.get_global_id(2) * N_FEATURES_PER_THREAD) / N_FEATURES_PER_LEVEL;
+    if (i >= num_elements) return;
+
+    const uint32_t level = item.get_group(1);
+    const uint32_t feature = item.get_global_id(2) * N_FEATURES_PER_THREAD - i * N_FEATURES_PER_LEVEL;
+
+    max_level = (max_level * num_grid_features) / N_FEATURES_PER_LEVEL;
+
+    if (level >= max_level + 1e-3f) return;
+
+    grid_gradient += offset_table.data[level] * N_FEATURES_PER_LEVEL;
+    const uint32_t hashmap_size = offset_table.data[level + 1] - offset_table.data[level];
+
+    const float scale = grid_scale(level, log2_per_level_scale, base_resolution);
+    const uint32_t resolution = grid_resolution(scale);
+
+    auto add_grid_gradient = [&](const tnn::uvec<N_POS_DIMS> &local_pos,
+                                 const tnn::tvec<GRAD_T, N_FEATURES_PER_THREAD> &grad, const float weight) {
+        const uint32_t index =
+            grid_index<N_POS_DIMS, HASH_TYPE>(grid_type, hashmap_size, resolution, local_pos) * N_FEATURES_PER_LEVEL +
+            feature;
+
+        for (size_t i = 0; i < N_FEATURES_PER_THREAD; ++i) {
+            sycl::atomic_ref<GRAD_T, sycl::memory_order::relaxed, sycl::memory_scope::device> atomic(grid_gradient +
+                                                                                                     index + i);
+            atomic.fetch_add(((GRAD_T)weight) * grad[i]);
+        }
+    };
+
+    float pos[N_POS_DIMS];
+    float pos_derivative[N_POS_DIMS];
+    tnn::uvec<N_POS_DIMS> pos_grid;
+
+    if (interpolation_type == InterpolationType::Nearest || interpolation_type == InterpolationType::Linear) {
+        for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
+            pos[dim] = sycl::fma(scale, positions_in(i, dim), 0.5f);
+            const float tmp = sycl::floor(pos[dim]);
+            pos_grid[dim] = (uint32_t)(int)tmp;
+            pos[dim] -= tmp;
+            pos_derivative[dim] = identity_derivative(pos[dim]);
+            pos[dim] = identity_fun(pos[dim]);
+        }
+    } else {
+        for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
+            pos[dim] = sycl::fma(scale, positions_in(i, dim), 0.5f);
+            const float tmp = sycl::floor(pos[dim]);
+            pos_grid[dim] = (uint32_t)(int)tmp;
+            pos[dim] -= tmp;
+            pos_derivative[dim] = smoothstep_derivative(pos[dim]);
+            pos[dim] = smoothstep(pos[dim]);
+        }
+    }
+
+    tnn::tvec<T, N_FEATURES_PER_THREAD> grad;
+
+    for (uint32_t f = 0; f < N_FEATURES_PER_THREAD; ++f) {
+        grad[f] = dL_dy(i, level * N_FEATURES_PER_LEVEL + feature + f);
+    }
+
+    // d(dydx)_dgrid is zero when there's no interpolation.
+    if (interpolation_type != InterpolationType::Nearest) {
+        // for N-linear interpolation
+        for (uint32_t grad_dim = 0; grad_dim < N_POS_DIMS; ++grad_dim) {
+            const float grad_in = scale * dL_ddLdx(i, grad_dim) * pos_derivative[grad_dim];
+
+            for (uint32_t idx = 0; idx < (1 << (N_POS_DIMS - 1)); ++idx) {
+                float weight = grad_in;
+                tnn::uvec<N_POS_DIMS> pos_grid_local;
+
+                for (uint32_t non_grad_dim = 0; non_grad_dim < N_POS_DIMS - 1; ++non_grad_dim) {
+                    const uint32_t dim = non_grad_dim >= grad_dim ? (non_grad_dim + 1) : non_grad_dim;
+
+                    if ((idx & 1 << non_grad_dim) == 0) {
+                        weight *= 1 - pos[dim];
+                        pos_grid_local[dim] = pos_grid[dim];
+                    } else {
+                        weight *= pos[dim];
+                        pos_grid_local[dim] = pos_grid[dim] + 1;
+                    }
+                }
+
+                // left
+                pos_grid_local[grad_dim] = pos_grid[grad_dim];
+                add_grid_gradient(pos_grid_local, grad, -weight);
+                // right
+                pos_grid_local[grad_dim] = pos_grid[grad_dim] + 1;
+                add_grid_gradient(pos_grid_local, grad, weight);
+            }
+        }
+    }
+}
+
+template <typename T, uint32_t N_POS_DIMS, uint32_t N_FEATURES_PER_LEVEL, uint32_t N_FEATURES_PER_THREAD,
+          HashType HASH_TYPE>
+void kernel_grid_backward_input_backward_input(const size_t num_elements, const uint32_t num_grid_features,
+                                               const GridOffsetTable offset_table, const uint32_t base_resolution,
+                                               const float log2_per_level_scale, float max_level,
+                                               const InterpolationType interpolation_type, const GridType grid_type,
+                                               const DeviceMatrixView<float> dL_ddLdx,
+                                               const DeviceMatrixView<float> positions_in,
+                                               const DeviceMatrixView<T> dL_dy, const T *__restrict__ grid,
+                                               DeviceMatrixView<float> dL_dx, const sycl::nd_item<3> &item) {
+    const size_t i = (item.get_global_id(2) * N_FEATURES_PER_THREAD) / N_FEATURES_PER_LEVEL;
+    if (i >= num_elements) return;
+
+    const uint32_t level = item.get_group(1);
+    const uint32_t feature = item.get_global_id(2) * N_FEATURES_PER_THREAD - i * N_FEATURES_PER_LEVEL;
+
+    max_level = (max_level * num_grid_features) / N_FEATURES_PER_LEVEL;
+
+    if (level >= max_level + 1e-3f) return;
+
+    grid += offset_table.data[level] * N_FEATURES_PER_LEVEL;
+    const uint32_t hashmap_size = offset_table.data[level + 1] - offset_table.data[level];
+
+    const float scale = grid_scale(level, log2_per_level_scale, base_resolution);
+    const uint32_t resolution = grid_resolution(scale);
+
+    float pos[N_POS_DIMS];
+    float pos_derivative[N_POS_DIMS];
+    float pos_2nd_derivative[N_POS_DIMS];
+    tnn::uvec<N_POS_DIMS> pos_grid;
+
+    if (interpolation_type == InterpolationType::Nearest || interpolation_type == InterpolationType::Linear) {
+        for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
+            pos[dim] = sycl::fma(scale, positions_in(i, dim), 0.5f);
+            const float tmp = sycl::floor(pos[dim]);
+            pos_grid[dim] = (uint32_t)(int)tmp;
+            pos[dim] -= tmp;
+            pos_2nd_derivative[dim] = identity_2nd_derivative(pos[dim]);
+            pos_derivative[dim] = identity_derivative(pos[dim]);
+            pos[dim] = identity_fun(pos[dim]);
+        }
+    } else {
+        for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
+            pos[dim] = sycl::fma(scale, positions_in(i, dim), 0.5f);
+            const float tmp = sycl::floor(pos[dim]);
+            pos_grid[dim] = (uint32_t)(int)tmp;
+            pos[dim] -= tmp;
+            pos_2nd_derivative[dim] = smoothstep_2nd_derivative(pos[dim]);
+            pos_derivative[dim] = smoothstep_derivative(pos[dim]);
+            pos[dim] = smoothstep(pos[dim]);
+        }
+    }
+
+    tnn::tvec<T, N_FEATURES_PER_THREAD> grad;
+
+    for (uint32_t f = 0; f < N_FEATURES_PER_THREAD; ++f) {
+        grad[f] = dL_dy(i, level * N_FEATURES_PER_LEVEL + feature + f);
+    }
+
+    // d(dydx)_dx is zero when there's no interpolation
+    if (interpolation_type != InterpolationType::Nearest) return;
+
+    // for N-linear interpolation
+    auto calc_dLdx = [&](const tnn::uvec<N_POS_DIMS> &local_pos, const float weight) {
+        const uint32_t index =
+            grid_index<N_POS_DIMS, HASH_TYPE>(grid_type, hashmap_size, resolution, local_pos) * N_FEATURES_PER_LEVEL +
+            feature;
+        float dL_dx_dim = 0.0f;
+
+        for (uint32_t f = 0; f < N_FEATURES_PER_THREAD; ++f) {
+            dL_dx_dim += (float)grid[index + f] * (float)grad[f] * weight;
+        }
+
+        return dL_dx_dim;
+    };
+
+    tnn::tvec<float, N_POS_DIMS> grad_in_diag;
+    tnn::tvec<float, N_POS_DIMS> grad_in_other;
+
+    for (uint32_t grad_dim = 0; grad_dim < N_POS_DIMS; ++grad_dim) {
+        // from diagonal part of Hessian
+        grad_in_diag[grad_dim] = scale * scale * dL_ddLdx(i, grad_dim) * pos_2nd_derivative[grad_dim];
+        // from other part of Hessian
+        grad_in_other[grad_dim] =
+            scale * scale * dL_ddLdx(i, grad_dim) * pos_derivative[grad_dim]; // will do " *
+                                                                              // pos_derivative[real_other_grad_dim]
+                                                                              // " later
+    }
+
+    for (uint32_t grad_dim = 0; grad_dim < N_POS_DIMS; ++grad_dim) {
+        float grad_out = 0.0f;
+
+        for (uint32_t idx = 0; idx < (1 << (N_POS_DIMS - 1)); ++idx) {
+            // from diagonal part of Hessian; d(doutput_d[grad_dim])_d[grad_dim]
+            // NOTE: LinearInterpolations' diagonal part is 0.
+            if (interpolation_type == InterpolationType::Smoothstep) {
+                float weight_2nd_diag = grad_in_diag[grad_dim];
+                tnn::uvec<N_POS_DIMS> pos_grid_local;
+
+                for (uint32_t non_grad_dim = 0; non_grad_dim < N_POS_DIMS - 1; ++non_grad_dim) {
+                    const uint32_t dim = non_grad_dim >= grad_dim ? (non_grad_dim + 1) : non_grad_dim;
+                    // real non_grad_dim
+                    if ((idx & 1 << non_grad_dim) == 0) {
+                        weight_2nd_diag *= 1 - pos[dim];
+                        pos_grid_local[dim] = pos_grid[dim];
+                    } else {
+                        weight_2nd_diag *= pos[dim];
+                        pos_grid_local[dim] = pos_grid[dim] + 1;
+                    }
+                }
+
+                // left
+                pos_grid_local[grad_dim] = pos_grid[grad_dim];
+                grad_out += calc_dLdx(pos_grid_local, -weight_2nd_diag);
+                // right
+                pos_grid_local[grad_dim] = pos_grid[grad_dim] + 1;
+                grad_out += calc_dLdx(pos_grid_local, weight_2nd_diag);
+            }
+
+            // from other part of Hessian;
+            // d(doutput_d[real_other_grad_dim])_d[grad_dim]
+            if constexpr (N_POS_DIMS > 1) {
+                for (uint32_t other_grad_dim = 0; other_grad_dim < N_POS_DIMS - 1; ++other_grad_dim) {
+                    const uint32_t real_other_grad_dim =
+                        other_grad_dim >= grad_dim ? (other_grad_dim + 1) : other_grad_dim;
+                    float weight_2nd_other = grad_in_other[real_other_grad_dim] * pos_derivative[grad_dim];
+                    tnn::uvec<N_POS_DIMS> pos_grid_local;
+
+                    for (uint32_t non_grad_dim = 0; non_grad_dim < N_POS_DIMS - 1; ++non_grad_dim) {
+                        // real non_grad_dim
+                        const uint32_t dim = non_grad_dim >= real_other_grad_dim ? (non_grad_dim + 1) : non_grad_dim;
+                        if ((idx & 1 << non_grad_dim) == 0) {
+                            if (dim != grad_dim)
+                                weight_2nd_other *= 1 - pos[dim];
+                            else
+                                weight_2nd_other *= -1;
+                            pos_grid_local[dim] = pos_grid[dim];
+                        } else {
+                            if (dim != grad_dim) weight_2nd_other *= pos[dim];
+                            pos_grid_local[dim] = pos_grid[dim] + 1;
+                        }
+                    }
+
+                    // left
+                    pos_grid_local[real_other_grad_dim] = pos_grid[real_other_grad_dim];
+                    grad_out += calc_dLdx(pos_grid_local, -weight_2nd_other);
+                    // right
+                    pos_grid_local[real_other_grad_dim] = pos_grid[real_other_grad_dim] + 1;
+                    grad_out += calc_dLdx(pos_grid_local, weight_2nd_other);
+                }
+            }
+        }
+
+        sycl::atomic_ref<float, sycl::memory_order::relaxed, sycl::memory_scope::device> atomic_target(
+            dL_dx(i, grad_dim));
+        atomic_target.fetch_add(grad_out);
+    }
+}
+
+template <typename T, uint32_t N_POS_DIMS>
+void kernel_grid_backward_input_backward_dLdoutput(const size_t num_elements, const uint32_t num_grid_features,
+                                                   const DeviceMatrixView<float> dL_ddLdx,
+                                                   const DeviceMatrixView<float> dy_dx, DeviceMatrixView<T> dL_ddLdy,
+                                                   const sycl::nd_item<1> &item) {
+    const size_t i = item.get_global_linear_id();
+    if (i >= num_elements) return;
+
+    for (uint32_t k = 0; k < num_grid_features; ++k) {
+        dL_ddLdy(i, k) = (T)0;
+
+        for (uint32_t grad_dim = 0; grad_dim < N_POS_DIMS; ++grad_dim) {
+            dL_ddLdy(i, k) += dy_dx(i + grad_dim, k) * dL_ddLdx(i, grad_dim);
+        }
+    }
+}
+} // namespace kernels
+
 template <typename T, uint32_t N_POS_DIMS = 3, uint32_t N_FEATURES_PER_LEVEL = 2,
           HashType HASH_TYPE = HashType::CoherentPrime>
 class GridEncodingTemplated : public GridEncoding<T> {
   public:
-    /////////////////////////////////////////////////////////////////////////////////
-    // TODO: SYCL does not support atomic operations on half-precision data-types.
-    // //
-    /////////////////////////////////////////////////////////////////////////////////
     using grad_t = float;
-
-    // #if TCNN_MIN_GPU_ARCH >= 62 || TCNN_MIN_GPU_ARCH == 60
-    //     // The GPUs that we tested this on do not have an efficient 1D fp16
-    //     // atomicAdd feature. Thus, we accumulate gradients at fp32 if we're
-    //     // forced to use 1D atomicAdds. As soon as 2D or higher is possible,
-    //     // we can make use the efficient atomicAdd(half2) function.
-    //     using grad_t = std::conditional_t<N_FEATURES_PER_LEVEL == 1, float, T>;
-    // #else
-    //     // atomicAdd(__half2) is only supported with compute capability 60 and
-    //     above.
-    //     // Since atomicAdd(__half) is relatively slow / doesn't exist for low
-    //     compute
-    //     // capabilities, accumulate in fp32 instead.
-    //     using grad_t = float;
-    // #endif
 
     GridEncodingTemplated(uint32_t n_features, uint32_t log2_hashmap_size, uint32_t base_resolution,
                           float per_level_scale, bool stochastic_interpolation, InterpolationType interpolation_type,
@@ -234,7 +615,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
 
         const uint32_t batch_size = input.m();
 
-        // zero the padded values, i.e., the last
+        // zero the padded values, i.e., the last m_n_to_pad values of each input
         {
             auto out = output->data() + m_n_output_dims;
             const size_t bytes_to_zero = m_n_to_pad * sizeof(T);
@@ -269,7 +650,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
             q->parallel_for(sycl::nd_range<3>(blocks_hashgrid * sycl::range<3>(1, 1, N_THREADS_HASHGRID),
                                               sycl::range<3>(1, 1, N_THREADS_HASHGRID)),
                             [=](sycl::nd_item<3> item) {
-                                kernel_grid<T, N_POS_DIMS, N_FEATURES_PER_LEVEL, HASH_TYPE>(
+                                kernels::kernel_grid<T, N_POS_DIMS, N_FEATURES_PER_LEVEL, HASH_TYPE>(
                                     batch_size, loc_n_features, loc_offset_table, loc_base_resolution,
                                     loc_log2_per_level_scale, loc_max_level, loc_interpolation_type, loc_grid_type,
                                     loc_weights, loc_input_view, loc_output_view, item);
@@ -284,16 +665,166 @@ class GridEncodingTemplated : public GridEncoding<T> {
                        const DeviceMatrix<T> &output, const DeviceMatrix<T> &dL_doutput,
                        DeviceMatrix<float> *dL_dinput = nullptr, bool use_inference_params = false,
                        GradientMode param_gradients_mode = GradientMode::Overwrite) override {
-        throw std::logic_error("Not yet implemented");
+        const size_t batch_size = input.m();
+        if (batch_size == 0) throw std::invalid_argument("batch_size == 0");
+        static_assert(std::is_same<grad_t, T>::value);
+
+        static constexpr size_t N_THREADS_HASHGRID = 256;
+        static constexpr uint32_t N_FEATURES_PER_THREAD = std::min(2u, N_FEATURES_PER_LEVEL);
+
+        if (param_gradients_mode != GradientMode::Ignore) {
+            // currently we can only do grad_t == T.
+            // Later we need to allocate a DeviceMem for intermediate gradients
+            // of type grad_t
+            grad_t *const grid_gradient = this->gradients();
+
+            if (param_gradients_mode == GradientMode::Overwrite) {
+                q->memset(grid_gradient, 0, this->n_params() * sizeof(grad_t)).wait();
+            }
+
+            q->submit([&](sycl::handler &cgh) {
+                auto loc_n_features = m_n_features;
+                auto loc_offset_table = m_offset_table;
+                auto loc_base_resolution = m_base_resolution;
+                auto loc_log2_per_level_scale = std::log2(m_per_level_scale);
+                auto loc_max_level = this->m_max_level;
+                auto loc_stochastic_interpolation = m_stochastic_interpolation;
+                auto loc_interpolation_type = m_interpolation_type;
+                auto loc_grid_type = m_grid_type;
+                DeviceMatrixView<float> loc_input = input.GetView();
+                DeviceMatrixView<T> loc_output = dL_doutput.GetView();
+
+                cgh.parallel_for(
+                    sycl::nd_range<3>(sycl::range<3>(1, m_n_levels,
+                                                     tinydpcppnn::math::next_multiple(
+                                                         batch_size * N_FEATURES_PER_LEVEL / N_FEATURES_PER_THREAD,
+                                                         N_THREADS_HASHGRID)),
+                                      sycl::range<3>(1, 1, N_THREADS_HASHGRID)),
+                    [=](sycl::nd_item<3> item) {
+                        kernels::kernel_grid_backward<T, grad_t, N_POS_DIMS, N_FEATURES_PER_LEVEL,
+                                                      N_FEATURES_PER_THREAD, HASH_TYPE>(
+                            batch_size, loc_n_features, loc_offset_table, loc_base_resolution, loc_log2_per_level_scale,
+                            loc_max_level, loc_stochastic_interpolation, loc_interpolation_type, loc_grid_type,
+                            grid_gradient, loc_input, loc_output, item);
+                    });
+            });
+
+            // TODO: if we would use intermediate array for different grid gradients,
+            // copy back to original at this point
+        }
+
+        if (dL_dinput) {
+            // remove
+            const auto &forward = dynamic_cast<const ForwardContext &>(ctx);
+            auto loc_n_features = m_n_features;
+            DeviceMatrixView<T> loc_output = dL_doutput.GetView();
+            DeviceMatrixView<float> loc_dy_dx = forward.dy_dx.GetView();
+            DeviceMatrixView<float> loc_input = dL_dinput->GetView();
+            q->parallel_for(
+                sycl::nd_range<1>(tinydpcppnn::math::next_multiple(batch_size, N_THREADS_HASHGRID), N_THREADS_HASHGRID),
+                [=](sycl::nd_item<1> item) {
+                    kernels::kernel_grid_backward_input<T, N_POS_DIMS>(batch_size, loc_n_features, loc_output,
+                                                                       loc_dy_dx, loc_input, item);
+                });
+        }
     }
 
     void backward_backward_input_impl(sycl::queue *const q, const Context &ctx, const DeviceMatrix<float> &input,
                                       const DeviceMatrix<float> &dL_ddLdinput, const DeviceMatrix<T> &dL_doutput,
                                       DeviceMatrix<T> *dL_ddLdoutput = nullptr,
                                       DeviceMatrix<float> *dL_dinput = nullptr, bool use_inference_params = false,
-                                      GradientMode param_gradients_mode = GradientMode::Overwrite) // TODO: override
-    {
-        throw std::logic_error("Not yet implemented");
+                                      GradientMode param_gradients_mode = GradientMode::Overwrite) {
+        const size_t batch_size = input.m();
+        if (batch_size == 0) throw std::invalid_argument("batch_size == 0");
+        if (padded_output_width() == 0) throw std::invalid_argument("Padded output width == 0");
+        if (use_inference_params) throw std::invalid_argument("Cannot use inference params.");
+        static_assert(std::is_same<grad_t, T>::value);
+
+        static constexpr size_t N_THREADS_HASHGRID = 256;
+        static constexpr uint32_t N_FEATURES_PER_THREAD = std::min(2u, N_FEATURES_PER_LEVEL);
+
+        const auto &forward = dynamic_cast<const ForwardContext &>(ctx);
+
+        if (param_gradients_mode != GradientMode::Ignore) {
+            grad_t *const grid_gradient = this->gradients();
+
+            if (param_gradients_mode == GradientMode::Overwrite) {
+                q->memset(grid_gradient, 0, this->n_params() * sizeof(grad_t)).wait();
+            }
+
+            // from dL_d(dL_dx) to dL_dgrid
+            q->submit([&](sycl::handler &cgh) {
+                auto loc_n_features = m_n_features;
+                auto loc_offset_table = m_offset_table;
+                auto loc_base_resolution = m_base_resolution;
+                auto loc_log2_per_level_scale = std::log2(m_per_level_scale);
+                auto loc_max_level = this->m_max_level;
+                auto loc_interpolation_type = m_interpolation_type;
+                auto loc_grid_type = m_grid_type;
+                DeviceMatrixView<float> loc_dL_ddLdinput = dL_ddLdinput.GetView();
+                DeviceMatrixView<float> loc_input = input.GetView();
+                DeviceMatrixView<T> loc_output = dL_doutput.GetView();
+
+                cgh.parallel_for(
+                    sycl::nd_range<3>(sycl::range<3>(1, m_n_levels,
+                                                     tinydpcppnn::math::next_multiple(
+                                                         batch_size * N_FEATURES_PER_LEVEL / N_FEATURES_PER_THREAD,
+                                                         N_THREADS_HASHGRID)),
+                                      sycl::range<3>(1, 1, N_THREADS_HASHGRID)),
+                    [=](sycl::nd_item<3> item) {
+                        kernels::kernel_grid_backward_input_backward_grid<T, grad_t, N_POS_DIMS, N_FEATURES_PER_LEVEL,
+                                                                          N_FEATURES_PER_THREAD, HASH_TYPE>(
+                            batch_size, loc_n_features, loc_offset_table, loc_base_resolution, loc_log2_per_level_scale,
+                            loc_max_level, loc_interpolation_type, loc_grid_type, loc_dL_ddLdinput, loc_input,
+                            loc_output, grid_gradient, item);
+                    });
+            });
+        }
+
+        if (dL_ddLdoutput) {
+            auto loc_n_features = m_n_features;
+            DeviceMatrixView<float> loc_input = dL_ddLdinput.GetView();
+            DeviceMatrixView<float> loc_dy_dx = forward.dy_dx.GetView();
+            DeviceMatrixView<T> loc_output = dL_ddLdoutput->GetView();
+            q->parallel_for(
+                sycl::nd_range<1>(tinydpcppnn::math::next_multiple(batch_size, N_THREADS_HASHGRID), N_THREADS_HASHGRID),
+                [=](sycl::nd_item<1> item) {
+                    kernels::kernel_grid_backward_input_backward_dLdoutput<T, N_POS_DIMS>(
+                        batch_size, loc_n_features, loc_input, loc_dy_dx, loc_output, item);
+                });
+        }
+
+        if (dL_dinput) {
+            // from dL_d(dL_dx) to dL_dx
+            q->submit([&](sycl::handler &cgh) {
+                auto loc_n_features = m_n_features;
+                auto loc_offset_table = m_offset_table;
+                auto loc_base_resolution = m_base_resolution;
+                auto loc_log2_per_level_scale = std::log2(m_per_level_scale);
+                auto loc_max_level = this->m_max_level;
+                auto loc_interpolation_type = m_interpolation_type;
+                auto loc_grid_type = m_grid_type;
+                DeviceMatrixView<float> loc_ddLdinput = dL_ddLdinput.GetView();
+                DeviceMatrixView<float> loc_input = input.GetView();
+                DeviceMatrixView<T> loc_doutput = dL_doutput.GetView();
+                T *const weights = this->params();
+                DeviceMatrixView<float> loc_dinput = dL_dinput->GetView();
+
+                cgh.parallel_for(
+                    sycl::nd_range<3>(sycl::range<3>(1, m_n_levels,
+                                                     tinydpcppnn::math::next_multiple(
+                                                         batch_size * N_FEATURES_PER_LEVEL / N_FEATURES_PER_THREAD,
+                                                         N_THREADS_HASHGRID)),
+                                      sycl::range<3>(1, 1, N_THREADS_HASHGRID)),
+                    [=](sycl::nd_item<3> item) {
+                        kernels::kernel_grid_backward_input_backward_input<T, N_POS_DIMS, N_FEATURES_PER_LEVEL,
+                                                                           N_FEATURES_PER_THREAD, HASH_TYPE>(
+                            batch_size, loc_n_features, loc_offset_table, loc_base_resolution, loc_log2_per_level_scale,
+                            loc_max_level, loc_interpolation_type, loc_grid_type, loc_ddLdinput, loc_input, loc_doutput,
+                            weights, loc_dinput, item);
+                    });
+            });
+        }
     }
 
     uint32_t input_width() const override { return N_POS_DIMS; }
@@ -476,5 +1007,9 @@ std::shared_ptr<GridEncoding<T>> create_grid_encoding(uint32_t n_dims_to_encode,
         throw std::runtime_error{"GridEncoding: invalid hash type."};
     }
 }
+
+} // namespace grid
+} // namespace encodings
+} // namespace tinydpcppnn
 
 #endif // Include guard.

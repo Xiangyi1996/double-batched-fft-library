@@ -12,6 +12,7 @@
 
 using namespace sycl;
 using bf16 = sycl::ext::oneapi::bfloat16;
+using tinydpcppnn::encodings::grid::GridEncoding;
 
 /// Function which applies a grid encoding to a R2 vector, resulting in a vector of size
 /// network_input_width, then applies the network and the output is the network_output_width
@@ -55,7 +56,8 @@ template <typename T, int WIDTH = 64> void test_network_with_encoding(sycl::queu
     DeviceMatrix<float> output_encoding(batch_size, encoding_output_width, q);
     output_encoding.fill(1.0f).wait();
 
-    std::shared_ptr<GridEncoding<float>> encoding = create_grid_encoding<float>(encoding_input_width, encoding_json);
+    std::shared_ptr<GridEncoding<float>> encoding =
+        tinydpcppnn::encodings::grid::create_grid_encoding<float>(encoding_input_width, encoding_json);
 
     std::vector<float> params =
         loadVectorFromCSV<float>("../../test/ref_values/network_with_grid_encoding/full/encoding_params.csv");

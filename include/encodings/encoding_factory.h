@@ -72,7 +72,7 @@ template <typename T> class GridEncodingFactory : public EncodingFactory<T> {
             {"per_level_scale", per_level_scale},
         };
 
-        return create_grid_encoding<T>(n_dims_to_encode, encoding_json);
+        return tinydpcppnn::encodings::grid::create_grid_encoding<T>(n_dims_to_encode, encoding_json);
     }
 };
 

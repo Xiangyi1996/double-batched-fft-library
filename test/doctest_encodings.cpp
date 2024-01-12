@@ -8,6 +8,7 @@
 
 #include "encoding_factory.h"
 using bf16 = sycl::ext::oneapi::bfloat16;
+using tinydpcppnn::encodings::grid::GridEncoding;
 
 template <typename T> void initialize_arange(std::vector<T> &vec) {
 
@@ -107,7 +108,8 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
             {"per_level_scale", 2.0},
         };
 
-        std::shared_ptr<GridEncoding<float>> network = create_grid_encoding<float>(input_width, encoding_json);
+        std::shared_ptr<GridEncoding<float>> network =
+            tinydpcppnn::encodings::grid::create_grid_encoding<float>(input_width, encoding_json);
         q.wait();
         network->set_padded_output_width(output_float.n());
 
@@ -161,7 +163,8 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
             {"per_level_scale", 1.5},
         };
 
-        std::shared_ptr<GridEncoding<float>> network = create_grid_encoding<float>(input_width, encoding_json);
+        std::shared_ptr<GridEncoding<float>> network =
+            tinydpcppnn::encodings::grid::create_grid_encoding<float>(input_width, encoding_json);
         network->set_padded_output_width(output_float.n());
         DeviceMem<float> params_full_precision(network->n_params(), q);
 
