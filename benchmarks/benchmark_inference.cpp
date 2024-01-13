@@ -22,7 +22,7 @@ int main() {
         MPI_Init(NULL, NULL);
         sycl::queue q(sycl::gpu_selector_v);
 
-        benchmark_inference<bf16, 64>(1 << 22, 4, 1000, q);
+        benchmark_inference<bf16, 64>(1 << 22, 4, 10000, q);
         q.wait();
         benchmark_inference<sycl::half, 64>(1 << 22, 4, 1000, q);
         q.wait();

@@ -77,13 +77,15 @@ template <typename T> class Encoding {
 
     virtual uint32_t output_width() const = 0;
 
-    // TODO: Remove; should be inherited from object.h at soe point
+    // TODO: Remove; should be inherited from object.h at some point
     // These are the weights
     T *params() const { return m_params; }
 
     T *inference_params() const { return m_inference_params; }
 
     T *gradients() const { return m_gradients; }
+
+    size_t n_params() const { return m_n_params; }
 
     void set_params(T *params, T *inference_params, T *gradients) {
         // std::cout << "Set params got called" << std::endl;
@@ -102,4 +104,7 @@ template <typename T> class Encoding {
         std::unique_ptr<Context> encoding_ctx;
         std::unique_ptr<Context> network_ctx;
     };
+
+  protected:
+    uint32_t m_n_params;
 };

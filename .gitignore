@@ -42,3 +42,4 @@ build/
 *.egg-info
 
 benchmarks/data
+test/ref_values/encoding/grid/

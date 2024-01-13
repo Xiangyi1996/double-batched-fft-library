@@ -182,19 +182,20 @@ template <typename T> class Network : public NetworkBase<T> {
     void initialize_weights_matrices(const int unpadded_input_width, const int unpadded_output_width,
                                      WeightInitMode mode) {
 
-        if (mode == WeightInitMode::arange)
+        if (mode == WeightInitMode::arange) {
             throw std::invalid_argument("arange not supported");
-        else if (mode == WeightInitMode::constant_pos)
+        } else if (mode == WeightInitMode::constant_pos) {
             initialize_constant(m_weights_matrices, 0.01);
-        else if (mode == WeightInitMode::constant_negative)
+        } else if (mode == WeightInitMode::constant_negative) {
             initialize_constant(m_weights_matrices, -0.01);
-        else if (mode == WeightInitMode::he_normal)
+        } else if (mode == WeightInitMode::he_normal) {
             throw std::invalid_argument("he_normal not supported");
-        else if (mode == WeightInitMode::none) // init to 0
+        } else if (mode == WeightInitMode::none) // init to 0
+        {
             initialize_constant(m_weights_matrices, 0);
-        else
+        } else {
             throw std::invalid_argument("Invalid weights initialization mode.");
-
+        }
         m_q.wait();
 
         ZeroWeightsPadding(unpadded_input_width, unpadded_output_width);

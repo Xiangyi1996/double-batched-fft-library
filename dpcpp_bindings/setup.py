@@ -53,6 +53,9 @@ class CMakeBuild(build_ext):
             "-DoneDPL_DIR=/opt/intel/oneapi/dpl/2022.2.0/lib/cmake/oneDPL/",
             f"-DTORCH_CMAKE_PREFIX_PATH={torch.utils.cmake_prefix_path}",
             "-DCMAKE_CXX_FLAGS=-fPIC",
+            "-D BUILD_TEST=OFF",
+            "-D BUILD_BENCHMARK=OFF",
+            "-D BUILD_PYBIND=ON",
         ]
         build_args = []
         # Adding CMake arguments set as environment variable

@@ -15,15 +15,14 @@
 #include <torch/extension.h>
 #include <torch/script.h>
 
-#include <CL/sycl.hpp>
 #include <cassert>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <string> // Include the necessary header for std::string
+#include <sycl/sycl.hpp>
 #include <vector>
 
-#include "SwiftNetMLP.h"
 #include "common.h"
 #include "encoding.h"
 #include "network_with_encodings.h"

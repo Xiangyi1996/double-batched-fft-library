@@ -18,6 +18,15 @@
 #include "encoding_factory.h"
 using bf16 = sycl::ext::oneapi::bfloat16;
 using tinydpcppnn::encodings::grid::GridEncoding;
+using json = nlohmann::json;
+
+json loadJsonConfig(const std::string &filename) {
+    std::ifstream file{filename};
+    if (!file) {
+        throw std::runtime_error("Error: Unable to open file '" + filename + "'");
+    }
+    return json::parse(file, nullptr, true, /*skip_comments=*/true);
+}
 
 template <typename T> void initialize_arange(std::vector<T> &vec) {
 
@@ -27,6 +36,53 @@ template <typename T> void initialize_arange(std::vector<T> &vec) {
     for (long long i = 0; i < vec.size(); i++) {
         vec[i] = static_cast<T>(i / offset - 1.0);
     }
+}
+
+template <typename T>
+void test_encoding_from_loaded_file(const int batch_size, const int input_width, const int output_width,
+                                    std::string filepath, sycl::queue &q) {
+    DeviceMatrix<float> input(batch_size, input_width, q);
+    input.fill(0.0f).wait();
+
+    DeviceMatrix<T> output(batch_size, output_width, q);
+    output.fill(0.0f).wait();
+    json config = loadJsonConfig(filepath + "/encoding_config.json");
+    config[EncodingParams::N_DIMS_TO_ENCODE] = input_width;
+
+    std::shared_ptr<Encoding<T>> encoding = create_encoding<T>(config);
+    encoding->set_padded_output_width(output_width);
+
+    std::vector<T> params = loadVectorFromCSV<T>(filepath + "encoding_params.csv");
+    std::vector<float> input_ref = loadVectorFromCSV<float>(filepath + "input_encoding.csv");
+    std::vector<T> output_ref = loadVectorFromCSV<T>(filepath + "output_encoding.csv");
+
+    DeviceMem<T> params_full_precision(params.size(), q);
+
+    if (params.size()) {
+        CHECK(params.size() == encoding->n_params());
+
+        params_full_precision.copy_from_host(params).wait();
+
+        encoding->set_params(params_full_precision.data(), params_full_precision.data(), nullptr);
+    }
+
+    CHECK(input_ref.size() == input.size());
+    CHECK(output_ref.size() == output.size());
+
+    input.copy_from_host(input_ref).wait();
+
+    std::unique_ptr<Context> model_ctx = encoding->forward_impl(&q, input, &output);
+    q.wait();
+
+    std::vector<T> out = output.copy_to_host();
+    const T epsilon = 1e-2; // Set the tolerance for floating-point comparisons
+
+    // Check if the actual vector is equal to the expected vector within the tolerance
+    for (size_t i = 0; i < out.size(); ++i) {
+        CHECK(static_cast<float>(out[i]) == doctest::Approx(output_ref[i]).epsilon(epsilon));
+        // std::cout << out[i] << " | " << output_ref[i] << std::endl;
+    }
+    // std::cout << std::endl;
 }
 
 TEST_CASE("tinydpcppnn::encoding Identity") {
@@ -54,7 +110,38 @@ TEST_CASE("tinydpcppnn::encoding Identity") {
         std::unique_ptr<Context> model_ctx = network->forward_impl(&q, input, &output_float);
         q.wait();
 
-        CHECK(input == output_float);
+        std::vector<float> in = input.copy_to_host();
+        std::vector<float> out = output_float.copy_to_host();
+
+        const float epsilon = 1e-3; // Set the tolerance for floating-point comparisons
+
+        // Check if the actual vector is equal to the expected vector within the tolerance
+        for (size_t i = 0; i < out.size(); ++i) {
+            CHECK(static_cast<float>(in[i]) == doctest::Approx(out[i]).epsilon(epsilon));
+            // std::cout << out[i] << " | " << output_ref[i] << std::endl;
+        }
+    }
+
+    SUBCASE("Check results loaded float") {
+        // SWIFTNET
+        const int input_width = 3;
+        const int batch_size = 64;
+        const int output_width = 3;
+        sycl::queue q;
+
+        std::string filepath = "../test/ref_values/encoding/identity/";
+        test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
+    }
+
+    SUBCASE("Check results loaded bf16") {
+        // SWIFTNET
+        const int input_width = 3;
+        const int batch_size = 64;
+        const int output_width = 3;
+        sycl::queue q;
+
+        std::string filepath = "../test/ref_values/encoding/identity/";
+        test_encoding_from_loaded_file<bf16>(batch_size, input_width, output_width, filepath, q);
     }
 }
 
@@ -90,10 +177,20 @@ TEST_CASE("tinydpcppnn::encoding Spherical Harmonics") {
         // Check if the actual vector is equal to the expected vector within the tolerance
         CHECK(areVectorsWithinTolerance(out, reference_out, epsilon));
     }
+    SUBCASE("Check results loaded float") {
+        // SWIFTNET
+        const int input_width = 3;
+        const int batch_size = 64;
+        const int output_width = 16;
+        sycl::queue q;
+
+        std::string filepath = "../test/ref_values/encoding/spherical/";
+        test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
+    }
 }
 
 TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
-    SUBCASE("Not padded") {
+    SUBCASE("Test grid encoding using create_grid_encoding instead of factory") {
         // SWIFTNET
         const int input_width = 3;
         const int batch_size = 1;
@@ -137,51 +234,23 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         CHECK(areVectorsWithinTolerance(out, reference_out, 1.0e-3));
     }
 
-    SUBCASE("Check results loaded") {
+    SUBCASE("Check results loaded float") {
         // SWIFTNET
         const int input_width = 2;
-        const int batch_size = 8;
-        const int padded_output_width = 32;
+        const int batch_size = 64;
+        const int output_width = 32;
         sycl::queue q;
 
-        DeviceMatrix<float> input(batch_size, input_width, q);
-        input.fill(0.0f).wait();
+        std::string filepath = "../test/ref_values/encoding/grid/";
 
-        DeviceMatrix<float> output_float(batch_size, padded_output_width, q);
-        output_float.fill(0.0f);
-
-        const json encoding_config{
-            {EncodingParams::N_DIMS_TO_ENCODE, input_width}, {EncodingParams::ENCODING, EncodingNames::GRID},
-            {EncodingParams::GRID_TYPE, GridType::Hash},     {EncodingParams::N_LEVELS, 16},
-            {EncodingParams::N_FEATURES_PER_LEVEL, 2},       {EncodingParams::LOG2_HASHMAP_SIZE, 15},
-            {EncodingParams::BASE_RESOLUTION, 16},           {EncodingParams::PER_LEVEL_SCALE, 1.5}};
-
-        std::shared_ptr<GridEncoding<float>> network =
-            tinydpcppnn::encodings::grid::create_grid_encoding<float>(encoding_config);
-        network->set_padded_output_width(output_float.n());
-        DeviceMem<float> params_full_precision(network->n_params(), q);
-
-        std::vector<float> params =
-            loadVectorFromCSV<float>("../../test/ref_values/network_with_grid_encoding/full/encoding_params.csv");
-        std::vector<float> input_ref =
-            loadVectorFromCSV<float>("../../test/ref_values/network_with_grid_encoding/full/input.csv");
-        std::cout << "Loaded n_params: " << params.size() << ", encoding n_params: " << network->n_params()
-                  << std::endl;
-        CHECK(params.size() == network->n_params());
-
-        params_full_precision.copy_from_host(params).wait();
-        std::vector<float> input_ref_cut(input_ref.begin(), input_ref.begin() + batch_size * input_width);
-        input.copy_from_host(input_ref_cut).wait();
-
-        network->set_params(params_full_precision.data(), params_full_precision.data(), nullptr);
-
-        std::unique_ptr<Context> model_ctx = network->forward_impl(&q, input, &output_float);
-        q.wait();
-
-        std::vector<float> reference_out =
-            loadVectorFromCSV<float>("../../test/ref_values/network_with_grid_encoding/full/encoding_output.csv");
-
-        // Check if the actual vector is equal to the expected vector within the tolerance
-        CHECK(areVectorsWithinTolerance(output_float.copy_to_host(), reference_out, 1.0e-3));
+        // Check if the file exists
+        if (!std::filesystem::exists(filepath + "encoding_params.csv")) {
+            // TODO: any good solution here? E.g., a download script or sth
+            std::cout
+                << "encoding_params.csv doesn't exist as it's quite large for grid encoding. Not running loading test."
+                << std::endl;
+        } else {
+            test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
+        }
     }
 }

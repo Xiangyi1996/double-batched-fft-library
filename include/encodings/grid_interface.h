@@ -35,8 +35,6 @@ template <typename T> class GridEncoding : public Encoding<T> {
     virtual size_t level_n_params(uint32_t level) const = 0;
     virtual size_t level_params_offset(uint32_t level) const = 0;
 
-    size_t n_params() const { return m_n_params; }
-
     virtual const GridOffsetTable &grid_offset_table() const = 0;
 
     float max_level() const { return m_max_level; }
@@ -47,7 +45,6 @@ template <typename T> class GridEncoding : public Encoding<T> {
     // Disables lookups of finer levels than this.
     // The default value of 1000 effectively disables the feature
     float m_max_level = 1000.f;
-    uint32_t m_n_params;
 };
 
 } // namespace grid
