@@ -26,11 +26,6 @@ template <typename T> class NetworkBase {
                                                    DeviceMatrix<T> &intermediate_output_backward,
                                                    const DeviceMatrix<T> &intermediate_output_forward,
                                                    const std::vector<sycl::event> &deps) = 0;
-
-    // virtual std::vector<sycl::event> training(const DeviceMatrix<T> &input, const DeviceMatrix<T> &target,
-    //                                           DeviceMatrix<T> &intermediate_output_backward,
-    //                                           DeviceMatrix<T> &intermediate_output_forward,
-    //                                           const std::vector<sycl::event> &deps) = 0;
 };
 
 // Network Base class for all networks with weights matrices and width restrictions
@@ -44,10 +39,10 @@ template <typename T> class Network : public NetworkBase<T> {
         : m_q(q), input_width_(PadWidths(input_width, network_width)),
           output_width_(PadWidths(output_width, network_width)), original_output_width_(output_width),
           n_hidden_layers_(NonNegative(n_hidden_layers)), network_width_(NonNegative(network_width)),
-          m_weights_matrices(network_width_,
-                             (get_input_width() + network_width_ * (n_hidden_layers_ - 1) + get_output_width()), m_q),
-          m_weightsT_matrices(network_width_,
-                              (get_input_width() + network_width_ * (n_hidden_layers_ - 1) + get_output_width()), m_q) {
+          m_weights_matrices(get_n_hidden_layers() + 1, get_input_width(), get_network_width(), get_network_width(),
+                             get_network_width(), get_network_width(), get_output_width(), m_q),
+          m_weightsT_matrices(get_n_hidden_layers() + 1, get_network_width(), get_input_width(), get_network_width(),
+                              get_network_width(), get_output_width(), get_network_width(), m_q) {
 
         SanityCheck();
         initialize_weights_matrices(input_width, output_width, mode);
@@ -59,13 +54,13 @@ template <typename T> class Network : public NetworkBase<T> {
     sycl::queue &get_queue() { return m_q; }
 
     virtual void set_weights_matrices(const std::vector<T> &weights) {
-        m_weights_matrices.copy_from_host(weights);
+        m_weights_matrices.copy_from_host(weights).wait();
         TransposeWeights(m_weights_matrices, m_weightsT_matrices);
     };
 
     // this is the result from the backward pass. Not sure why this is here to be honest.
-    virtual const DeviceMatrix<T> &get_weights_matrices() const { return m_weights_matrices; }
-    virtual const DeviceMatrix<T> &get_weightsT_matrices() const { return m_weightsT_matrices; }
+    virtual const DeviceMatrices<T> &get_weights_matrices() const { return m_weights_matrices; }
+    virtual const DeviceMatrices<T> &get_weightsT_matrices() const { return m_weightsT_matrices; }
 
     virtual int get_n_hidden_layers() const { return n_hidden_layers_; }
     /// @brief returns hidden layers - 1
@@ -123,76 +118,47 @@ template <typename T> class Network : public NetworkBase<T> {
         if (unpadded_input_width > get_input_width() || unpadded_output_width > get_output_width())
             throw std::invalid_argument("Padded weights width cannot be less than the unpadded.");
 
-        T *const weights = m_weights_matrices.data();
         /// we need to copy everything here since we do not want to have an implicit copy of 'this'
         const int padded_input_width = get_input_width();
         const int network_width = get_network_width();
         const int padded_output_width = get_output_width();
-        const int output_offset =
-            get_n_hidden_matrices() * network_width * network_width + network_width * padded_input_width;
 
         // input matrix: set rows to 0.
         if (unpadded_input_width != padded_input_width) {
-            m_q.parallel_for(
-                   padded_input_width * network_width,
-                   [=](auto idx) {
-                       const int i = idx / network_width; // rows
-                       const int j = idx % network_width; // cols
+            DeviceMatrixView<T> weights = m_weights_matrices.Front();
+            m_q.parallel_for(padded_input_width * network_width,
+                             [=](auto idx) {
+                                 const int i = idx / network_width; // rows
+                                 const int j = idx % network_width; // cols
 
-                       if (i >= unpadded_input_width)
-                           weights[toPackedLayoutCoord(i * network_width + j, padded_input_width, network_width)] =
-                               static_cast<T>(0);
-                   })
+                                 if (i >= unpadded_input_width)
+                                     weights.GetPointer()[toPackedLayoutCoord(i * network_width + j, padded_input_width,
+                                                                              network_width)] = static_cast<T>(0);
+                             })
                 .wait();
         }
 
         // output matrix set columns to 0
+        const int output_matrix_pos = m_weights_matrices.GetNumberOfMatrices() - 1;
         if (unpadded_output_width != padded_output_width) {
+            DeviceMatrixView<T> weights = m_weights_matrices.Back();
             m_q.parallel_for(padded_output_width * network_width,
                              [=](auto idx) {
                                  const int i = idx / padded_output_width; // rows
                                  const int j = idx % padded_output_width; // cols
 
                                  if (j >= unpadded_output_width)
-                                     weights[output_offset + toPackedLayoutCoord(i * padded_output_width + j,
-                                                                                 network_width, padded_output_width)] =
+                                     weights.GetPointer()[toPackedLayoutCoord(i * padded_output_width + j,
+                                                                              network_width, padded_output_width)] =
                                          static_cast<T>(0);
                              })
                 .wait();
         }
     }
 
-    // we are making this static void to avoid copying of this class to the device
-    static void TransposeWeightMatrix(T const *const in, const int M, const int N, T *const out, sycl::queue &q) {
-        q.parallel_for(sycl::range<1>(M * N), [=](auto idx) {
-            const int i = idx / N;
-            const int j = idx % N;
-            out[toPackedLayoutCoord(j * M + i, N, M)] = in[toPackedLayoutCoord(i * N + j, M, N)];
-        });
-    }
+    void TransposeWeights(const DeviceMatrices<T> &weights, DeviceMatrices<T> &weightsT) {
 
-    void TransposeWeights(const DeviceMatrix<T> &weights, DeviceMatrix<T> &weightsT) {
-        const size_t nelems = get_input_width() * get_network_width() +
-                              get_n_hidden_matrices() * get_network_width() * get_network_width() +
-                              get_network_width() * get_output_width();
-        assert(weights.size() >= nelems);
-        assert(weightsT.size() >= nelems);
-
-        // input matrix transpose
-        TransposeWeightMatrix(weights.data(), get_network_width(), get_input_width(), weightsT.data(), m_q);
-        // hidden matrices transpose
-        for (int matiter = 0; matiter < get_n_hidden_matrices(); matiter++) {
-            const size_t offset =
-                get_network_width() * get_input_width() + matiter * get_network_width() * get_network_width();
-            TransposeWeightMatrix(weights.data() + offset, get_network_width(), get_network_width(),
-                                  weightsT.data() + offset, m_q);
-        }
-        // output matrix transpose
-        const size_t offset = get_network_width() * get_input_width() +
-                              get_n_hidden_matrices() * get_network_width() * get_network_width();
-        TransposeWeightMatrix(weights.data() + offset, get_network_width(), get_output_width(),
-                              weightsT.data() + offset, m_q);
-
+        weights.PackedTranspose(weightsT);
         m_q.wait();
     }
 
@@ -205,94 +171,27 @@ template <typename T> class Network : public NetworkBase<T> {
                                      WeightInitMode mode) {
 
         if (mode == WeightInitMode::arange)
-            initialize_arange(m_weights_matrices, network_width_);
+            throw std::invalid_argument("arange not supported");
         else if (mode == WeightInitMode::constant_pos)
             initialize_constant(m_weights_matrices, 0.01);
         else if (mode == WeightInitMode::constant_negative)
             initialize_constant(m_weights_matrices, -0.01);
         else if (mode == WeightInitMode::he_normal)
-            initialize_he_normal(m_weights_matrices, network_width_);
+            throw std::invalid_argument("he_normal not supported");
         else if (mode == WeightInitMode::none) // init to 0
             initialize_constant(m_weights_matrices, 0);
         else
             throw std::invalid_argument("Invalid weights initialization mode.");
+
+        m_q.wait();
 
         ZeroWeightsPadding(unpadded_input_width, unpadded_output_width);
 
         TransposeWeights(m_weights_matrices, m_weightsT_matrices);
     }
 
-    /**
-     * Initialize the device memory with values drawn from a normal distribution.
-     *
-     * This function initializes the device memory with random values drawn from a
-     * normal distribution with the specified standard deviation.
-     *
-     * @param dev   The standard deviation of the normal distribution.
-     * @param q     The SYCL queue for parallel computation.
-     */
-    static void initialize_normal(DeviceMatrix<T> &vec, const double dev) {
-        std::default_random_engine gen;
-        std::normal_distribution<double> distrib(0.0, dev);
-        std::vector<T> data(vec.size());
-        for (int i = 0; i < vec.size(); i++) {
-            data[i] = (T)distrib(gen);
-        }
-        vec.copy_from_host(data).wait();
-    }
-
-    /**
-     * Initialize the device memory with values sampled from a uniform distribution.
-     *
-     * This function generates random values sampled from a uniform distribution
-     * within the specified scale and initializes the device memory with those
-     * values.
-     *
-     * @param q       The SYCL queue for memory operations.
-     * @param scale   The scale of the uniform distribution.
-     */
-    static void initialize_uniform(DeviceMatrix<T> &vec, const double scale) {
-        std::default_random_engine gen;
-        std::uniform_real_distribution<double> distrib(0.0, scale);
-        std::vector<T> data(vec.size());
-
-        for (int i = 0; i < vec.size(); i++) {
-            data[i] = (T)distrib(gen);
-        }
-        vec.copy_from_host(data).wait();
-    }
-
     // Initialize memory with constant values
-    static void initialize_constant(DeviceMatrix<T> &vec, const T &constant) { vec.fill(constant); }
-
-    /**
-     * Initialize the device memory with values sampled from a He normal
-     * distribution.
-     *
-     * This function generates random values sampled from a He normal distribution
-     * and initializes the device memory with those values.
-     *
-     * @param input_width   The width of the input.
-     * @param q             The SYCL queue for memory operations.
-     */
-    static void initialize_he_normal(DeviceMatrix<T> &vec, const int width) {
-        const double dev = std::sqrt(2.0 / width);
-        initialize_normal(vec, dev);
-    }
-
-    static void initialize_arange(DeviceMatrix<T> &vec, const int range) {
-        std::vector<T> tmp_host(vec.size());
-        for (size_t blockiter = 0; blockiter < vec.size(); blockiter += range * range) {
-            for (int rowiter = 0; rowiter < range; rowiter++) {
-                for (int coliter = 0; coliter < range; coliter++) {
-                    tmp_host[blockiter + rowiter * range + coliter] =
-                        static_cast<T>((rowiter + 1 - (range / 2)) * 0.01);
-                }
-            }
-        }
-
-        vec.copy_from_host(tmp_host).wait();
-    }
+    static void initialize_constant(DeviceMatrices<T> &ms, const T &constant) { ms.fill(constant); }
 
     static int PadWidths(const int width, const int base) {
         if (width <= 0) throw std::invalid_argument("width <= 0 cannot be padded.");
@@ -315,6 +214,6 @@ template <typename T> class Network : public NetworkBase<T> {
     const int n_hidden_layers_;
     const int network_width_;
 
-    DeviceMatrix<T> m_weights_matrices;
-    DeviceMatrix<T> m_weightsT_matrices;
+    DeviceMatrices<T> m_weights_matrices;
+    DeviceMatrices<T> m_weightsT_matrices;
 };

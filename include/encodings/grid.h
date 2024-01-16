@@ -667,6 +667,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
                        GradientMode param_gradients_mode = GradientMode::Overwrite) override {
         const size_t batch_size = input.m();
         if (batch_size == 0) throw std::invalid_argument("batch_size == 0");
+        if (use_inference_params) throw std::invalid_argument("Cannot use inference params.");
         static_assert(std::is_same<grad_t, T>::value);
 
         static constexpr size_t N_THREADS_HASHGRID = 256;

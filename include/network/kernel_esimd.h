@@ -20,6 +20,7 @@
 #include <sycl/sycl.hpp>
 #include <vector>
 
+#include "DeviceMatrix.h"
 #include "common.h"
 #include "oneapi/mkl.hpp"
 
@@ -227,12 +228,14 @@ SYCL_ESIMD_FUNCTION MY_STATIC MY_INLINE void applyActivation(simd<Tin, N> &Src, 
 // specialization for all the versions
 template <typename T, typename Tc, int INPUT_WIDTH, int WIDTH, int OUTPUT_WIDTH, Activation activation,
           Activation output_activation, bool INFERENCE, int TN>
-std::vector<sycl::event> forward_impl_general(sycl::queue &q, T const *const __restrict__ weights_ptr,
-                                              T const *const __restrict__ inputs_ptr,
+std::vector<sycl::event> forward_impl_general(sycl::queue &q,
+                                              DeviceMatricesView<T> weights /*T const *const __restrict__ weights_ptr*/,
+                                              /*T const *const __restrict__*/ const DeviceMatrixView<T> &input,
                                               T *const __restrict__ intermediate_output, const int n_hidden_layers,
-                                              const int M, const std::vector<sycl::event> &deps) {
+                                              const std::vector<sycl::event> &deps) {
 
     // throw std::logic_error("General function should not be called.");
+    const size_t M = input.m();
     static_assert(INPUT_WIDTH == WIDTH);
     static_assert(OUTPUT_WIDTH == WIDTH);
     static_assert(WIDTH % TN == 0);
@@ -260,8 +263,8 @@ std::vector<sycl::event> forward_impl_general(sycl::queue &q, T const *const __r
 
             // we store blocks contiguously
             simd<T, TM * WIDTH> As;
-            helpers::loadRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::uncached>(inputs_ptr + layer_offset_A,
-                                                                                        As);
+            helpers::loadRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::uncached>(
+                input.GetPointer(TM * item.get_global_linear_id(), 0) /* + layer_offset_A*/, As);
 
             // if not inference activate and store in intermediate output
             if constexpr (!INFERENCE) {
@@ -276,7 +279,8 @@ std::vector<sycl::event> forward_impl_general(sycl::queue &q, T const *const __r
                 // reset result matrices
                 Cs = static_cast<Tc>(0);
 
-                helpers::MAD<TM, TK, TN>(As, weights_ptr + layer * WIDTH * WIDTH, Cs);
+                helpers::MAD<TM, TK, TN>(As, weights.GetMatrixPointer(layer) /*weights_ptr + layer * WIDTH * WIDTH*/,
+                                         Cs);
 
                 // activate and save
                 helpers::applyActivation<activation, TM, TK, TN>(Cs, As);
@@ -290,7 +294,8 @@ std::vector<sycl::event> forward_impl_general(sycl::queue &q, T const *const __r
             Cs = static_cast<Tc>(0);
 
             // helpers::MAD<TM, TK, TN>(As, B_offset, Cs);
-            helpers::MAD<TM, TK, TN>(As, weights_ptr + n_hidden_layers * WIDTH * WIDTH, Cs);
+            helpers::MAD<TM, TK, TN>(
+                As, weights.GetMatrixPointer(n_hidden_layers) /*+ n_hidden_layers * WIDTH * WIDTH*/, Cs);
 
             // activate and save to slm
             helpers::applyActivation<output_activation, TM, TK, TN>(Cs, As);

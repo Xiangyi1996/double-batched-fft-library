@@ -32,9 +32,9 @@ void WritePerformanceData(const int n_iterations, const double time, const doubl
                           const double tp) {
     std::cout << "Finished benchmark." << std::endl;
     std::cout << "#Iterations =\t\t" << n_iterations << std::endl;
-    std::cout << "Time =\t\t" << time << " \ts" << std::endl;
-    std::cout << "AI (infinite $) =\t\t" << oi << " \tflops/byte" << std::endl;
-    std::cout << "BW (infinite $) =\t\t" << bw << " \tGB/s" << std::endl;
+    std::cout << "Time =\t\t\t" << time << " \ts" << std::endl;
+    std::cout << "AI (infinite $) =\t" << oi << " \tflops/byte" << std::endl;
+    std::cout << "BW (infinite $) =\t" << bw << " \tGB/s" << std::endl;
     std::cout << "Throughput =\t\t" << tp << " \tGflops/s" << std::endl;
 }
 

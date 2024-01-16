@@ -23,6 +23,11 @@ add_sycl_to_target(TARGET test-network-with-encoding SOURCES doctest_network_wit
 target_link_libraries(test-network-with-encoding PRIVATE test-lib network)
 doctest_discover_tests(test-network-with-encoding)
 
+add_executable(test-matrix doctest_devicematrix.cpp)
+add_sycl_to_target(TARGET test-matrix SOURCES doctest_devicematrix.cpp)
+target_link_libraries(test-matrix PRIVATE test-lib common)
+doctest_discover_tests(test-matrix)
+
 add_executable(test-encodings doctest_encodings.cpp)
 add_sycl_to_target(TARGET test-encodings SOURCES doctest_encodings.cpp)
 target_link_libraries(test-encodings PRIVATE test-lib network)

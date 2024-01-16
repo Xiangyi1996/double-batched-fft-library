@@ -34,7 +34,8 @@ void benchmark_inference(const size_t batch_size, const int n_hidden_layers, con
     // need a factory here for different widths
     SwiftNetMLP<T, WIDTH> network(q, input_width, output_width, n_hidden_layers, Activation::ReLU, Activation::None,
                                   Network<T>::WeightInitMode::constant_pos);
-    std::vector<T> new_weights(network.get_weights_matrices().size(), 1.0 / WIDTH);
+
+    std::vector<T> new_weights(network.get_weights_matrices().nelements(), 1.0 / WIDTH);
     network.set_weights_matrices(new_weights);
 
     constexpr int n_iterations_warmup = 5;
@@ -60,7 +61,6 @@ void benchmark_inference(const size_t batch_size, const int n_hidden_layers, con
     MPI_Barrier(MPI_COMM_WORLD);
     std::vector<T> expected_result(batch_size * output_width,
                                    /*std::pow(WIDTH * 0.01, n_hidden_layers + 1) **/ input_val);
-    std::vector<T> out_host = output.copy_to_host();
-    areVectorsWithinTolerance(out_host, expected_result, 0.01f);
+    areVectorsWithinTolerance(output.copy_to_host(), expected_result, 0.01);
     std::cout << std::endl;
 }

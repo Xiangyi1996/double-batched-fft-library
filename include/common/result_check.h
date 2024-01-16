@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -29,6 +30,9 @@ bool areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector
     double max_diff = 0.0;
     for (size_t i = 0; i < value.size(); ++i) {
         double diff = 0.0;
+        if (!std::isfinite(value.at(i)) || !std::isfinite(target.at(i)))
+            throw std::invalid_argument("Inifinite numbers");
+
         if ((double)value.at(i) != 0.0 || (double)target.at(i) != 0.0)
             diff = std::abs((double)value.at(i) - (double)target.at(i)) /
                    std::max<double>(std::abs((double)value.at(i)), std::abs((double)target.at(i)));
@@ -95,38 +99,6 @@ std::vector<float> loadCSV(const std::string &filename) {
     }
     return data;
 }
-
-// bool areVectorsWithinTolerance(const std::vector<bf16> &value, const std::vector<float> &target, float tolerance,
-//                                int output_width) {
-//     //   assert(a.size() == b.size());  // Ensure vectors have the same length
-
-//     int total_values_checked = 0;
-//     bool allWithinTolerance = true;
-
-//     double max_diff = 0.0f;
-//     for (size_t i = 0; i < value.size(); ++i) {
-//         const double diff = std::abs((double)value[i] - target[i % output_width]);
-//         max_diff = std::max<double>(diff, max_diff);
-//         // std::cout << "Checking idx: " << i << std::endl;
-//         total_values_checked++;
-//         if (diff > tolerance) {
-//             allWithinTolerance = false;
-//             // std::cout << "Element at index " << i << " is not within tolerance. Value: " << value[i]
-//             //           << ", Target: " << target[i % output_width] << ". Diff: " << diff << std::endl;
-//         }
-//     }
-
-//     if (allWithinTolerance) {
-
-//         std::cout << "All elements are within tolerance. Total values checked: " << total_values_checked <<
-//         std::endl;
-//     } else {
-//         std::cout << "Not all elements are within tolerance.. Total values checked: " << total_values_checked
-//                   << " , max diff = " << max_diff << std::endl;
-//     }
-
-//     return allWithinTolerance;
-// }
 
 // Function to read target vectors from a file with a specified delimiter
 std::vector<std::vector<float>> readTargetVectorsFromFile(const std::string &filename, char delimiter) {

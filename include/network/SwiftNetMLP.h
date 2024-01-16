@@ -1,9 +1,10 @@
-#ifndef SWIFTNET_H
-#define SWIFTNET_H
+#pragma once
 
 #include <CL/sycl.hpp>
+#include <functional>
 #include <iostream>
 #include <json/json.hpp>
+#include <unordered_map>
 #include <vector>
 
 #include "DeviceMatrix.h"
@@ -56,14 +57,16 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
         case Activation::None:
             return tinydpcppnn::kernels::esimd::forward_impl_general<T, CType, WIDTH, WIDTH, WIDTH, Activation::None,
                                                                      Activation::None, false, 16>(
-                Network<T>::get_queue(), Network<T>::get_weights_matrices().data(), input.data(),
-                intermediate_output_forward.data(), Network<T>::get_n_hidden_layers(), batch_size, deps);
+                Network<T>::get_queue(), Network<T>::get_weights_matrices().GetViews(),
+                input.GetView() /*input.data()*/, intermediate_output_forward.data(), Network<T>::get_n_hidden_layers(),
+                deps);
             break;
         case Activation::ReLU:
             return tinydpcppnn::kernels::esimd::forward_impl_general<T, CType, WIDTH, WIDTH, WIDTH, Activation::ReLU,
                                                                      Activation::None, false, 16>(
-                Network<T>::get_queue(), Network<T>::get_weights_matrices().data(), input.data(),
-                intermediate_output_forward.data(), Network<T>::get_n_hidden_layers(), batch_size, deps);
+                Network<T>::get_queue(), Network<T>::get_weights_matrices().GetViews(),
+                input.GetView() /*input.data()*/, intermediate_output_forward.data(), Network<T>::get_n_hidden_layers(),
+                deps);
             break;
         default:
             throw std::invalid_argument("Activation not supported in forward pass");
@@ -86,14 +89,14 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
         case Activation::None:
             return tinydpcppnn::kernels::esimd::forward_impl_general<T, CType, WIDTH, WIDTH, WIDTH, Activation::None,
                                                                      Activation::None, true, 16>(
-                Network<T>::get_queue(), Network<T>::get_weights_matrices().data(), input.data(), output.data(),
-                Network<T>::get_n_hidden_layers(), batch_size, deps);
+                Network<T>::get_queue(), Network<T>::get_weights_matrices().GetViews(),
+                input.GetView() /*input.data()*/, output.data(), Network<T>::get_n_hidden_layers(), deps);
             break;
         case Activation::ReLU:
             return tinydpcppnn::kernels::esimd::forward_impl_general<T, CType, WIDTH, WIDTH, WIDTH, Activation::ReLU,
                                                                      Activation::None, true, 16>(
-                Network<T>::get_queue(), Network<T>::get_weights_matrices().data(), input.data(), output.data(),
-                Network<T>::get_n_hidden_layers(), batch_size, deps);
+                Network<T>::get_queue(), Network<T>::get_weights_matrices().GetViews(),
+                input.GetView() /*input.data()*/, output.data(), Network<T>::get_n_hidden_layers(), deps);
             break;
         default:
             throw std::runtime_error{"Unsupported activation."};
@@ -118,18 +121,18 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
         // We are onyl doinh output_activation==none right now
         switch (m_activation) {
         case Activation::None:
-            return tinydpcppnn::kernels::esimd::backward_impl_general<T, CType, WIDTH, WIDTH, WIDTH, Activation::None,
+            /*return tinydpcppnn::kernels::esimd::backward_impl_general<T, CType, WIDTH, WIDTH, WIDTH, Activation::None,
                                                                       Activation::None, 16>(
                 Network<T>::get_queue(), Network<T>::get_weightsT_matrices().data(), input.data(), output.data(),
                 intermediate_output_backward.data(), intermediate_output_forward.data(),
-                Network<T>::get_n_hidden_layers(), batch_size, deps);
+                Network<T>::get_n_hidden_layers(), batch_size, deps);*/
             break;
         case Activation::ReLU:
-            return tinydpcppnn::kernels::esimd::backward_impl_general<T, CType, WIDTH, WIDTH, WIDTH, Activation::ReLU,
+            /*return tinydpcppnn::kernels::esimd::backward_impl_general<T, CType, WIDTH, WIDTH, WIDTH, Activation::ReLU,
                                                                       Activation::None, 16>(
                 Network<T>::get_queue(), Network<T>::get_weightsT_matrices().data(), input.data(), output.data(),
                 intermediate_output_backward.data(), intermediate_output_forward.data(),
-                Network<T>::get_n_hidden_layers(), batch_size, deps);
+                Network<T>::get_n_hidden_layers(), batch_size, deps);*/
 
         default:
             throw std::invalid_argument("Activation not yet implemented in backward_pass");
@@ -137,6 +140,49 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
     }
 
   private:
+    class KernelParams {
+        friend class hash;
+
+      public:
+        KernelParams(const int input_width, const int output_width, const Activation act, const Activation bw_act,
+                     const int TN)
+            : input_width_(input_width), output_width_(output_width), act_(act), backw_act_(bw_act), TN_(TN) {}
+
+        bool operator==(const KernelParams &rhs) const {
+            return (input_width_ == rhs.input_width_) && (output_width_ == rhs.output_width_) && (act_ == rhs.act_) &&
+                   (backw_act_ == rhs.backw_act_) && (TN_ == rhs.TN_);
+        }
+
+      private:
+        int input_width_;
+        int output_width_;
+        Activation act_;
+        Activation backw_act_;
+        int TN_;
+        // TODO: add device (GPU, CPU, etc.), and kernel type (SYCL, ESIMD, CPU)
+
+        static constexpr std::array<int, 1> possible_io_widths = {WIDTH};
+        static constexpr std::array<Activation, 2> possible_activations = {Activation::ReLU, Activation::None};
+        static constexpr std::array<Activation, 1> possible_bw_activations = {Activation::None};
+        static constexpr std::array<int, 2> possible_TN = {8, 16};
+    };
+
+    struct hash {
+        std::size_t operator()(const KernelParams &p) const {
+            size_t h = std::hash<int>{}(p.input_width_);
+            h = hash_combine(h, std::hash<int>{}(p.output_width_));
+            h = hash_combine(h, std::hash<int>{}(p.act_));
+            h = hash_combine(h, std::hash<int>{}(p.backw_act_));
+            return hash_combine(h, std::hash<int>{}(p.TN_));
+        }
+
+      private:
+        // as in boost::hash_combine
+        static inline size_t hash_combine(const size_t h1, const size_t h2) {
+            return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
+        }
+    };
+
     virtual void SanityCheck() const override {
         static_assert(WIDTH == 16 || WIDTH == 32 || WIDTH == 64 || WIDTH == 128);
         static_assert(std::is_same<T, sycl::ext::oneapi::bfloat16>::value || std::is_same<T, sycl::half>::value);
@@ -187,8 +233,7 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
 
     Activation m_activation;
     Activation m_output_activation;
+    // std::unordered_map<KernelParams, Kernels<T>, hash> kernels_; // store all kernel functions
 
     using CType = typename tinydpcppnn::kernels::esimd::helpers::XMXCType<T>::CType;
 };
-
-#endif
