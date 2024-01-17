@@ -7,9 +7,9 @@ template <typename T> class Trainer {
   public:
     Trainer(Network<T> *network) : m_network(network) {}
 
-    std::vector<sycl::event> training_step(const DeviceMatrix<T> &input, DeviceMatrix<T> &output,
-                                           DeviceMatrix<T> &losses, DeviceMatrix<T> &out_inter_forw,
-                                           DeviceMatrix<T> &out_inter_backw,
+    std::vector<sycl::event> training_step(const DeviceMatrix<T> &input, DeviceMatrices<T> &output,
+                                           DeviceMatrix<T> &losses, DeviceMatrices<T> &out_inter_forw,
+                                           DeviceMatrices<T> &out_inter_backw,
                                            const std::vector<sycl::event> &dependencies) {
 
         // return m_network->training(input, target, m_network->m_forward, m_network->m_out_inter, deps);

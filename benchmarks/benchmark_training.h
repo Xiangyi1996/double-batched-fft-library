@@ -28,13 +28,13 @@ void benchmark_training(const size_t batch_size, const int n_hidden_layers, cons
     constexpr int output_width = WIDTH;
 
     DeviceMatrix<T> inputs(batch_size, input_width, q);
-    DeviceMatrix<T> outputs_backw(WIDTH, input_width + output_width + (n_hidden_layers - 1) * WIDTH, q);
+    DeviceMatrices<T> outputs_backw(n_hidden_layers + 1, input_width, WIDTH, WIDTH, WIDTH, WIDTH, output_width, q);
     DeviceMatrix<T> losses(batch_size, output_width, q);
     // includes input and output (thus +1 of the back interm)
-    const size_t out_inter_forw_size = (input_width + output_width + WIDTH * n_hidden_layers);
-    const size_t out_inter_backw_size = (output_width + WIDTH * n_hidden_layers);
-    DeviceMatrix<T> out_inter_forw(batch_size, out_inter_forw_size, q);
-    DeviceMatrix<T> out_inter_backw(batch_size, out_inter_backw_size, q);
+    DeviceMatrices<T> out_inter_forw(n_hidden_layers + 2, batch_size, input_width, batch_size, WIDTH, batch_size,
+                                     output_width, q);
+    DeviceMatrices<T> out_inter_backw(n_hidden_layers + 1, batch_size, WIDTH, batch_size, WIDTH, batch_size,
+                                      output_width, q);
 
     const T input_val = static_cast<T>(0.1);
     inputs.fill(input_val);
@@ -73,7 +73,7 @@ void benchmark_training(const size_t batch_size, const int n_hidden_layers, cons
     // Now do a simple correctness check
     // TODO: check all the elements in the interm forw array.
     // expect that the output of the backward pass is 0 since losses are set to 0
-    std::vector<T> expected_result(outputs_backw.size(), 0);
+    std::vector<T> expected_result(outputs_backw.nelements(), 0);
     std::vector<T> out_host = outputs_backw.copy_to_host();
 
     areVectorsWithinTolerance(out_host, expected_result, 0.01f);

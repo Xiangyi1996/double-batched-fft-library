@@ -41,6 +41,49 @@ template <typename T> class DeviceMatrixView {
     T *const ptr_;
 };
 
+/// Class which gives a view into device memory classes
+/// These are meant to be used on the deivce.
+/// Thus, they cannot utilize inheritance and have to be
+/// trivially copyable.
+template <typename T> class DeviceMatricesView {
+  public:
+    DeviceMatricesView() = delete;
+    DeviceMatricesView(const uint32_t n_matrices, const size_t input_m, const size_t input_n, const size_t middle_m,
+                       const size_t middle_n, const size_t output_m, const size_t output_n, T *ptr)
+        : n_matrices_(n_matrices), input_m_(input_m), input_n_(input_n), middle_m_(middle_m), middle_n_(middle_n),
+          output_m_(output_m), output_n_(output_n), ptr_(ptr) {}
+
+    T *const GetMatrixPointer(const uint32_t matrix) const {
+        if (matrix == 0)
+            return ptr_;
+        else if (matrix < n_matrices_)
+            return ptr_ + input_m_ * input_n_ + (matrix - 1) * middle_m_ * middle_n_;
+        return nullptr;
+    }
+
+    /// Get the row,col element in the given matrix. Undefined behavior if the
+    /// parameters point to a memory location not available in this
+    T *const GetElementPointer(const uint32_t matrix, const size_t row, const size_t col) const {
+        T *const mat_ptr = GetMatrixPointer(matrix);
+        if (matrix == 0)
+            return mat_ptr + row * input_n_ + col;
+        else if (matrix == n_matrices_ - 1)
+            return mat_ptr + row * output_n_ + col;
+        else
+            return mat_ptr + row * middle_n_ + col;
+    }
+
+  private:
+    const uint32_t n_matrices_;
+    const size_t input_m_;
+    const size_t input_n_;
+    const size_t middle_m_;
+    const size_t middle_n_;
+    const size_t output_m_;
+    const size_t output_n_;
+    T *const ptr_;
+};
+
 template <typename T, MatrixLayout _layout = MatrixLayout::RowMajor> class DeviceMatrix {
   public:
     // Owning its memory as an allocation from a stream's memory arena
@@ -129,6 +172,10 @@ template <typename T, MatrixLayout _layout = MatrixLayout::RowMajor> class Devic
     DeviceMatrixView<T> GetView() { return GetView(m_rows, m_cols, 0, 0); }
     const DeviceMatrixView<T> GetView() const { return GetView(m_rows, m_cols, 0, 0); }
 
+    // Get a matrices view for a single device matrix. Just a convenience function so we do not have
+    // to manually shuffle data around.
+    DeviceMatricesView<T> GetViews() const { return DeviceMatricesView<T>(1, m(), n(), 0, 0, 0, 0, m_data); }
+
     DeviceMatrixView<T> GetView(const size_t m, const size_t n, const size_t offset_m, const size_t offset_n) {
         if (offset_m + m > m_rows) throw std::invalid_argument("Potential OOB access.");
         if (offset_n + n > m_cols) throw std::invalid_argument("Potential OOB access.");
@@ -174,33 +221,6 @@ template <typename T, MatrixLayout _layout = MatrixLayout::RowMajor> class Devic
     const size_t m_rows, m_cols;
     sycl::queue &m_q;
     T *m_data;
-};
-
-template <typename T> class DeviceMatricesView {
-  public:
-    DeviceMatricesView() = delete;
-    DeviceMatricesView(const uint32_t n_matrices, const size_t input_m, const size_t input_n, const size_t middle_m,
-                       const size_t middle_n, const size_t output_m, const size_t output_n, T *ptr)
-        : n_matrices_(n_matrices), input_m_(input_m), input_n_(input_n), middle_m_(middle_m), middle_n_(middle_n),
-          output_m_(output_m), output_n_(output_n), ptr_(ptr) {}
-
-    T *const GetMatrixPointer(const uint32_t matrix) const {
-        if (matrix == 0)
-            return ptr_;
-        else if (matrix < n_matrices_)
-            return ptr_ + input_m_ * input_n_ + (matrix - 1) * middle_m_ * middle_n_;
-        return nullptr;
-    }
-
-  private:
-    const uint32_t n_matrices_;
-    const size_t input_m_;
-    const size_t input_n_;
-    const size_t middle_m_;
-    const size_t middle_n_;
-    const size_t output_m_;
-    const size_t output_n_;
-    T *const ptr_;
 };
 
 /// Class which represents a vector of matrices.
@@ -280,6 +300,13 @@ template <typename T> class DeviceMatrices {
     size_t nelements() const {
         return input_m_ * input_n_ + output_m_ * output_n_ + (n_matrices_ - 2) * middle_m_ * middle_n_;
     }
+
+    size_t input_m() const { return input_m_; }
+    size_t input_n() const { return input_n_; }
+    size_t middle_m() const { return middle_m_; }
+    size_t middle_n() const { return middle_n_; }
+    size_t output_m() const { return output_m_; }
+    size_t output_n() const { return output_n_; }
 
   private:
     T *GetMatrixPtr(const uint32_t matrix) const {

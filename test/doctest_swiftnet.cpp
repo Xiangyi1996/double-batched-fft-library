@@ -56,10 +56,9 @@ void test_forward_1layer(sycl::queue &q, const int input_width, const int output
     SwiftNetMLP<T, WIDTH> network(q, input_width, output_width, n_hidden_layers, Activation::ReLU, Activation::None,
                                   Network<T>::WeightInitMode::constant_pos);
 
-    DeviceMatrix<T> network_interm_forw(batch_size,
-                                        (network.get_input_width() + network.get_output_width() +
-                                         network.get_network_width() * network.get_n_hidden_layers()),
-                                        q);
+    DeviceMatrices<T> network_interm_forw(network.get_n_hidden_layers() + 2, batch_size, network.get_input_width(),
+                                          batch_size, network.get_network_width(), batch_size,
+                                          network.get_output_width(), q);
     DeviceMatrix<T> network_input(batch_size, network.get_input_width(), q);
 
     network_input.fill(input_val);
@@ -352,18 +351,18 @@ TEST_CASE("Swiftnet - zero pad forward_pass WIDTH 64") {
         constexpr int output_width = 64;
         test_function(input_width, output_width, q);
     }
-    // SUBCASE("Output Pad") {
-    //     constexpr int input_width = 64;
-    //     constexpr int output_width = 7;
-    //     test_function(input_width, output_width, q);
-    // }
-    // SUBCASE("Input and Output Pad") {
-    //     constexpr int input_width = 3;
-    //     constexpr int output_width = 5;
-    //     test_function(input_width, output_width, q);
-    // }
+    SUBCASE("Output Pad") {
+        constexpr int input_width = 64;
+        constexpr int output_width = 7;
+        test_function(input_width, output_width, q);
+    }
+    SUBCASE("Input and Output Pad") {
+        constexpr int input_width = 3;
+        constexpr int output_width = 5;
+        test_function(input_width, output_width, q);
+    }
 }
-/*
+
 TEST_CASE("Swiftnet - zero pad inference WIDTH 64") {
     sycl::queue q(sycl::gpu_selector_v);
 
@@ -394,7 +393,7 @@ TEST_CASE("Swiftnet - zero pad inference WIDTH 64") {
         test_function(input_width, output_width, q);
     }
 }
-*/
+
 TEST_CASE("Swiftnet - Batch Sizes") {
     sycl::queue q(sycl::gpu_selector_v);
 
@@ -413,7 +412,6 @@ TEST_CASE("Swiftnet - Batch Sizes") {
 
 TEST_CASE("Swiftnet - Net Widths") {
     // only testing constructor. values tested later
-
     sycl::queue q(sycl::gpu_selector_v);
 
     auto test_function = [=](const int width, sycl::queue &q) {

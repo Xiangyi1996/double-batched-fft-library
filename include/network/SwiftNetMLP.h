@@ -44,29 +44,23 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
      * @param forward Pointer to the forward intermediate array.
      * The output is stored at the end of the array 'forward'
      */
-    std::vector<sycl::event> forward_pass(const DeviceMatrix<T> &input, DeviceMatrix<T> &intermediate_output_forward,
+    std::vector<sycl::event> forward_pass(const DeviceMatrix<T> &input, DeviceMatrices<T> &intermediate_output_forward,
                                           const std::vector<sycl::event> &deps) override {
         SanityCheckForward(input, intermediate_output_forward);
-        const size_t batch_size = input.m();
-
-        // input = batch_size * input_width 1) W = input_width*WIDTH, (n_hidden_layer-1)*WIDTH*WIDTH, WIDTH*output_width
-        // intermediate_output_forward = batch_size * (input_width + n_hidden_layer*WIDTH + output_width)
 
         // Perform forward pass based on activation function
         switch (m_activation) {
         case Activation::None:
             return tinydpcppnn::kernels::esimd::forward_impl_general<T, CType, WIDTH, WIDTH, WIDTH, Activation::None,
                                                                      Activation::None, false, 16>(
-                Network<T>::get_queue(), Network<T>::get_weights_matrices().GetViews(),
-                input.GetView() /*input.data()*/, intermediate_output_forward.data(), Network<T>::get_n_hidden_layers(),
-                deps);
+                Network<T>::get_queue(), Network<T>::get_weights_matrices().GetViews(), input.GetView(),
+                intermediate_output_forward.GetViews(), Network<T>::get_n_hidden_layers(), deps);
             break;
         case Activation::ReLU:
             return tinydpcppnn::kernels::esimd::forward_impl_general<T, CType, WIDTH, WIDTH, WIDTH, Activation::ReLU,
                                                                      Activation::None, false, 16>(
-                Network<T>::get_queue(), Network<T>::get_weights_matrices().GetViews(),
-                input.GetView() /*input.data()*/, intermediate_output_forward.data(), Network<T>::get_n_hidden_layers(),
-                deps);
+                Network<T>::get_queue(), Network<T>::get_weights_matrices().GetViews(), input.GetView(),
+                intermediate_output_forward.GetViews(), Network<T>::get_n_hidden_layers(), deps);
             break;
         default:
             throw std::invalid_argument("Activation not supported in forward pass");
@@ -83,20 +77,19 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
     std::vector<sycl::event> inference(const DeviceMatrix<T> &input, DeviceMatrix<T> &output,
                                        const std::vector<sycl::event> &deps) override {
         SanityCheckInference(input, output);
-        const size_t batch_size = input.m();
 
         switch (m_activation) {
         case Activation::None:
             return tinydpcppnn::kernels::esimd::forward_impl_general<T, CType, WIDTH, WIDTH, WIDTH, Activation::None,
                                                                      Activation::None, true, 16>(
-                Network<T>::get_queue(), Network<T>::get_weights_matrices().GetViews(),
-                input.GetView() /*input.data()*/, output.data(), Network<T>::get_n_hidden_layers(), deps);
+                Network<T>::get_queue(), Network<T>::get_weights_matrices().GetViews(), input.GetView(),
+                output.GetViews(), Network<T>::get_n_hidden_layers(), deps);
             break;
         case Activation::ReLU:
             return tinydpcppnn::kernels::esimd::forward_impl_general<T, CType, WIDTH, WIDTH, WIDTH, Activation::ReLU,
                                                                      Activation::None, true, 16>(
-                Network<T>::get_queue(), Network<T>::get_weights_matrices().GetViews(),
-                input.GetView() /*input.data()*/, output.data(), Network<T>::get_n_hidden_layers(), deps);
+                Network<T>::get_queue(), Network<T>::get_weights_matrices().GetViews(), input.GetView(),
+                output.GetViews(), Network<T>::get_n_hidden_layers(), deps);
             break;
         default:
             throw std::runtime_error{"Unsupported activation."};
@@ -110,29 +103,28 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
      * @param out_inter Intermediate array for storing outputs. This is filled as part of the backward pass
      * @param forward Pointer to the forward intermediate array which was filled in the forw pass
      */
-    std::vector<sycl::event> backward_pass(const DeviceMatrix<T> &input, DeviceMatrix<T> &output,
-                                           DeviceMatrix<T> &intermediate_output_backward,
-                                           const DeviceMatrix<T> &intermediate_output_forward,
+    std::vector<sycl::event> backward_pass(const DeviceMatrix<T> &input, DeviceMatrices<T> &output,
+                                           DeviceMatrices<T> &intermediate_output_backward,
+                                           const DeviceMatrices<T> &intermediate_output_forward,
                                            const std::vector<sycl::event> &deps) override {
         SanityCheckBackward(input, output, intermediate_output_backward, intermediate_output_forward);
-        const size_t batch_size = input.m();
 
         // Choose appropriate mlp_swiftnet_backward based on activation
         // We are onyl doinh output_activation==none right now
         switch (m_activation) {
         case Activation::None:
-            /*return tinydpcppnn::kernels::esimd::backward_impl_general<T, CType, WIDTH, WIDTH, WIDTH, Activation::None,
+            return tinydpcppnn::kernels::esimd::backward_impl_general<T, CType, WIDTH, WIDTH, WIDTH, Activation::None,
                                                                       Activation::None, 16>(
-                Network<T>::get_queue(), Network<T>::get_weightsT_matrices().data(), input.data(), output.data(),
-                intermediate_output_backward.data(), intermediate_output_forward.data(),
-                Network<T>::get_n_hidden_layers(), batch_size, deps);*/
+                Network<T>::get_queue(), Network<T>::get_weightsT_matrices().GetViews(), input.GetView(),
+                output.GetViews(), intermediate_output_backward.GetViews(), intermediate_output_forward.GetViews(),
+                Network<T>::get_n_hidden_layers(), deps);
             break;
         case Activation::ReLU:
-            /*return tinydpcppnn::kernels::esimd::backward_impl_general<T, CType, WIDTH, WIDTH, WIDTH, Activation::ReLU,
+            return tinydpcppnn::kernels::esimd::backward_impl_general<T, CType, WIDTH, WIDTH, WIDTH, Activation::ReLU,
                                                                       Activation::None, 16>(
-                Network<T>::get_queue(), Network<T>::get_weightsT_matrices().data(), input.data(), output.data(),
-                intermediate_output_backward.data(), intermediate_output_forward.data(),
-                Network<T>::get_n_hidden_layers(), batch_size, deps);*/
+                Network<T>::get_queue(), Network<T>::get_weightsT_matrices().GetViews(), input.GetView(),
+                output.GetViews(), intermediate_output_backward.GetViews(), intermediate_output_forward.GetViews(),
+                Network<T>::get_n_hidden_layers(), deps);
 
         default:
             throw std::invalid_argument("Activation not yet implemented in backward_pass");
@@ -202,33 +194,54 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
             throw std::invalid_argument("Output array too small");
     }
 
-    void SanityCheckForward(const DeviceMatrix<T> &input, DeviceMatrix<T> &intermediate_output_forward) const {
+    void SanityCheckForward(const DeviceMatrix<T> &input, DeviceMatrices<T> &intermediate_output_forward) const {
         // Static assertion and assertion checks
         if ((input.m() % 8) != 0) throw std::invalid_argument("Batch size is not divisible by 8.");
-        if (input.n() < Network<T>::get_input_width()) throw std::invalid_argument("Input array too small");
-        if (intermediate_output_forward.m() != input.m() ||
-            intermediate_output_forward.n() < (Network<T>::get_input_width() + Network<T>::get_output_width() +
-                                               WIDTH * Network<T>::get_n_hidden_layers()))
-            throw std::invalid_argument("Output array too small");
+        if (input.n() != Network<T>::get_input_width()) throw std::invalid_argument("Input array too small");
+        if (intermediate_output_forward.input_m() != input.m() || intermediate_output_forward.input_n() != input.n())
+            throw std::invalid_argument("intermediate_output_forward array too small for input");
+        if (intermediate_output_forward.middle_m() != input.m() || intermediate_output_forward.middle_n() != WIDTH)
+            throw std::invalid_argument("intermediate_output_forward array too small for middle results");
+        if (intermediate_output_forward.output_m() != input.m() ||
+            intermediate_output_forward.output_n() != Network<T>::get_output_width())
+            throw std::invalid_argument("intermediate_output_forward array too small for output");
+        if (intermediate_output_forward.GetNumberOfMatrices() != Network<T>::get_n_hidden_layers() + 2)
+            throw std::invalid_argument("not enough matrices in intermediate_output_forward array");
     }
 
-    void SanityCheckBackward(const DeviceMatrix<T> &input, DeviceMatrix<T> &output,
-                             DeviceMatrix<T> &intermediate_output_backward,
-                             const DeviceMatrix<T> &intermediate_output_forward) const {
+    void SanityCheckBackward(const DeviceMatrix<T> &input, DeviceMatrices<T> &output,
+                             DeviceMatrices<T> &intermediate_output_backward,
+                             const DeviceMatrices<T> &intermediate_output_forward) const {
         if ((input.m() % 8) != 0) throw std::invalid_argument("Batch size is not divisible by 8.");
-        if (input.m() != input.m() || input.n() < Network<T>::get_output_width())
+        if (input.m() != intermediate_output_forward.input_m() || input.n() != Network<T>::get_output_width())
             throw std::invalid_argument("Input array in backward pass too small");
-        if (intermediate_output_forward.m() != input.m() ||
-            intermediate_output_forward.n() < (Network<T>::get_input_width() + Network<T>::get_output_width() +
-                                               WIDTH * Network<T>::get_n_hidden_layers()))
-            throw std::invalid_argument("intermediate_output_forward array too small");
-        if (intermediate_output_backward.m() != input.m() ||
-            intermediate_output_backward.n() <
-                (Network<T>::get_output_width() + WIDTH * Network<T>::get_n_hidden_layers()))
-            throw std::invalid_argument("intermediate_output_backward array too small");
-        if (output.m() < WIDTH || output.n() < (Network<T>::get_n_hidden_matrices() * WIDTH +
-                                                Network<T>::get_input_width() + Network<T>::get_output_width()))
-            throw std::invalid_argument("Output of backward pass too small.");
+
+        if (intermediate_output_forward.input_m() != input.m() || intermediate_output_forward.middle_m() != input.m() ||
+            intermediate_output_forward.output_m() != input.m())
+            throw std::invalid_argument("intermediate_output_forward m too small");
+        if (intermediate_output_forward.input_n() != Network<T>::get_input_width() ||
+            intermediate_output_forward.middle_n() != WIDTH ||
+            intermediate_output_forward.output_n() != Network<T>::get_output_width())
+            throw std::invalid_argument("intermediate_output_forward n too small");
+        if (intermediate_output_forward.GetNumberOfMatrices() != Network<T>::get_n_hidden_layers() + 2)
+            throw std::invalid_argument("intermediate_output_forward not enough matrices");
+
+        if (intermediate_output_backward.input_m() != input.m() ||
+            intermediate_output_backward.middle_m() != input.m() ||
+            intermediate_output_backward.output_m() != input.m())
+            throw std::invalid_argument("intermediate_output_backward m too small");
+        if (intermediate_output_backward.input_n() != WIDTH || intermediate_output_backward.middle_n() != WIDTH ||
+            intermediate_output_backward.output_n() != Network<T>::get_output_width())
+            throw std::invalid_argument("intermediate_output_backward n too small");
+        if (intermediate_output_backward.GetNumberOfMatrices() != Network<T>::get_n_hidden_layers() + 1)
+            throw std::invalid_argument("intermediate_output_backward not enough matrices");
+
+        if (output.input_m() != Network<T>::get_input_width() || output.input_n() != WIDTH)
+            throw std::invalid_argument("Output of backward pass too small for input.");
+        if (output.middle_m() != WIDTH || output.middle_n() != WIDTH)
+            throw std::invalid_argument("Output of backward pass too small for middle.");
+        if (output.output_m() != WIDTH || output.output_n() != Network<T>::get_output_width())
+            throw std::invalid_argument("Output of backward pass too small for output.");
     }
 
     Activation m_activation;

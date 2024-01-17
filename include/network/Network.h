@@ -12,7 +12,7 @@ template <typename T> class NetworkBase {
 
     // Perform forward pass through the network
     virtual std::vector<sycl::event> forward_pass(const DeviceMatrix<T> &input,
-                                                  DeviceMatrix<T> &intermediate_output_forward,
+                                                  DeviceMatrices<T> &intermediate_output_forward,
                                                   const std::vector<sycl::event> &deps) = 0;
 
     // Perform inference through the network
@@ -22,9 +22,9 @@ template <typename T> class NetworkBase {
     ///@brief input are the derivatives of the losses
     /// output are the updates of the weights for the optimization step.
     /// intermediate arrays are not used after this function
-    virtual std::vector<sycl::event> backward_pass(const DeviceMatrix<T> &input, DeviceMatrix<T> &output,
-                                                   DeviceMatrix<T> &intermediate_output_backward,
-                                                   const DeviceMatrix<T> &intermediate_output_forward,
+    virtual std::vector<sycl::event> backward_pass(const DeviceMatrix<T> &input, DeviceMatrices<T> &output,
+                                                   DeviceMatrices<T> &intermediate_output_backward,
+                                                   const DeviceMatrices<T> &intermediate_output_forward,
                                                    const std::vector<sycl::event> &deps) = 0;
 };
 
