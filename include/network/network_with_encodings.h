@@ -107,11 +107,10 @@ template <typename T> class NetworkWithEncoding {
 template <typename T, int WIDTH>
 std::shared_ptr<NetworkWithEncoding<T>>
 create_network_with_encoding(sycl::queue &q, const int input_width, const int output_width, const int n_hidden_layers,
-                             Activation activation, Activation output_activation, std::string encoding_name,
-                             const std::unordered_map<std::string, std::string> &encoding_config) {
+                             Activation activation, Activation output_activation, const json &encoding_config) {
 
     std::shared_ptr<SwiftNetMLP<T, WIDTH>> net = std::make_shared<SwiftNetMLP<T, WIDTH>>(
         q, input_width, output_width, n_hidden_layers, activation, output_activation);
-    std::shared_ptr<Encoding<T>> enc = create_encoding<T>(encoding_name, encoding_config);
+    std::shared_ptr<Encoding<T>> enc = create_encoding<T>(encoding_config);
     return std::make_shared<NetworkWithEncoding<T>>(enc, net);
 }

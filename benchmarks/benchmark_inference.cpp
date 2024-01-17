@@ -30,12 +30,16 @@ int main() {
             benchmark_inference<bf16, 64>(1 << iter, 4, 100, q);
             q.wait();
         }
+        for (int iter = 10; iter < 25; iter++) {
+            benchmark_inference<bf16, 16>(1 << iter, 4, 1000, q);
+            q.wait();
+        }
+
         for (int iter = 2; iter < 20; iter++) {
-            benchmark_inference<bf16, 64>(1 << 22, iter, 100, q);
+            benchmark_inference<bf16, 64>(1 << 22, iter, 1000, q);
             q.wait();
         }
         MPI_Finalize();
-
     } catch (const std::exception &e) {
         std::cerr << e.what() << '\n';
         return 1;
@@ -44,5 +48,5 @@ int main() {
         return 2;
     }
 
-        return 0;
+    return 0;
 }

@@ -35,9 +35,11 @@ TEST_CASE("tinydpcppnn::encoding Identity") {
         output_float.fill(0.0f).wait();
 
         // Define the parameters for creating IdentityEncoding
-        std::unordered_map<std::string, std::string> encoding = {
-            {"n_dims_to_encode", std::to_string(input_width)}, {"scale", "1.0"}, {"offset", "0.0"}};
-        std::shared_ptr<Encoding<float>> network = create_encoding<float>("Identity", encoding);
+        const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, input_width},
+                                   {EncodingParams::SCALE, 1.0},
+                                   {EncodingParams::OFFSET, 0.0},
+                                   {EncodingParams::ENCODING, EncodingNames::IDENTITY}};
+        std::shared_ptr<Encoding<float>> network = create_encoding<float>(encoding_config);
         network->set_padded_output_width(output_width);
 
         std::unique_ptr<Context> model_ctx = network->forward_impl(&q, input, &output_float);
@@ -64,9 +66,10 @@ TEST_CASE("tinydpcppnn::encoding Spherical Harmonics") {
         DeviceMatrix<float> output_float(batch_size, output_width, q);
         output_float.fill(0.0f).wait();
 
-        std::unordered_map<std::string, std::string> encoding = {{"n_dims_to_encode", std::to_string(input_width)},
-                                                                 {"degree", std::to_string(DEGREE)}};
-        std::shared_ptr<Encoding<float>> network = create_encoding<float>("SphericalHarmonics", encoding);
+        const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, input_width},
+                                   {EncodingParams::DEGREE, DEGREE},
+                                   {EncodingParams::ENCODING, EncodingNames::SPHERICALHARMONICS}};
+        std::shared_ptr<Encoding<float>> network = create_encoding<float>(encoding_config);
         network->set_padded_output_width(output_float.n());
         std::unique_ptr<Context> model_ctx = network->forward_impl(&q, input, &output_float);
         q.wait();

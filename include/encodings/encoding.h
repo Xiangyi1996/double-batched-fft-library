@@ -10,7 +10,31 @@
 #include "json.hpp"
 
 using json = nlohmann::json;
-using bf16 = sycl::ext::oneapi::bfloat16;
+
+struct EncodingParams {
+    inline static const std::string ENCODING = "otype";                            // EncodingNames
+    inline static const std::string N_DIMS_TO_ENCODE = "n_dims_to_encode";         // uint32_t
+    inline static const std::string GRID_TYPE = "type";                            // GridType Hash, Dense, Tiled
+    inline static const std::string N_LEVELS = "n_levels";                         // uint32_t
+    inline static const std::string N_FEATURES = "n_features";                     // uint32_t
+    inline static const std::string N_FEATURES_PER_LEVEL = "n_features_per_level"; // uint32_t
+    inline static const std::string LOG2_HASHMAP_SIZE = "log2_hashmap_size";       // uint32_t
+    inline static const std::string BASE_RESOLUTION = "base_resolution";           // uint32_t
+    inline static const std::string PER_LEVEL_SCALE = "per_level_scale";           // float
+    inline static const std::string DEGREE = "degree";                             // uint32_t
+    inline static const std::string SCALE = "scale";                               // float
+    inline static const std::string OFFSET = "offset";                             // float
+    inline static const std::string HASH = "hash";                                 // HashType
+    inline static const std::string INTERPOLATION_METHOD = "interpolation_method"; // InterpolationType
+    inline static const std::string USE_STOCHASTIC_INTERPOLATION = "stochastic_interpolation"; // bool
+};
+
+struct EncodingNames {
+    inline static const std::string IDENTITY = "Identity";
+    inline static const std::string SPHERICALHARMONICS = "SphericalHarmonics";
+    inline static const std::string GRID = "Grid";
+};
+
 enum class GradientMode {
     Ignore,
     Overwrite,

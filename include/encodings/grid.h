@@ -923,52 +923,41 @@ class GridEncodingTemplated : public GridEncoding<T> {
 };
 
 template <typename T, uint32_t N_FEATURES_PER_LEVEL, HashType HASH_TYPE>
-std::shared_ptr<GridEncoding<T>> create_grid_encoding_templated_2(uint32_t n_dims_to_encode, const json &encoding) {
-    const uint32_t log2_hashmap_size = encoding.value("log2_hashmap_size", 19u);
-    const std::string encoding_type = encoding.value("otype", "Grid");
-    const std::string default_type = equals_case_insensitive(encoding_type, "TiledGrid")
-                                         ? "Tiled"
-                                         : (equals_case_insensitive(encoding_type, "DenseGrid") ? "Dense" : "Hash");
+std::shared_ptr<GridEncoding<T>> create_grid_encoding_templated_2(const json &encoding) {
+    const uint32_t log2_hashmap_size = encoding.value(EncodingParams::LOG2_HASHMAP_SIZE, 19u);
+    const uint32_t n_dims_to_encode = encoding.value(EncodingParams::N_DIMS_TO_ENCODE, 2u);
 
     uint32_t n_features;
-    if (encoding.contains("n_features") || encoding.contains("n_grid_features")) {
-        n_features = encoding.contains("n_features") ? encoding["n_features"] : encoding["n_grid_features"];
-        if (encoding.contains("n_levels")) {
+    if (encoding.contains(EncodingParams::N_FEATURES)) {
+        n_features = encoding[EncodingParams::N_FEATURES];
+        if (encoding.contains(EncodingParams::N_LEVELS)) {
             throw std::runtime_error{"GridEncoding: may not specify n_features and n_levels "
                                      "simultaneously (one determines the other)"};
         }
     } else {
-        n_features = N_FEATURES_PER_LEVEL * encoding.value("n_levels", 16u);
+        n_features = N_FEATURES_PER_LEVEL * encoding.value(EncodingParams::N_LEVELS, 16u);
     }
 
     const uint32_t n_levels = n_features / N_FEATURES_PER_LEVEL;
-    const GridType grid_type = string_to_grid_type(encoding.value("type", default_type));
-    const uint32_t base_resolution = encoding.value("base_resolution", 16u);
+    const GridType grid_type = encoding.value(EncodingParams::GRID_TYPE, GridType::Hash);
+    const uint32_t base_resolution = encoding.value(EncodingParams::BASE_RESOLUTION, 16u);
 
 #define TCNN_GRID_PARAMS                                                                                               \
     n_features, log2_hashmap_size, base_resolution,                                                                    \
-        encoding.value("per_level_scale", grid_type == GridType::Dense                                                 \
-                                              ? std::exp(std::log(256.0f / (float)base_resolution) / (n_levels - 1))   \
-                                              : 2.0f),                                                                 \
-        encoding.value("stochastic_interpolation", false),                                                             \
-        string_to_interpolation_type(encoding.value("interpolation", "Linear")), grid_type
+        encoding.value(EncodingParams::PER_LEVEL_SCALE,                                                                \
+                       grid_type == GridType::Dense                                                                    \
+                           ? std::exp(std::log(256.0f / (float)base_resolution) / (n_levels - 1))                      \
+                           : 2.0f),                                                                                    \
+        encoding.value(EncodingParams::USE_STOCHASTIC_INTERPOLATION, false),                                           \
+        encoding.value(EncodingParams::INTERPOLATION_METHOD, InterpolationType::Linear), grid_type
 
     // If higher-dimensional hash encodings are desired, corresponding switch
     // cases can be added
     switch (n_dims_to_encode) {
-    // case 1: return new GridEncodingTemplated<T, 1, N_FEATURES_PER_LEVEL,
-    // HASH_TYPE>{ TCNN_GRID_PARAMS };
     case 2:
         return std::make_shared<GridEncodingTemplated<T, 2, N_FEATURES_PER_LEVEL, HASH_TYPE>>(TCNN_GRID_PARAMS);
     case 3:
         return std::make_shared<GridEncodingTemplated<T, 3, N_FEATURES_PER_LEVEL, HASH_TYPE>>(TCNN_GRID_PARAMS);
-    case 4:
-        return std::make_shared<GridEncodingTemplated<T, 4, N_FEATURES_PER_LEVEL, HASH_TYPE>>(TCNN_GRID_PARAMS);
-    // case 5: return new GridEncodingTemplated<T, 5, N_FEATURES_PER_LEVEL,
-    // HASH_TYPE>{ TCNN_GRID_PARAMS }; case 6: return new
-    // GridEncodingTemplated<T, 6, N_FEATURES_PER_LEVEL, HASH_TYPE>{
-    // TCNN_GRID_PARAMS }; case 7: return new GridEncodingTemplated<T, 7,
-    // N_FEATURES_PER_LEVEL, HASH_TYPE>{ TCNN_GRID_PARAMS };
     default:
         throw std::runtime_error{"GridEncoding: number of input dims must be 2 or 3."};
     }
@@ -976,34 +965,33 @@ std::shared_ptr<GridEncoding<T>> create_grid_encoding_templated_2(uint32_t n_dim
 }
 
 template <typename T, HashType HASH_TYPE>
-std::shared_ptr<GridEncoding<T>> create_grid_encoding_templated_1(uint32_t n_dims_to_encode, const json &encoding) {
-    const uint32_t n_features_per_level = encoding.value("n_features_per_level", 2u);
+std::shared_ptr<GridEncoding<T>> create_grid_encoding_templated_1(const json &encoding_config) {
+    const uint32_t n_features_per_level = encoding_config.value(EncodingParams::N_FEATURES_PER_LEVEL, 2u);
     switch (n_features_per_level) {
     case 1:
-        return create_grid_encoding_templated_2<T, 1, HASH_TYPE>(n_dims_to_encode, encoding);
+        return create_grid_encoding_templated_2<T, 1, HASH_TYPE>(encoding_config);
     case 2:
-        return create_grid_encoding_templated_2<T, 2, HASH_TYPE>(n_dims_to_encode, encoding);
+        return create_grid_encoding_templated_2<T, 2, HASH_TYPE>(encoding_config);
     case 4:
-        return create_grid_encoding_templated_2<T, 4, HASH_TYPE>(n_dims_to_encode, encoding);
+        return create_grid_encoding_templated_2<T, 4, HASH_TYPE>(encoding_config);
     case 8:
-        return create_grid_encoding_templated_2<T, 8, HASH_TYPE>(n_dims_to_encode, encoding);
+        return create_grid_encoding_templated_2<T, 8, HASH_TYPE>(encoding_config);
     default:
         throw std::runtime_error{"GridEncoding: n_features_per_level must be 1, 2, 4, or 8."};
     }
 }
 
-template <typename T>
-std::shared_ptr<GridEncoding<T>> create_grid_encoding(uint32_t n_dims_to_encode, const json &encoding) {
-    const HashType hash_type = string_to_hash_type(encoding.value("hash", "CoherentPrime"));
+template <typename T> std::shared_ptr<GridEncoding<T>> create_grid_encoding(const json &encoding_config) {
+    const HashType hash_type = encoding_config.value(EncodingParams::HASH, HashType::CoherentPrime);
     switch (hash_type) {
     case HashType::Prime:
-        return create_grid_encoding_templated_1<T, HashType::Prime>(n_dims_to_encode, encoding);
+        return create_grid_encoding_templated_1<T, HashType::Prime>(encoding_config);
     case HashType::CoherentPrime:
-        return create_grid_encoding_templated_1<T, HashType::CoherentPrime>(n_dims_to_encode, encoding);
+        return create_grid_encoding_templated_1<T, HashType::CoherentPrime>(encoding_config);
     case HashType::ReversedPrime:
-        return create_grid_encoding_templated_1<T, HashType::ReversedPrime>(n_dims_to_encode, encoding);
+        return create_grid_encoding_templated_1<T, HashType::ReversedPrime>(encoding_config);
     case HashType::Rng:
-        return create_grid_encoding_templated_1<T, HashType::Rng>(n_dims_to_encode, encoding);
+        return create_grid_encoding_templated_1<T, HashType::Rng>(encoding_config);
     default:
         throw std::runtime_error{"GridEncoding: invalid hash type."};
     }

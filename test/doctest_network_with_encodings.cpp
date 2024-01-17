@@ -29,16 +29,14 @@ template <typename T, int WIDTH = 64> void test_network_with_encoding(sycl::queu
     constexpr int encoding_input_width = 2;
     constexpr int encoding_output_width = input_width;
 
-    json encoding_json = {
-        {"n_dims_to_encode", std::to_string(encoding_input_width)},
-        {"otype", "Grid"},
-        {"type", "Hash"},
-        {"n_levels", 16},
-        {"n_features_per_level", 2},
-        {"log2_hashmap_size", 15},
-        {"base_resolution", 16},
-        {"per_level_scale", 1.5},
-    };
+    const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, encoding_input_width},
+                               {EncodingParams::ENCODING, EncodingNames::GRID},
+                               {EncodingParams::GRID_TYPE, GridType::Hash},
+                               {EncodingParams::N_LEVELS, 16},
+                               {EncodingParams::N_FEATURES_PER_LEVEL, 2},
+                               {EncodingParams::LOG2_HASHMAP_SIZE, 15},
+                               {EncodingParams::BASE_RESOLUTION, 16},
+                               {EncodingParams::PER_LEVEL_SCALE, 1.5}};
     // encoding output size has to be at least n_levels*n_features_per_level =32
     static_assert(encoding_output_width >= 32); // TODO: generalize min encoding output size
 
@@ -55,7 +53,7 @@ template <typename T, int WIDTH = 64> void test_network_with_encoding(sycl::queu
     output_encoding.fill(1.0f).wait();
 
     std::shared_ptr<GridEncoding<float>> encoding =
-        tinydpcppnn::encodings::grid::create_grid_encoding<float>(encoding_input_width, encoding_json);
+        tinydpcppnn::encodings::grid::create_grid_encoding<float>(encoding_config);
 
     std::vector<float> params =
         loadVectorFromCSV<float>("../../test/ref_values/network_with_grid_encoding/full/encoding_params.csv");
@@ -99,10 +97,12 @@ TEST_CASE("tinydpcppnn::network_with_encoding class") {
     constexpr int encoding_output_width = input_width;
 
     // Define the parameters for creating IdentityEncoding
-    std::unordered_map<std::string, std::string> encoding_config = {
-        {"n_dims_to_encode", std::to_string(encoding_input_width)}, {"scale", "1.0"}, {"offset", "0.0"}};
-    auto Net = create_network_with_encoding<bf16, WIDTH>(
-        q, input_width, output_width, n_hidden_layers, Activation::ReLU, Activation::None, "Identity", encoding_config);
+    const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, encoding_input_width},
+                               {EncodingParams::SCALE, 1.0},
+                               {EncodingParams::OFFSET, 0.0},
+                               {EncodingParams::ENCODING, EncodingNames::IDENTITY}};
+    auto Net = create_network_with_encoding<bf16, WIDTH>(q, input_width, output_width, n_hidden_layers,
+                                                         Activation::ReLU, Activation::None, encoding_config);
 
     const bf16 weight_val = 0.01;
     std::vector<bf16> new_weights(Net->get_network()->get_weights_matrices().nelements(), weight_val);
