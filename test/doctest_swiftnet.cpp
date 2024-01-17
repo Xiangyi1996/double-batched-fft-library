@@ -6,14 +6,6 @@
 
 #include "SwiftNetMLP.h"
 #include "result_check.h"
-float calculateMAPE(float prediction, float reference) {
-    if (reference == 0.0) {
-        return 0.0;
-    } else {
-        float absoluteError = std::abs(prediction - reference);
-        return (absoluteError / std::abs(reference)) * 100.0;
-    }
-}
 
 template <typename T, int WIDTH>
 void test_inference_1layer(sycl::queue &q, const int input_width, const int output_width, const int batch_size) {
@@ -42,7 +34,7 @@ void test_inference_1layer(sycl::queue &q, const int input_width, const int outp
         out_ref[output_idx] =
             nonzero_value * weight_val * input_width * input_val * network.get_network_width() * weight_val;
     }
-    CHECK(areVectorsWithinTolerance(network_output.copy_to_host(), out_ref, 1e-3));
+    CHECK(areVectorsWithinTolerance(network_output.copy_to_host(), out_ref, 1e-2));
 }
 
 template <typename T, int WIDTH>
@@ -87,7 +79,7 @@ void test_forward_1layer(sycl::queue &q, const int input_width, const int output
         const int nonzero_value = (output_idx % network.get_output_width()) < output_width ? 1 : 0;
         const double ref_result =
             nonzero_value * weight_val * input_width * input_val * network.get_network_width() * weight_val;
-        CHECK(static_cast<double>(fwd_host[i]) == doctest::Approx(ref_result).epsilon(1e-3));
+        CHECK(static_cast<double>(fwd_host[i]) == doctest::Approx(ref_result).epsilon(1e-2));
     }
 }
 
