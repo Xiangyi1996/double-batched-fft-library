@@ -73,8 +73,6 @@ void benchmark_training(const size_t batch_size, const int n_hidden_layers, cons
     // Now do a simple correctness check
     // TODO: check all the elements in the interm forw array.
     // expect that the output of the backward pass is 0 since losses are set to 0
-    std::vector<T> expected_result(outputs_backw.nelements(), 0);
-    std::vector<T> out_host = outputs_backw.copy_to_host();
-
-    areVectorsWithinTolerance(out_host, expected_result, 0.01f);
+    isVectorWithinTolerance(outputs_backw.copy_to_host(), 0, 1.0e-2);
+    std::cout << std::endl;
 }

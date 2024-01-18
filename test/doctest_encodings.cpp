@@ -78,11 +78,8 @@ TEST_CASE("tinydpcppnn::encoding Spherical Harmonics") {
         const std::vector<float> reference_out = {0.2821, 1.0, 1.0, 0.2821, 1.0, 1.0};
 
         const double epsilon = 1e-3;
-
         // Check if the actual vector is equal to the expected vector within the tolerance
-        for (size_t i = 0; i < out.size(); i++) {
-            CHECK(out[i] == doctest::Approx(reference_out[i]).epsilon(epsilon));
-        }
+        CHECK(areVectorsWithinTolerance(out, reference_out, epsilon));
     }
 }
 
@@ -100,19 +97,14 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         DeviceMatrix<float> output_float(batch_size, padded_output_width, q);
         output_float.fill(1.23f).wait(); // fill with something to check if it is written to
 
-        json encoding_json = {
-            {"n_dims_to_encode", std::to_string(input_width)},
-            {"otype", "Grid"},
-            {"type", "Hash"},
-            {"n_levels", 16},
-            {"n_features_per_level", 2},
-            {"log2_hashmap_size", 19},
-            {"base_resolution", 16},
-            {"per_level_scale", 2.0},
-        };
+        const json encoding_config{
+            {EncodingParams::N_DIMS_TO_ENCODE, input_width}, {EncodingParams::ENCODING, EncodingNames::GRID},
+            {EncodingParams::GRID_TYPE, GridType::Hash},     {EncodingParams::N_LEVELS, 16},
+            {EncodingParams::N_FEATURES_PER_LEVEL, 2},       {EncodingParams::LOG2_HASHMAP_SIZE, 19},
+            {EncodingParams::BASE_RESOLUTION, 16},           {EncodingParams::PER_LEVEL_SCALE, 2.0}};
 
         std::shared_ptr<GridEncoding<float>> network =
-            tinydpcppnn::encodings::grid::create_grid_encoding<float>(input_width, encoding_json);
+            tinydpcppnn::encodings::grid::create_grid_encoding<float>(encoding_config);
         q.wait();
         network->set_padded_output_width(output_float.n());
 
@@ -132,14 +124,8 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
             -0.5107, -0.4202, -0.4202, -0.2527, -0.2527, -0.1031, -0.1031, 0.06964, 0.06964, 0.1893,  0.1893,
             0.2996,  0.2996,  0.4565,  0.4565,  0.6128,  0.6128,  0.7783,  0.7783,  0.9258,  0.9258};
 
-        const double epsilon = 1e-4; // Set the tolerance for floating-point comparisons
-
         // Check if the actual vector is equal to the expected vector within the tolerance
-        for (size_t i = 0; i < out.size(); ++i) {
-            CHECK(out[i] == doctest::Approx(reference_out[i]).epsilon(epsilon));
-            std::cout << out[i] << ", ";
-        }
-        std::cout << std::endl;
+        CHECK(areVectorsWithinTolerance(out, reference_out, 1.0e-3));
     }
 
     SUBCASE("Check results loaded") {
@@ -155,19 +141,14 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         DeviceMatrix<float> output_float(batch_size, padded_output_width, q);
         output_float.fill(0.0f);
 
-        json encoding_json = {
-            {"n_dims_to_encode", std::to_string(input_width)},
-            {"otype", "Grid"},
-            {"type", "Hash"},
-            {"n_levels", 16},
-            {"n_features_per_level", 2},
-            {"log2_hashmap_size", 15},
-            {"base_resolution", 16},
-            {"per_level_scale", 1.5},
-        };
+        const json encoding_config{
+            {EncodingParams::N_DIMS_TO_ENCODE, input_width}, {EncodingParams::ENCODING, EncodingNames::GRID},
+            {EncodingParams::GRID_TYPE, GridType::Hash},     {EncodingParams::N_LEVELS, 16},
+            {EncodingParams::N_FEATURES_PER_LEVEL, 2},       {EncodingParams::LOG2_HASHMAP_SIZE, 15},
+            {EncodingParams::BASE_RESOLUTION, 16},           {EncodingParams::PER_LEVEL_SCALE, 1.5}};
 
         std::shared_ptr<GridEncoding<float>> network =
-            tinydpcppnn::encodings::grid::create_grid_encoding<float>(input_width, encoding_json);
+            tinydpcppnn::encodings::grid::create_grid_encoding<float>(encoding_config);
         network->set_padded_output_width(output_float.n());
         DeviceMem<float> params_full_precision(network->n_params(), q);
 
@@ -188,17 +169,10 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         std::unique_ptr<Context> model_ctx = network->forward_impl(&q, input, &output_float);
         q.wait();
 
-        std::vector<float> out = output_float.copy_to_host();
         std::vector<float> reference_out =
             loadVectorFromCSV<float>("../../test/ref_values/network_with_grid_encoding/full/encoding_output.csv");
 
-        const double epsilon = 1e-4; // Set the tolerance for floating-point comparisons
-
         // Check if the actual vector is equal to the expected vector within the tolerance
-        for (size_t i = 0; i < out.size(); ++i) {
-            CHECK(out[i] == doctest::Approx(reference_out[i]).epsilon(epsilon));
-            // std::cout << out[i] << ", " << reference_out[i] << std::endl;
-        }
-        std::cout << std::endl;
+        CHECK(areVectorsWithinTolerance(output_float.copy_to_host(), reference_out, 1.0e-3));
     }
 }

@@ -78,7 +78,7 @@ template <typename T, int WIDTH = 64> void test_network_with_encoding(sycl::queu
         loadVectorFromCSV<float>("../../test/ref_values/network_with_grid_encoding/full/network_output.csv");
     std::vector<float> out_ref_cut(output_ref.begin(), output_ref.begin() + output_network.size());
 
-    CHECK(areVectorsWithinTolerance(output_network.copy_to_host(), out_ref_cut, 1e-3));
+    CHECK(areVectorsWithinTolerance(output_network.copy_to_host(), out_ref_cut, 1.0e-3));
 }
 
 TEST_CASE("tinydpcppnn::network_with_encoding step-by-step") {
@@ -121,7 +121,6 @@ TEST_CASE("tinydpcppnn::network_with_encoding class") {
     Net->inference(input_encoding, output_encoding, output_network, {});
     q.wait();
 
-    std::vector<double> ref_output(output_network.size(),
-                                   input_val * std::pow(WIDTH * (double)weight_val, n_hidden_layers + 1));
-    areVectorsWithinTolerance(output_network.copy_to_host(), ref_output, 1e-3);
+    CHECK(isVectorWithinTolerance(output_network.copy_to_host(),
+                                  input_val * std::pow(WIDTH * (double)weight_val, n_hidden_layers + 1), 1.0e-3));
 }

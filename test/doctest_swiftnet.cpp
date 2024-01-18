@@ -62,16 +62,15 @@ void test_forward_1layer(sycl::queue &q, const int input_width, const int output
     std::vector<T> fwd_host = network_interm_forw.copy_to_host();
 
     // input
-    CHECK(areVectorsWithinTolerance(
-        std::vector<T>(fwd_host.begin(), fwd_host.begin() + batch_size * network.get_input_width()),
-        std::vector<T>(batch_size * network.get_input_width(), input_val), 1e-3));
+    CHECK(isVectorWithinTolerance(
+        std::vector<T>(fwd_host.begin(), fwd_host.begin() + batch_size * network.get_input_width()), input_val, 1e-3));
 
     // intermediate
     const double ref_result = weight_val * input_width * input_val;
-    CHECK(areVectorsWithinTolerance(
+    CHECK(isVectorWithinTolerance(
         std::vector<T>(fwd_host.begin() + batch_size * network.get_input_width(),
                        fwd_host.begin() + batch_size * (network.get_input_width() + network.get_network_width())),
-        std::vector<T>(batch_size * network.get_network_width(), ref_result), 1e-3));
+        ref_result, 1e-3));
 
     // output
     for (int i = batch_size * (network.get_input_width() + network.get_network_width()); i < fwd_host.size(); i++) {

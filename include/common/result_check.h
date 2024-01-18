@@ -21,6 +21,38 @@ void saveImageToPGM(const std::string &filename, const int width, const int heig
     outputFile.close();
 }
 
+template <typename Tval, typename Ttarget> double getRelError(const Tval value, const Ttarget target) {
+    double diff = 0.0;
+    if (!std::isfinite(value) || !std::isfinite(target)) throw std::invalid_argument("Inifinite numbers");
+
+    if ((double)value != 0.0 || (double)target != 0.0) {
+        diff = std::abs((double)value - (double)target) /
+               std::max<double>(std::abs((double)value), std::abs((double)target));
+    }
+
+    return diff;
+}
+
+template <typename Tval, typename Ttarget>
+bool isVectorWithinTolerance(const std::vector<Tval> &value, const Ttarget target, const double tolerance) {
+
+    long long count = 0;
+    bool is_same = true;
+    double max_diff = 0.0;
+    for (size_t i = 0; i < value.size(); ++i) {
+        const double diff = getRelError(value.at(i), target);
+        max_diff = std::max(diff, max_diff);
+
+        if (diff > tolerance) {
+            is_same = false;
+            count++;
+        }
+    }
+    std::cout << count << "/" << value.size() << " are wrong. Max diff = " << max_diff << std::endl;
+
+    return is_same;
+}
+
 template <typename Tval, typename Ttarget>
 bool areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector<Ttarget> &target,
                                const double tolerance) {
@@ -29,26 +61,16 @@ bool areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector
     bool is_same = true;
     double max_diff = 0.0;
     for (size_t i = 0; i < value.size(); ++i) {
-        double diff = 0.0;
-        if (!std::isfinite(value.at(i)) || !std::isfinite(target.at(i)))
-            throw std::invalid_argument("Inifinite numbers");
-
-        if ((double)value.at(i) != 0.0 || (double)target.at(i) != 0.0)
-            diff = std::abs((double)value.at(i) - (double)target.at(i)) /
-                   std::max<double>(std::abs((double)value.at(i)), std::abs((double)target.at(i)));
-
+        const double diff = getRelError(value.at(i), target.at(i));
         max_diff = std::max(diff, max_diff);
 
         if (diff > tolerance) {
             is_same = false;
             count++;
-            // std::cout << "At " << i << ", Val: " << (double)value[i] << ", target: " << (double)target[i] <<
-            // std::endl;
         }
     }
     std::cout << count << "/" << target.size() << " are wrong. Max diff = " << max_diff << std::endl;
 
-    // CHECK(is_same);
     return is_same;
 }
 

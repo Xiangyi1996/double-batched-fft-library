@@ -59,8 +59,6 @@ void benchmark_inference(const size_t batch_size, const int n_hidden_layers, con
                                                                    n_hidden_layers, n_iterations, sizeof(T));
 
     MPI_Barrier(MPI_COMM_WORLD);
-    std::vector<T> expected_result(batch_size * output_width,
-                                   /*std::pow(WIDTH * 0.01, n_hidden_layers + 1) **/ input_val);
-    areVectorsWithinTolerance(output.copy_to_host(), expected_result, 0.01);
+    isVectorWithinTolerance(output.copy_to_host(), input_val, 1.0e-2);
     std::cout << std::endl;
 }
