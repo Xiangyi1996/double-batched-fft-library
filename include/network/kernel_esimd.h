@@ -126,7 +126,7 @@ class EsimdKernels : public Kernels<T> {
                     //     sg, A_sg_start, forward_loc + layer_offset_A + M * WIDTH, A_sg_start);
                 }
 
-                // store activated slm in intermediate output
+                // store activated in intermediate output
                 storeRow<TM, TK, cache_hint::uncached, cache_hint::uncached>(
                     As, intermediate_backward.GetElementPointer(n_hidden_layers, loc_row_offset, 0));
                 simd<Tc, TM * WIDTH> Cs;

@@ -82,94 +82,54 @@ void test_forward_1layer(sycl::queue &q, const int input_width, const int output
     }
 }
 
-/*
-void test_backward() {
+// Function which runs forw+backward without loss
+// and tests output from backward and intermediate backw result.
+// Forward results are tested with other functions
+template <typename T, int WIDTH>
+void test_backward_1layer(sycl::queue &q, const int input_width, const int output_width, const int batch_size) {
 
-    const int batch_size = 512;
-    constexpr int WIDTH = 64;
-    constexpr int OUTPUT_WIDTH = WIDTH;
-    constexpr int INPUT_WIDTH = WIDTH;
-    constexpr int HIDDEN_LAYERS = 4;
+    constexpr int HIDDEN_LAYERS = 1;
 
-    const size_t out_inter_forw_size = batch_size * (INPUT_WIDTH + OUTPUT_WIDTH + WIDTH * HIDDEN_LAYERS);
-    const size_t inputs_size = INPUT_WIDTH * batch_size;
-    const size_t backward_inputs_size = batch_size * OUTPUT_WIDTH;
-    const size_t out_inter_backw_size = batch_size * WIDTH * (HIDDEN_LAYERS + 1);
-    const size_t backward_out_size = WIDTH * WIDTH * (HIDDEN_LAYERS + 1);
+    SwiftNetMLP<T, WIDTH> network(q, input_width, output_width, HIDDEN_LAYERS, Activation::ReLU, Activation::None,
+                                  Network<T>::WeightInitMode::constant_pos);
 
-    sycl::queue Q;
-    try {
-        Q = sycl::queue(sycl::gpu_selector_v);
-    } catch (...) {
-        std::cout << "No device of requested type found" << std::endl;
-        return;
-    }
+    DeviceMatrix<T> network_input(batch_size, input_width, q);
+    DeviceMatrices<T> interm_forw(network.get_n_hidden_layers() + 2, batch_size, network.get_input_width(), batch_size,
+                                  network.get_network_width(), batch_size, network.get_output_width(), q);
+    DeviceMatrices<T> interm_backw(network.get_n_hidden_layers() + 1, batch_size, network.get_network_width(),
+                                   batch_size, network.get_network_width(), batch_size, network.get_output_width(), q);
+    DeviceMatrix<T> network_backward_input(batch_size, network.get_output_width(), q);
+    DeviceMatrices<T> network_backward_output(network.get_n_hidden_layers() + 1, network.get_network_width(), WIDTH,
+                                              WIDTH, WIDTH, WIDTH, network.get_output_width(), q);
 
-    DeviceMem<bf16> inputs = DeviceMem<bf16>(INPUT_WIDTH * batch_size, Q);
-    DeviceMem<bf16> backward_inputs = DeviceMem<bf16>(batch_size * OUTPUT_WIDTH, Q);
+    const T input_val = 0.1;
+    network_input.fill(input_val).wait();
+    interm_forw.fill((T)0).wait();
+    interm_backw.fill((T)0).wait();
 
-    SwiftNetMLP<64> network =
-        SwiftNetMLP<64>(Q, INPUT_WIDTH, OUTPUT_WIDTH, HIDDEN_LAYERS, Activation::ReLU, Activation::None);
+    std::vector<sycl::event> es = network.forward_pass(network_input, interm_forw, {});
+    q.wait();
+    network_backward_input.copy_from_device(interm_forw.Back().GetPointer());
 
-    float *out_inter_forw = sycl::malloc_device<float>(out_inter_forw_size, Q);
-    float *out_inter_backw = sycl::malloc_device<float>(out_inter_backw_size, Q);
+    network.backward_pass(network_backward_input, network_backward_output, interm_backw, interm_forw, {});
 
-    network.initialize_params(1);
+    q.wait();
 
-    inputs.initialize_constant(0.1f, Q);
-    backward_inputs.initialize_arange(Q);
+    auto backw_input_host = network_backward_input.copy_to_host();
+    auto interm_backw_host = interm_backw.copy_to_host();
+    CHECK(areVectorsWithinTolerance(
+        std::vector<T>(interm_backw_host.begin() + WIDTH * batch_size, interm_backw_host.end()), backw_input_host,
+        1.0e-3));
 
-    Q.wait();
+    const double weights_val = 0.01; // init constant_pos
+    const double output_val = weights_val * input_width * input_val * network.get_network_width() *
+                              weights_val; // output values are either this or 0
 
-    std::vector<sycl::event> es = network.inference(inputs, out_inter_forw, batch_size, {});
-
-    network.backward_pass(backward_inputs, out_inter_backw, out_inter_forw, batch_size, es);
-
-    Q.wait();
-
-    // Allocate host memory
-    std::vector<bf16> out_inter_forw_vec(out_inter_forw_size);
-    // std::vector<bf16> inputs_vec(inputs_size);
-    std::vector<bf16> backward_inputs_vec(backward_inputs_size);
-    // // check if the activated backward inputs are in m_out_inter at the right place
-    // std::vector<bf16> out_inter_backward_inputs(backward_inputs_size);
-    std::vector<bf16> out_inter_backw_vec(out_inter_backw_size);
-    std::vector<bf16> backward_outputs_vec(backward_out_size);
-
-    // Copy data from device to host
-    Q.memcpy(out_inter_forw_vec.data(), out_inter_forw, out_inter_forw_size * sizeof(bf16)).wait();
-    // inputs.copy_to_host(inputs_vec, Q);
-    backward_inputs.copy_to_host(backward_inputs_vec, Q);
-
-    Q.memcpy(out_inter_backw_vec.data(), out_inter_backw, out_inter_backw_size * sizeof(bf16)).wait();
-
-    // Q.memcpy(out_inter_backward_inputs.data(),
-    //          reinterpret_cast<bf16 *>(out_inter_backw) + HIDDEN_LAYERS * batch_size * WIDTH,
-    //          backward_inputs_size * sizeof(bf16))
-    //     .wait();
-
-    Q.memcpy(backward_outputs_vec.data(), network.m_grads_matrices.data(), backward_out_size * sizeof(bf16)).wait();
-
-    // Load the CSV files into vectors
-    std::vector<float> forward_vec_ref = loadVectorFromCSV<float>("../test/ref_values/bwd_matrices/m_forward.csv");
-    // std::vector<bf16> inputs_vec_ref = loadVectorFromCSV<bf16>("../bwd_matrices/inputs.csv");
-    std::vector<bf16> backward_inputs_vec_ref = loadVectorFromCSV<bf16>("../test/ref_values/bwd_matrices/grads.csv");
-    std::vector<float> out_inter_vec_ref = loadVectorFromCSV<float>("../test/ref_values/bwd_matrices/out_inter.csv");
-    std::vector<bf16> backward_outputs_vec_ref =
-        loadVectorFromCSV<bf16>("../test/ref_values/bwd_matrices/grads_matrices.csv");
-
-    Q.wait();
-
-    const double tolerance = 1e-2;
-
-    CHECK(areVectorsWithinTolerance(out_inter_forw_vec, forward_vec_ref, tolerance));
-    // areVectorsWithinTolerance(inputs_vec, inputs_vec_ref, tolerance);
-    CHECK(areVectorsWithinTolerance(backward_inputs_vec, backward_inputs_vec_ref, tolerance));
-    CHECK(areVectorsWithinTolerance(out_inter_backw_vec, out_inter_vec_ref, tolerance));
-    // areVectorsWithinTolerance(out_inter_backward_inputs, backward_inputs_vec_ref, tolerance);
-    CHECK(areVectorsWithinTolerance(backward_outputs_vec, backward_outputs_vec_ref, tolerance));
+    CHECK(isVectorWithinTolerance(
+        std::vector<T>(interm_backw_host.begin(), interm_backw_host.begin() + WIDTH * batch_size),
+        output_val * weights_val * output_width, 1.0e-3));
+    // TODO: test correctness network_backward_output
 }
-*/
 
 TEST_CASE("Swiftnet - Constructor") {
 
@@ -385,7 +345,7 @@ TEST_CASE("Swiftnet - zero pad inference WIDTH 64") {
     }
 }
 
-TEST_CASE("Swiftnet - Batch Sizes") {
+TEST_CASE("Swiftnet - Batch Sizes forward") {
     sycl::queue q(sycl::gpu_selector_v);
 
     auto test_function = [=](const int batch_size, sycl::queue &q) {
@@ -401,7 +361,7 @@ TEST_CASE("Swiftnet - Batch Sizes") {
     SUBCASE("Batch size 13") { CHECK_THROWS(test_function(13, q)); }
 }
 
-TEST_CASE("Swiftnet - Net Widths") {
+TEST_CASE("Swiftnet - Net Widths forward") {
     // only testing constructor. values tested later
     sycl::queue q(sycl::gpu_selector_v);
 
@@ -415,6 +375,30 @@ TEST_CASE("Swiftnet - Net Widths") {
             test_forward_1layer<T, 64>(q, 64, 64, 8);
         else if (width == 128)
             test_forward_1layer<T, 128>(q, 128, 128, 8);
+        else
+            throw std::invalid_argument("Unsupported width");
+    };
+
+    SUBCASE("WIDTH 16") { CHECK_NOTHROW(test_function(16, q)); }
+    SUBCASE("WIDTH 32") { CHECK_NOTHROW(test_function(32, q)); }
+    SUBCASE("WIDTH 64") { CHECK_NOTHROW(test_function(64, q)); }
+    SUBCASE("WIDTH 128") { CHECK_NOTHROW(test_function(128, q)); }
+}
+
+TEST_CASE("Swiftnet - backward different widths") {
+    // only testing constructor. values tested later
+    sycl::queue q(sycl::gpu_selector_v);
+
+    auto test_function = [=](const int width, sycl::queue &q) {
+        typedef sycl::ext::oneapi::bfloat16 T;
+        if (width == 16)
+            test_backward_1layer<T, 16>(q, 16, 16, 8);
+        else if (width == 32)
+            test_backward_1layer<T, 32>(q, 32, 32, 8);
+        else if (width == 64)
+            test_backward_1layer<T, 64>(q, 64, 64, 8);
+        else if (width == 128)
+            test_backward_1layer<T, 128>(q, 128, 128, 8);
         else
             throw std::invalid_argument("Unsupported width");
     };
