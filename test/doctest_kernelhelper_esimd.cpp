@@ -8,8 +8,8 @@
 #include <sycl/sycl.hpp>
 
 using bf16 = sycl::ext::oneapi::bfloat16;
-using namespace tinydpcppnn::kernels::esimd::helpers;
 using sycl::ext::intel::experimental::esimd::cache_hint;
+using namespace tinydpcppnn::kernels::esimd;
 using namespace sycl::ext::intel::esimd;
 
 /// TODO: EVERYTHING
@@ -24,7 +24,8 @@ template <int M, int N, int TK, typename T> void TestLoadRow(sycl::queue &q) {
 
     q.parallel_for(sycl::nd_range<1>(1, 1), [=](sycl::nd_item<1> item) SYCL_ESIMD_KERNEL {
          simd<T, nElems> tmp;
-         loadRow<M, TK, N, cache_hint::none, cache_hint::none>(in, tmp);
+         EsimdKernels<T, N, N, N, Activation::ReLU, Activation::None, 16>::template loadRow<M, TK, cache_hint::none,
+                                                                                            cache_hint::none>(in, tmp);
          tmp.copy_to(out);
      }).wait();
 

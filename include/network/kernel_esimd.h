@@ -22,6 +22,7 @@
 
 #include "DeviceMatrix.h"
 #include "common.h"
+#include "common_kernel.h"
 #include "oneapi/mkl.hpp"
 
 namespace sycl::ext::intel::esimd::xmx {
@@ -52,20 +53,8 @@ namespace esimd {
 
 using namespace sycl::ext::intel::esimd;
 using sycl::ext::intel::experimental::esimd::cache_hint;
-
-namespace helpers {
-
 using namespace sycl::ext::intel::experimental::esimd;
-#define DSZ lsc_data_size::default_size
 using bf16 = sycl::ext::oneapi::bfloat16;
-
-// #ifdef __SYCL_DEVICE_ONLY__
-// #define MY_INLINE inline
-// #define MY_STATIC static
-// #else
-#define MY_INLINE
-#define MY_STATIC
-// #endif
 
 template <typename T> struct XMXCType {
     typedef T CType;
@@ -77,289 +66,356 @@ template <> struct XMXCType<sycl::half> {
     typedef sycl::half CType;
 };
 
-// in register everything is in block major format with blocks of size TMxTK
-template <int TM, int TK, int WIDTH, cache_hint L1, cache_hint L3, int TMWIDTH, typename T>
-SYCL_ESIMD_FUNCTION MY_STATIC MY_INLINE void storeRow(simd<T, TMWIDTH> &src, T *const dest) {
+template <typename T, int INPUT_WIDTH, int WIDTH, int OUTPUT_WIDTH, Activation activation, Activation output_activation,
+          size_t TN>
+class EsimdKernels : public Kernels<T> {
 
-    static_assert(TM >= 1 && TM <= 8);
-    static_assert(WIDTH % TK == 0);
-    static_assert(TMWIDTH == TM * WIDTH);
-    static_assert(sizeof(T) <= 4);
+    using Tc = typename XMXCType<T>::CType;
 
-    constexpr int rows_per_load = std::min<int>(512 / (WIDTH * sizeof(T)), TM);
-    auto src_2d = src.template bit_cast_view<T, TMWIDTH / TK, TK>(); // block major
+  public:
+    std::vector<sycl::event> forward_impl(sycl::queue &q, const DeviceMatricesView<T> &weights,
+                                          const DeviceMatrixView<T> &input, DeviceMatricesView<T> intermediate_output,
+                                          const int n_hidden_layers, const std::vector<sycl::event> &deps) override {
+        return forward_impl_general<false>(q, weights, input, intermediate_output, n_hidden_layers, deps);
+    }
 
-#pragma unroll
-    for (int row = 0; row < TM; row += rows_per_load) {
-        simd<T, WIDTH * rows_per_load> tmp;
-#pragma unroll
-        for (int locrowiter = 0; locrowiter < rows_per_load; locrowiter++) {
-            tmp.template select<WIDTH, 1>(locrowiter * WIDTH) =
-                src_2d.template select<WIDTH / TK, TM, TK, 1>(row + locrowiter, 0);
+    std::vector<sycl::event> backward_impl(sycl::queue &q, const DeviceMatricesView<T> &weights,
+                                           const DeviceMatrixView<T> &input, DeviceMatricesView<T> output,
+                                           DeviceMatricesView<T> intermediate_backward,
+                                           const DeviceMatricesView<T> &intermediate_forward, const int n_hidden_layers,
+                                           const std::vector<sycl::event> &deps) override {
+
+        // make sure there is no remainder and no out of bounds accesses
+        static_assert(WIDTH % TN == 0);
+        // only works for input_width == width == output_width
+        static_assert(INPUT_WIDTH == WIDTH);
+        static_assert(OUTPUT_WIDTH == WIDTH);
+        const size_t M = input.m();
+
+        constexpr int SG_SIZE = TN;
+        // this may be adjusted in the future in dpendence of M
+        constexpr size_t TM = 8;
+        assert(M % TM == 0);
+        int ITEMS_IN_WG = std::min<int>(M / TM, 64);
+        /// TODO: say we use M/TM = 65. Then this results in WG=1 SG and too many slm load of B.
+        /// Better: Use max size WGs and return those which are larger than M/TM. But
+        /// requires special care for the loading of B
+        while (M / TM % ITEMS_IN_WG != 0) {
+            ITEMS_IN_WG--;
         }
-        lsc_block_store<T, rows_per_load * WIDTH, DSZ, L1, L3>(dest + row * WIDTH, tmp, overaligned_tag<8>());
+        if (ITEMS_IN_WG <= 0) throw std::logic_error("Number of SGS per WG cannot be less than 1");
+
+        assert(M % TM == 0);
+        // TK depends on the datatype T
+        constexpr size_t TK = 8 * std::min<size_t>(8, 32 / (8 * sizeof(T)));
+
+        auto e = q.submit([&](sycl::handler &cgh) {
+            cgh.depends_on(deps);
+
+            cgh.parallel_for(sycl::nd_range<1>(M / TM, ITEMS_IN_WG), [=](sycl::nd_item<1> item) SYCL_ESIMD_KERNEL {
+                const size_t loc_row_offset = item.get_global_linear_id() * TM;
+
+                simd<T, TM * WIDTH> As;
+                loadRow<TM, TK, cache_hint::uncached, cache_hint::uncached>(input.GetPointer(loc_row_offset, 0), As);
+
+                // store backward activated input to the last intermediate output
+                // note that output_activation == ReLU does not need any work since that means
+                // forward >= 0
+                if constexpr (output_activation != Activation::None && output_activation != Activation::ReLU) {
+                    // applyBackwardActivation<output_activation, TM, WIDTH>(
+                    //     sg, A_sg_start, forward_loc + layer_offset_A + M * WIDTH, A_sg_start);
+                }
+
+                // store activated slm in intermediate output
+                storeRow<TM, TK, cache_hint::uncached, cache_hint::uncached>(
+                    As, intermediate_backward.GetElementPointer(n_hidden_layers, loc_row_offset, 0));
+                simd<Tc, TM * WIDTH> Cs;
+                // we are also doing output->last hidden layer
+                for (int layer = n_hidden_layers; layer > 0; layer--) {
+                    Cs = static_cast<Tc>(0);
+
+                    MAD<TM, TK>(As, weights.GetMatrixPointer(layer), Cs);
+
+                    // TODO: Apply correct backward activation
+                    applyActivation<Activation::None, TM, TK>(Cs, As);
+
+                    storeRow<TM, TK, cache_hint::uncached, cache_hint::uncached>(
+                        As, intermediate_backward.GetElementPointer(layer - 1, loc_row_offset, 0));
+                }
+            });
+        });
+
+        // NOTE: MKL gemm_batch is slower.
+        std::vector<sycl::event> events(n_hidden_layers + 1);
+        if constexpr (std::is_same<T, sycl::ext::oneapi::bfloat16>::value) { // need to cast to onemkls bf16 type.
+            for (int iter = 0; iter < n_hidden_layers + 1; iter++) {
+                events[iter] = oneapi::mkl::blas::row_major::gemm(
+                    q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M, 1.0f,
+                    reinterpret_cast<const oneapi::mkl::bfloat16 *>(intermediate_forward.GetMatrixPointer(iter)), WIDTH,
+                    reinterpret_cast<oneapi::mkl::bfloat16 *>(intermediate_backward.GetMatrixPointer(iter)), WIDTH,
+                    1.0f, reinterpret_cast<oneapi::mkl::bfloat16 *>(output.GetMatrixPointer(iter)), WIDTH, {e});
+            }
+        } else if constexpr (!std::is_same<T, sycl::ext::oneapi::bfloat16>::value) {
+            for (int iter = 0; iter < n_hidden_layers + 1; iter++) {
+                events[iter] = oneapi::mkl::blas::row_major::gemm(
+                    q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M, 1.0,
+                    intermediate_forward.GetMatrixPointer(iter), WIDTH, intermediate_backward.GetMatrixPointer(iter),
+                    WIDTH, 1.0, output.GetMatrixPointer(iter), WIDTH, {e});
+            }
+        }
+        return events;
     }
-}
 
-// in register everything is in block major format with blocks of size TMxTK
-// template <int TM, int TK, int WIDTH, cache_hint L1, cache_hint L3, int TMWIDTH, typename T>
-// SYCL_ESIMD_FUNCTION MY_STATIC MY_INLINE void storeRow(simd<T, TMWIDTH> &src, T *const dest) {
-//     constexpr int nblocks = WIDTH / TK;
-//     auto src_int = src.template bit_cast_view<int16_t>();
-// #pragma unroll
-//     for (int blockiter = 0; blockiter < nblocks; blockiter++) {
-//         lsc_store_2d<int16_t, TK, TM, L1, L3>(
-//             reinterpret_cast<int16_t *const>(dest), WIDTH * sizeof(T) - 1, TM - 1, WIDTH * sizeof(T) - 1,
-//             blockiter * TK, 0, simd<int16_t, TK * TM>(src_int.template select<TM * TK, 1>(blockiter * TM * TK)));
-//     }
-// }
+    std::vector<sycl::event> inference_impl(sycl::queue &q, const DeviceMatricesView<T> &weights,
+                                            const DeviceMatrixView<T> &input, DeviceMatricesView<T> intermediate_output,
+                                            const int n_hidden_layers, const std::vector<sycl::event> &deps) override {
+        return forward_impl_general<true>(q, weights, input, intermediate_output, n_hidden_layers, deps);
+    }
 
-// in register everything is in block major format with blocks of size TMxTK
-template <int TM, int TK, int WIDTH, cache_hint L1, cache_hint L3, int TMWIDTH, typename T>
-SYCL_ESIMD_FUNCTION MY_STATIC MY_INLINE void loadRow(T const *const src, simd<T, TMWIDTH> &dest) {
-    static_assert(TM >= 1 && TM <= 8);
-    static_assert(WIDTH % TK == 0);
-    static_assert(TMWIDTH == TM * WIDTH);
-    static_assert(sizeof(T) <= 4);
-    constexpr int elems_per_pos = 4 / sizeof(T);
-    constexpr int blocks_per_load = TK * elems_per_pos > WIDTH ? 1 : elems_per_pos;
-    constexpr int nloads = WIDTH / (TK * blocks_per_load);
-    static_assert(nloads > 0);
+    /*************the following functions are only public for testing purposes*******************/
 
-    auto dest_int = dest.template bit_cast_view<int32_t>();
+    // in register everything is in block major format with blocks of size TMxTK
+    template <int TM, int TK, cache_hint L1, cache_hint L3, int TMWIDTH>
+    SYCL_ESIMD_FUNCTION static void storeRow(simd<T, TMWIDTH> &src, T *const dest) {
+
+        static_assert(TM >= 1 && TM <= 8);
+        static_assert(WIDTH % TK == 0);
+        static_assert(TMWIDTH == TM * WIDTH);
+        static_assert(sizeof(T) <= 4);
+
+        constexpr int rows_per_load = std::min<int>(512 / (WIDTH * sizeof(T)), TM);
+        auto src_2d = src.template bit_cast_view<T, TMWIDTH / TK, TK>(); // block major
+
 #pragma unroll
-    for (int load_iter = 0; load_iter < nloads; load_iter++) {
-        dest_int.template select<TM * TK / elems_per_pos * blocks_per_load, 1>(TM * TK / elems_per_pos *
-                                                                               blocks_per_load * load_iter) =
-            lsc_load_2d<int32_t, TK / elems_per_pos, TM, blocks_per_load, false, false, L1, L3>(
-                reinterpret_cast<int32_t const *>(src), WIDTH * sizeof(T) - 1, TM - 1, WIDTH * sizeof(T) - 1,
-                load_iter * TK, 0);
+        for (int row = 0; row < TM; row += rows_per_load) {
+            simd<T, WIDTH * rows_per_load> tmp;
+#pragma unroll
+            for (int locrowiter = 0; locrowiter < rows_per_load; locrowiter++) {
+                tmp.template select<WIDTH, 1>(locrowiter * WIDTH) =
+                    src_2d.template select<WIDTH / TK, TM, TK, 1>(row + locrowiter, 0);
+            }
+            lsc_block_store<T, rows_per_load * WIDTH, lsc_data_size::default_size, L1, L3>(dest + row * WIDTH, tmp,
+                                                                                           overaligned_tag<8>());
+        }
     }
-}
 
-// we are assuming a block major layout and vnni'd B
-template <int TM, int TK, int TN, int TMWIDTH, typename Ta, typename Tc>
-SYCL_ESIMD_FUNCTION MY_STATIC MY_INLINE void MAD(simd<Ta, TMWIDTH> &As, Ta const *const __restrict__ B,
-                                                 simd<Tc, TMWIDTH> &Cs) {
-    static_assert(TM >= 1 && TM <= 8);
-    static_assert(TN == 16 || TN == 8);
-    static_assert(TMWIDTH % TM == 0);
-    constexpr int WIDTH = TMWIDTH / TM;
-    static_assert(WIDTH % TK == 0 && WIDTH % TN == 0);
-    static_assert(sizeof(Ta) <= 4 && sizeof(Tc) <= 4);
+    // in register everything is in block major format with blocks of size TMxTK
+    template <int TM, int TK, cache_hint L1, cache_hint L3, int TMWIDTH>
+    SYCL_ESIMD_FUNCTION static void loadRow(T const *const src, simd<T, TMWIDTH> &dest) {
+        static_assert(TM >= 1 && TM <= 8);
+        static_assert(WIDTH % TK == 0);
+        static_assert(TMWIDTH == TM * WIDTH);
+        static_assert(sizeof(T) <= 4);
+        constexpr int elems_per_pos = 4 / sizeof(T);
+        constexpr int blocks_per_load = TK * elems_per_pos > WIDTH ? 1 : elems_per_pos;
+        constexpr int nloads = WIDTH / (TK * blocks_per_load);
+        static_assert(nloads > 0);
 
-    constexpr int vnni_factor = std::max<int>(1, 4 / sizeof(Ta));
+        auto dest_int = dest.template bit_cast_view<int32_t>();
+#pragma unroll
+        for (int load_iter = 0; load_iter < nloads; load_iter++) {
+            dest_int.template select<TM * TK / elems_per_pos * blocks_per_load, 1>(TM * TK / elems_per_pos *
+                                                                                   blocks_per_load * load_iter) =
+                lsc_load_2d<int32_t, TK / elems_per_pos, TM, blocks_per_load, false, false, L1, L3>(
+                    reinterpret_cast<int32_t const *>(src), WIDTH * sizeof(T) - 1, TM - 1, WIDTH * sizeof(T) - 1,
+                    load_iter * TK, 0);
+        }
+    }
+
+    // we are assuming a block major layout and vnni'd B
+    template <int TM, int TK, int TMWIDTH>
+    SYCL_ESIMD_FUNCTION static void MAD(simd<T, TMWIDTH> &As, T const *const __restrict__ B, simd<Tc, TMWIDTH> &Cs) {
+        static_assert(TM >= 1 && TM <= 8);
+        static_assert(TN == 16 || TN == 8);
+        static_assert(TMWIDTH % TM == 0);
+        static_assert(TMWIDTH / TM == WIDTH);
+        static_assert(WIDTH % TK == 0 && WIDTH % TN == 0);
+        static_assert(sizeof(T) <= 4 && sizeof(Tc) <= 4);
+
+        constexpr int vnni_factor = std::max<int>(1, 4 / sizeof(T));
 #pragma collapse 2 unroll
-    for (int iterA = 0; iterA < TMWIDTH; iterA += TM * TK) {
-        for (int iterB = 0; iterB < WIDTH; iterB += TN) {
-            simd<Ta, TK * TN> BlockB;
-            auto BlockB_float = BlockB.template bit_cast_view<float>();
-            BlockB_float =
-                lsc_load_2d<float, TN, TK / vnni_factor, 1, false, false, cache_hint::cached, cache_hint::cached>(
-                    reinterpret_cast<float const *>(B), vnni_factor * WIDTH * sizeof(Ta) - 1, WIDTH / vnni_factor - 1,
-                    vnni_factor * WIDTH * sizeof(Ta) - 1, iterB, iterA / TM / vnni_factor);
+        for (int iterA = 0; iterA < TMWIDTH; iterA += TM * TK) {
+            for (int iterB = 0; iterB < WIDTH; iterB += TN) {
+                simd<T, TK * TN> BlockB;
+                auto BlockB_float = BlockB.template bit_cast_view<float>();
+                BlockB_float =
+                    lsc_load_2d<float, TN, TK / vnni_factor, 1, false, false, cache_hint::cached, cache_hint::cached>(
+                        reinterpret_cast<float const *>(B), vnni_factor * WIDTH * sizeof(T) - 1,
+                        WIDTH / vnni_factor - 1, vnni_factor * WIDTH * sizeof(T) - 1, iterB, iterA / TM / vnni_factor);
 
-            Cs.template select<TM * TN, 1>(iterB * TM) = xmx::dpas<8, TM, Tc>(
-                Cs.template select<TM * TN, 1>(iterB * TM), BlockB, As.template select<TM * TK, 1>(iterA));
+                Cs.template select<TM * TN, 1>(iterB * TM) = xmx::dpas<8, TM, Tc>(
+                    Cs.template select<TM * TN, 1>(iterB * TM), BlockB, As.template select<TM * TK, 1>(iterA));
+            }
         }
     }
-}
 
-template <Activation act, int TM, int TK, int TN, typename Tin, typename Tout, int N>
-SYCL_ESIMD_FUNCTION MY_STATIC MY_INLINE void applyActivation(simd<Tin, N> &Src, simd<Tout, N> &Dest) {
-    static_assert(TM >= 1 && TM <= 8);
-    static_assert(TN == 16 || TN == 8);
-    static_assert(TK == TN); // otherwise we would need to reshuffle due to block major format
+    template <Activation act, int TM, int TK, int N, typename Tsrc, typename Tdest>
+    SYCL_ESIMD_FUNCTION static void applyActivation(simd<Tsrc, N> &Src, simd<Tdest, N> &Dest) {
+        static_assert(TM >= 1 && TM <= 8);
+        static_assert(TN == 16 || TN == 8);
+        static_assert(TK == TN); // otherwise we would need to reshuffle due to block major format
 
-    if constexpr (act == Activation::None)
-        Dest = convert<Tout, Tin>(Src);
-    else if constexpr (act == Activation::ReLU)
-        Dest = convert<Tout, Tin>(max<Tin>(Src, simd<Tin, N>(static_cast<Tin>(0))));
-}
-
-} // namespace helpers
-
-////////////////////////////GENERAL FUNCTIONS WHICH CAN DO EVERYTHING///////////
-
-// Todo: May want to remove some of the template parameters of these functions and
-// make them inputs.
-
-// This is the general forward map which also doubles as inference. We use template
-// specialization for all the versions
-template <typename T, typename Tc, int INPUT_WIDTH, int WIDTH, int OUTPUT_WIDTH, Activation activation,
-          Activation output_activation, bool INFERENCE, int TN>
-std::vector<sycl::event> forward_impl_general(sycl::queue &q, const DeviceMatricesView<T> &weights,
-                                              const DeviceMatrixView<T> &input,
-                                              DeviceMatricesView<T> intermediate_output, const int n_hidden_layers,
-                                              const std::vector<sycl::event> &deps) {
-
-    // throw std::logic_error("General function should not be called.");
-    const size_t M = input.m();
-    static_assert(INPUT_WIDTH == WIDTH);
-    static_assert(OUTPUT_WIDTH == WIDTH);
-    static_assert(WIDTH % TN == 0);
-
-    constexpr int TM = 8;
-    // make sure there is no remainder and no out of bounds accesses
-    // this may be adjusted in the future
-    assert(M % TM == 0);
-    // TK depends on the datatype T
-    constexpr int TK = 8 * std::min<int>(8, 32 / (8 * sizeof(T)));
-
-    // TODO: 64 depends on the device. It is different for non-PVC hardware
-    int ITEMS_IN_WG = std::min<int>(M / TM, 64);
-    while (M / TM % ITEMS_IN_WG != 0) {
-        ITEMS_IN_WG--;
+        if constexpr (act == Activation::None)
+            Dest = convert<Tdest, Tsrc>(Src);
+        else if constexpr (act == Activation::ReLU)
+            Dest = max<Tdest>(convert<Tdest, Tsrc>(Src), simd<Tdest, N>(static_cast<Tdest>(0)));
     }
-    if (ITEMS_IN_WG <= 0) throw std::logic_error("Number of SGS per WG cannot be less than 1");
 
-    // One Block Row has TM rows an N columns.
-    auto e = q.submit([&](sycl::handler &cgh) {
-        cgh.depends_on(deps);
+  private:
+    template <bool INFERENCE>
+    std::vector<sycl::event> forward_impl_general(sycl::queue &q, const DeviceMatricesView<T> &weights,
+                                                  const DeviceMatrixView<T> &input,
+                                                  DeviceMatricesView<T> intermediate_output, const int n_hidden_layers,
+                                                  const std::vector<sycl::event> &deps) {
 
-        cgh.parallel_for(sycl::nd_range<1>(M / TM, ITEMS_IN_WG), [=](sycl::nd_item<1> item) SYCL_ESIMD_KERNEL {
-            const size_t loc_row_offset = item.get_global_linear_id() * TM;
+        // throw std::logic_error("General function should not be called.");
+        const size_t M = input.m();
+        static_assert(INPUT_WIDTH == WIDTH);
+        static_assert(OUTPUT_WIDTH == WIDTH);
+        static_assert(WIDTH % TN == 0);
 
-            // we store blocks contiguously
-            simd<T, TM * WIDTH> As;
-            helpers::loadRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::uncached>(
-                input.GetPointer(loc_row_offset, 0), As);
+        constexpr int TM = 8;
+        // make sure there is no remainder and no out of bounds accesses
+        // this may be adjusted in the future
+        assert(M % TM == 0);
+        // TK depends on the datatype T
+        constexpr int TK = 8 * std::min<int>(8, 32 / (8 * sizeof(T)));
 
-            // if not inference activate and store in intermediate output
-            if constexpr (!INFERENCE) {
-                simd<T, TM * WIDTH> tmpA;
-                helpers::applyActivation<activation, TM, TK, TN>(As, tmpA);
-                helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::uncached>(
-                    tmpA, intermediate_output.GetElementPointer(0, loc_row_offset, 0));
-            }
+        // TODO: 64 depends on the device. It is different for non-PVC hardware
+        int ITEMS_IN_WG = std::min<int>(M / TM, 64);
+        while (M / TM % ITEMS_IN_WG != 0) {
+            ITEMS_IN_WG--;
+        }
+        if (ITEMS_IN_WG <= 0) throw std::logic_error("Number of SGS per WG cannot be less than 1");
 
-            simd<Tc, TM * WIDTH> Cs;
-            for (int layer = 0; layer < n_hidden_layers; layer++) {
-                // reset result matrices
+        // One Block Row has TM rows an N columns.
+        auto e = q.submit([&](sycl::handler &cgh) {
+            cgh.depends_on(deps);
+
+            cgh.parallel_for(sycl::nd_range<1>(M / TM, ITEMS_IN_WG), [=](sycl::nd_item<1> item) SYCL_ESIMD_KERNEL {
+                const size_t loc_row_offset = item.get_global_linear_id() * TM;
+
+                // we store blocks contiguously
+                simd<T, TM * WIDTH> As;
+                loadRow<TM, TK, cache_hint::uncached, cache_hint::uncached>(input.GetPointer(loc_row_offset, 0), As);
+
+                // if not inference activate and store in intermediate output
+                if constexpr (!INFERENCE) {
+                    simd<T, TM * WIDTH> tmpA;
+                    applyActivation<activation, TM, TK>(As, tmpA);
+                    storeRow<TM, TK, cache_hint::uncached, cache_hint::uncached>(
+                        tmpA, intermediate_output.GetElementPointer(0, loc_row_offset, 0));
+                }
+
+                simd<Tc, TM * WIDTH> Cs;
+                for (int layer = 0; layer < n_hidden_layers; layer++) {
+                    // reset result matrices
+                    Cs = static_cast<Tc>(0);
+
+                    MAD<TM, TK>(As, weights.GetMatrixPointer(layer), Cs);
+
+                    // activate and save
+                    applyActivation<activation, TM, TK>(Cs, As);
+
+                    if constexpr (!INFERENCE)
+                        storeRow<TM, TK, cache_hint::uncached, cache_hint::uncached>(
+                            As, intermediate_output.GetElementPointer(
+                                    layer + 1, loc_row_offset, 0) /*+ (layer + 1) * M * WIDTH + layer_offset_A*/);
+                }
+
+                // generate output, i.e. last GEMM
                 Cs = static_cast<Tc>(0);
 
-                helpers::MAD<TM, TK, TN>(As, weights.GetMatrixPointer(layer), Cs);
+                MAD<TM, TK>(As, weights.GetMatrixPointer(n_hidden_layers), Cs);
 
-                // activate and save
-                helpers::applyActivation<activation, TM, TK, TN>(Cs, As);
+                // activate
+                applyActivation<output_activation, TM, TK>(Cs, As);
 
+                // save to HBM
                 if constexpr (!INFERENCE)
-                    helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::uncached>(
-                        As, intermediate_output.GetElementPointer(layer + 1, loc_row_offset,
-                                                                  0) /*+ (layer + 1) * M * WIDTH + layer_offset_A*/);
-            }
-
-            // generate output, i.e. last GEMM
-            Cs = static_cast<Tc>(0);
-
-            helpers::MAD<TM, TK, TN>(As, weights.GetMatrixPointer(n_hidden_layers), Cs);
-
-            // activate
-            helpers::applyActivation<output_activation, TM, TK, TN>(Cs, As);
-
-            // save to HBM
-            if constexpr (!INFERENCE)
-                helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::write_back>(
-                    As,
-                    intermediate_output.GetElementPointer(n_hidden_layers + 1, loc_row_offset,
-                                                          0) /*+ (n_hidden_layers + 1) * M * WIDTH + layer_offset_A*/);
-            else if constexpr (INFERENCE) // storing at the beginning since no intermediate results
-                helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::write_back>(
-                    As, intermediate_output.GetElementPointer(0, loc_row_offset, 0));
+                    storeRow<TM, TK, cache_hint::uncached, cache_hint::write_back>(
+                        As, intermediate_output.GetElementPointer(
+                                n_hidden_layers + 1, loc_row_offset,
+                                0) /*+ (n_hidden_layers + 1) * M * WIDTH + layer_offset_A*/);
+                else if constexpr (INFERENCE) // storing at the beginning since no intermediate results
+                    storeRow<TM, TK, cache_hint::uncached, cache_hint::write_back>(
+                        As, intermediate_output.GetElementPointer(0, loc_row_offset, 0));
+            });
         });
-    });
 
-    return {e};
+        return {e};
+    }
+};
+
+template <typename T, int WIDTH, int TN, int INPUT_WIDTH, int OUTPUT_WIDTH, Activation ACT>
+std::unique_ptr<Kernels<T>> createKernels_helper3(Activation out_act) {
+    switch (out_act) {
+    case Activation::None:
+        return std::make_unique<EsimdKernels<T, INPUT_WIDTH, WIDTH, OUTPUT_WIDTH, ACT, Activation::None, TN>>();
+        break;
+    default:
+        throw std::invalid_argument("Invalid output activation");
+    }
 }
 
-template <typename T, typename Tc, int INPUT_WIDTH, int WIDTH, int OUTPUT_WIDTH, Activation activation,
-          Activation output_activation, size_t TN>
-std::vector<sycl::event> backward_impl_general(sycl::queue &q, const DeviceMatricesView<T> &weights,
-                                               const DeviceMatrixView<T> &input, DeviceMatricesView<T> output,
-                                               DeviceMatricesView<T> intermediate_backward,
-                                               const DeviceMatricesView<T> &intermediate_forward,
-                                               const int n_hidden_layers, const std::vector<sycl::event> &deps) {
-
-    // make sure there is no remainder and no out of bounds accesses
-    static_assert(WIDTH % TN == 0);
-    // only works for input_width == width == output_width
-    static_assert(INPUT_WIDTH == WIDTH);
-    static_assert(OUTPUT_WIDTH == WIDTH);
-    const size_t M = input.m();
-
-    constexpr int SG_SIZE = TN;
-    // this may be adjusted in the future in dpendence of M
-    constexpr size_t TM = 8;
-    assert(M % TM == 0);
-    int ITEMS_IN_WG = std::min<int>(M / TM, 64);
-    /// TODO: say we use M/TM = 65. Then this results in WG=1 SG and too many slm load of B.
-    /// Better: Use max size WGs and return those which are larger than M/TM. But
-    /// requires special care for the loading of B
-    while (M / TM % ITEMS_IN_WG != 0) {
-        ITEMS_IN_WG--;
+template <typename T, int WIDTH, int TN, int INPUT_WIDTH, int OUTPUT_WIDTH>
+std::unique_ptr<Kernels<T>> createKernels_helper2(Activation act, Activation out_act) {
+    switch (act) {
+    case Activation::ReLU:
+        return createKernels_helper3<T, WIDTH, TN, INPUT_WIDTH, OUTPUT_WIDTH, Activation::ReLU>(out_act);
+        break;
+    case Activation::None:
+        return createKernels_helper3<T, WIDTH, TN, INPUT_WIDTH, OUTPUT_WIDTH, Activation::None>(out_act);
+        break;
+    default:
+        throw std::invalid_argument("Invalid activation");
     }
-    if (ITEMS_IN_WG <= 0) throw std::logic_error("Number of SGS per WG cannot be less than 1");
+}
 
-    assert(M % TM == 0);
-    // TK depends on the datatype T
-    constexpr size_t TK = 8 * std::min<size_t>(8, 32 / (8 * sizeof(T)));
+template <typename T, int WIDTH, int TN, int INPUT_WIDTH>
+std::unique_ptr<Kernels<T>> createKernels_helper1(const int output_width, Activation act, Activation out_act) {
 
-    auto e = q.submit([&](sycl::handler &cgh) {
-        cgh.depends_on(deps);
+    return createKernels_helper2<T, WIDTH, TN, INPUT_WIDTH, WIDTH>(act, out_act);
+    // switch (output_width) {
+    // case 16:
+    //     return createKernels_helper2<T, Tc, WIDTH, TN, INPUT_WIDTH, 16>(act, out_act);
+    //     break;
+    // case 32:
+    //     return createKernels_helper2<T, Tc, WIDTH, TN, INPUT_WIDTH, 32>(act, out_act);
+    //     break;
+    // case 64:
+    //     return createKernels_helper2<T, Tc, WIDTH, TN, INPUT_WIDTH, 64>(act, out_act);
+    //     break;
+    // case 128:
+    //     return createKernels_helper2<T, Tc, WIDTH, TN, INPUT_WIDTH, 128>(act, out_act);
+    //     break;
+    // default:
+    //     throw std::invalid_argument("Invalid output_width");
+    // }
+}
 
-        cgh.parallel_for(sycl::nd_range<1>(M / TM, ITEMS_IN_WG), [=](sycl::nd_item<1> item) SYCL_ESIMD_KERNEL {
-            const size_t loc_row_offset = item.get_global_linear_id() * TM;
+template <typename T, int WIDTH, int TN>
+std::unique_ptr<Kernels<T>> createKernels(const int input_width, const int output_width, Activation act,
+                                          Activation out_act) {
+    // temporarily use this
+    return createKernels_helper1<T, WIDTH, TN, WIDTH>(output_width, act, out_act);
 
-            simd<T, TM * WIDTH> As;
-            helpers::loadRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::uncached>(
-                input.GetPointer(loc_row_offset, 0), As);
-
-            // store backward activated input to the last intermediate output
-            // note that output_activation == ReLU does not need any work since that means
-            // forward >= 0
-            if constexpr (output_activation != Activation::None && output_activation != Activation::ReLU) {
-                // helpers::applyBackwardActivation<output_activation, TM, WIDTH>(
-                //     sg, A_sg_start, forward_loc + layer_offset_A + M * WIDTH, A_sg_start);
-            }
-
-            // store activated slm in intermediate output
-            helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::uncached>(
-                As, intermediate_backward.GetElementPointer(n_hidden_layers, loc_row_offset, 0));
-            simd<Tc, TM * WIDTH> Cs;
-            // we are also doing output->last hidden layer
-            for (int layer = n_hidden_layers; layer > 0; layer--) {
-                Cs = static_cast<Tc>(0);
-
-                helpers::MAD<TM, TK, TN>(As, weights.GetMatrixPointer(layer), Cs);
-
-                // TODO: Apply correct backward activation
-                helpers::applyActivation<Activation::None, TM, TK, TN>(Cs, As);
-
-                helpers::storeRow<TM, TK, WIDTH, cache_hint::uncached, cache_hint::uncached>(
-                    As, intermediate_backward.GetElementPointer(layer - 1, loc_row_offset, 0));
-            }
-        });
-    });
-
-    // NOTE: MKL gemm_batch is slower.
-    std::vector<sycl::event> events(n_hidden_layers + 1);
-    if constexpr (std::is_same<T, sycl::ext::oneapi::bfloat16>::value) { // need to cast to onemkls bf16 type.
-        for (int iter = 0; iter < n_hidden_layers + 1; iter++) {
-            events[iter] = oneapi::mkl::blas::row_major::gemm(
-                q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M, 1.0f,
-                reinterpret_cast<const oneapi::mkl::bfloat16 *>(intermediate_forward.GetMatrixPointer(iter)), WIDTH,
-                reinterpret_cast<oneapi::mkl::bfloat16 *>(intermediate_backward.GetMatrixPointer(iter)), WIDTH, 1.0f,
-                reinterpret_cast<oneapi::mkl::bfloat16 *>(output.GetMatrixPointer(iter)), WIDTH, {e});
-        }
-    } else if constexpr (!std::is_same<T, sycl::ext::oneapi::bfloat16>::value) {
-        for (int iter = 0; iter < n_hidden_layers + 1; iter++) {
-            events[iter] = oneapi::mkl::blas::row_major::gemm(
-                q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M, 1.0,
-                intermediate_forward.GetMatrixPointer(iter), WIDTH, intermediate_backward.GetMatrixPointer(iter), WIDTH,
-                1.0, output.GetMatrixPointer(iter), WIDTH, {e});
-        }
-    }
-    return events;
+    // switch (input_width) {
+    // case 16:
+    //     return createKernels_helper1<T, Tc, WIDTH, TN, 16>(output_width, act, out_act);
+    //     break;
+    // case 32:
+    //     return createKernels_helper1<T, Tc, WIDTH, TN, 32>(output_width, act, out_act);
+    //     break;
+    // case 64:
+    //     return createKernels_helper1<T, Tc, WIDTH, TN, 64>(output_width, act, out_act);
+    //     break;
+    // case 128:
+    //     return createKernels_helper1<T, Tc, WIDTH, TN, 128>(output_width, act, out_act);
+    //     break;
+    // default:
+    //     throw std::invalid_argument("Invalid input_width");
+    // }
 }
 
 } // namespace esimd
