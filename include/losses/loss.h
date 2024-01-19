@@ -1,5 +1,14 @@
-// Copyright (C) 2023 Intel Corporation
-// SPDX-License-Identifier: BSD-3-Clause
+/**
+ * @file loss.h
+ * @author Christoph Bauinger (christoph.bauinger@intel.com)
+ * @brief Implementation of abstract loss base class.
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #pragma once
 

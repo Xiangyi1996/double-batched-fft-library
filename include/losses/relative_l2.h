@@ -1,3 +1,16 @@
+/**
+ * @file relative_l2.h
+ * @author Christoph Bauinger (christoph.bauinger@intel.com)
+ * @brief Implementation of relative L2 loss class.
+ * TODO: actually implement it.
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #pragma once
 
 #include "loss.h"

@@ -1,3 +1,16 @@
+/**
+ * @file DeviceMem.h
+ * @author Christoph Bauinger (christoph.bauinger@intel.com)
+ * @brief Implements a class which holds device memory. Not really required anymore and should be removed in the future
+ * in favor of DeviceMatrix.
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #pragma once
 
 #include <level_zero/ze_api.h>
@@ -12,11 +25,16 @@
 #include <vector>
 
 #include "common.h"
-#include "common_host.h"
 
 using namespace sycl;
 
-// A templated class for managing device memory
+/**
+ * @brief Class which manages device memory. Cannot be used on the device.
+ *
+ * TODO: remove in favor of DeviceMatrix/DeviceMatrices. Consolidate with DeviceMatrix classes.
+ *
+ * @tparam T
+ */
 template <typename T> class DeviceMem {
   private:
     size_t m_size;

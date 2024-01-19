@@ -9,7 +9,6 @@ find_package(oneDPL REQUIRED)
 
 set(SOURCES
     common.cpp
-    common_host.cpp
 )
 
 add_library(common ${SOURCES})

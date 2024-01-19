@@ -1,3 +1,15 @@
+/**
+ * @file doctest_devicemem.cpp
+ * @author Christoph Bauinger (christoph.bauinger@intel.com)
+ * @brief File with tests of the DeviceMem class.
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #include "DeviceMatrix.h"
 #include "DeviceMem.h"
 #include "doctest/doctest.h"

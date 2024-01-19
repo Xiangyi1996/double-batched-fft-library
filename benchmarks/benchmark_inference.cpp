@@ -1,6 +1,14 @@
-// Copyright (C) 2023 Intel Corporation
-// SPDX-License-Identifier: BSD-3-Clause
-
+/**
+ * @file benchmark_inference.cpp
+ * @author Christoph Bauinger (christoph.bauinger@intel.com)
+ * @brief inference benchmarks. Implements a main which runs several inference cases.
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 #include <iostream>
 #include <sycl/sycl.hpp>
 

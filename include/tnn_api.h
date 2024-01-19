@@ -1,4 +1,16 @@
-#pragma once // Use pragma once for include guards
+/**
+ * @file tnn_api.h
+ * @author Kai Yuan
+ * @brief
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+#pragma once
 
 #include <torch/extension.h>
 #include <torch/script.h>
@@ -13,7 +25,6 @@
 
 #include "SwiftNetMLP.h"
 #include "common.h"
-#include "common_host.h"
 #include "encoding.h"
 #include "network_with_encodings.h"
 #include "oneapi/mkl.hpp"

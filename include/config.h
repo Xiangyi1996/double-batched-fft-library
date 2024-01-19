@@ -1,3 +1,15 @@
+/**
+ * @file config.h
+ * @author Kai Yuan
+ * @brief Implementation of I do not even know what.
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #pragma once
 
 #include "L1.h"

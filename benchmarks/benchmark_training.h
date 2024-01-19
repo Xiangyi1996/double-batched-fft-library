@@ -1,5 +1,15 @@
-// Copyright (C) 2023 Intel Corporation
-// SPDX-License-Identifier: BSD-3-Clause
+/**
+ * @file benchmark_training.h
+ * @author Christoph Bauinger (christoph.bauinger@intel.com)
+ * @brief Implementation of a templated benchmark training function for tests.
+ * TODO: implement this as a class which is derived from a benchmark base class.
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #pragma once
 
@@ -10,7 +20,6 @@
 #include "SwiftNetMLP.h"
 #include "common.h"
 #include "common_benchmarks.h"
-#include "common_host.h"
 #include "mpi.h"
 #include "result_check.h"
 #include "trainer.h"

@@ -22,6 +22,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/**
+ * @brief automatically translated code from tiny-cuda-nn using Intel's doct tool
+ *
+ */
+
+// Original cuda file:
 /** @file   vec.h
  *  @author Thomas Müller, NVIDIA
  *  @brief  Tiny vector / matrix / quaternion implementation.

@@ -1,3 +1,17 @@
+/**
+ * @file common_device.h
+ * @author Christoph Bauinger (christoph.bauinger@intel.com)
+ * @brief File which includes device functions.
+ * Currently this file include mostly functions required in the grid encoding.
+ * Those functions should be moved into the grid encoding in the near future.
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #pragma once
 
 #include "common.h"
@@ -6,11 +20,6 @@
 #include <sycl/sycl.hpp>
 
 inline float logistic(const float x) { return 1.0f / (1.0f + sycl::exp(-x)); }
-
-template <typename V> struct VectorFragment {
-    static const uint32_t num_elements = V::size();
-    V x;
-};
 
 // Swap this to get rid of onedpl
 inline float random_val(uint32_t seed, uint32_t idx) {

@@ -1,3 +1,15 @@
+/**
+ * @file SwiftNetMLP.h
+ * @author Christoph Bauinger (christoph.bauinger@intel.com)
+ * @brief Implementation of a fused MLP class.
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #pragma once
 
 #include <CL/sycl.hpp>
@@ -194,6 +206,4 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
     Activation m_activation;
     Activation m_output_activation;
     std::unique_ptr<Kernels<T>> kernels_;
-
-    
 };

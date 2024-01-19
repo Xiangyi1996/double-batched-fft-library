@@ -1,5 +1,14 @@
-// Copyright (C) 2023 Intel Corporation
-// SPDX-License-Identifier: BSD-3-Clause
+/**
+ * @file doctest_network_with_encodings.cpp
+ * @author Christoph Bauinger (christoph.bauinger@intel.com)
+ * @brief Tests for the network with encodings class.
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #include <cmath>
 #include <iostream>
@@ -17,7 +26,6 @@ using tinydpcppnn::encodings::grid::GridEncoding;
 
 /// Function which applies a grid encoding to a R2 vector, resulting in a vector of size
 /// network_input_width, then applies the network and the output is the network_output_width
-// ATTENTION: currently only works for WIDTH=64
 template <typename T, int WIDTH = 64> void test_network_with_encoding(sycl::queue &q) {
 
     static_assert(WIDTH == 64);

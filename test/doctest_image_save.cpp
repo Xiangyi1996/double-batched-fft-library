@@ -1,8 +1,17 @@
+/**
+ * @file doctest_image_save.cpp
+ * @author Kai Yuan
+ * @brief File which tests the image save functionalities.
+ * TODO: put this either together with results check or consolidate with common.
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #include "doctest/doctest.h"
-// #include <cstdlib>
-// #include <ctime>
-// #include <fstream>
-// #include <iostream>
 #include "result_check.h"
 void generateRandomNoiseImage(int width, int height, std::vector<unsigned char> &image) {
     // Seed the random number generator

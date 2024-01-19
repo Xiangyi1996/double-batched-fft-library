@@ -1,3 +1,15 @@
+/**
+ * @file doctest_devicematrix.cpp
+ * @author Christoph Bauinger (christoph.bauinger@intel.com)
+ * @brief File with tests of the DeviceMatrix, DeviceMatrices, and corresponding view classes.
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #include "DeviceMatrix.h"
 #include "doctest/doctest.h"
 

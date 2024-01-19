@@ -1,10 +1,20 @@
+/**
+ * @file identity.h
+ * @author Christoph Bauinger (christoph.bauinger@intel.com)
+ * @brief Implementaiton of identity encoding class.
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #pragma once
 
 #include "DeviceMatrix.h"
 #include "common.h"
 #include "common_device.h"
-#include "common_host.h"
 #include "encoding.h"
 #include <stdint.h>
 

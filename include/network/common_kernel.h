@@ -1,3 +1,15 @@
+/**
+ * @file common_kernel.h
+ * @author Christoph Bauinger (christoph.bauinger@intel.com)
+ * @brief Base class for all the kernel implementations.
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #pragma once
 
 #include <sycl/sycl.hpp>

@@ -1,44 +1,20 @@
-/*
- * Copyright (c) 2020-2023, NVIDIA CORPORATION.  All rights reserved.
+/**
+ * @file grid.h
+ * @author Christoph Bauinger (christoph.bauinger@intel.com)
+ * @brief Derived, templated grid encoding class with creation functions for all grid parameters.
+ * @version 0.1
+ * @date 2024-01-19
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright notice,
- * this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- *     * Neither the name of the NVIDIA CORPORATION nor the names of its
- * contributors may be used to endorse or promote products derived from this
- * software without specific prior written permission.
+ * Copyright (c) 2024 Intel Corporation
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL NVIDIA CORPORATION BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TOR
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/** @file   grid.h
- *  @author Thomas Müller, NVIDIA & Alex Evans, NVIDIA & Jianfei Guo, Shanghai
- * AI Lab
- *  @brief  Trainable hierarchy of N-D grids of floating point values.
- *          The grids can be backed by dense memory, tiled memory, or by hash
- * tables.
- */
-
-#ifndef TINYNN_ENCODINGS_GRID_H
-#define TINYNN_ENCODINGS_GRID_H
+#pragma once
 
 #include "DeviceMem.h"
 #include "common.h"
 #include "common_device.h"
-#include "common_host.h"
 #include "encoding.h"
 #include "grid_interface.h"
 #include "vec.h"
@@ -112,8 +88,7 @@ void kernel_grid(const uint32_t num_elements, const uint32_t num_grid_features, 
     auto grid_val = [&](const tnn::uvec<N_POS_DIMS> &local_pos) {
         const uint32_t index =
             grid_index<N_POS_DIMS, HASH_TYPE>(grid_type, hashmap_size, resolution, local_pos) * N_FEATURES_PER_LEVEL;
-        return *(tnn::tvec < T, N_FEATURES_PER_LEVEL,
-                 PARAMS_ALIGNED ? sizeof(T) * N_FEATURES_PER_LEVEL : sizeof(T) > *)&grid[index];
+        return *(tnn::tvec<T, N_FEATURES_PER_LEVEL, sizeof(T) * N_FEATURES_PER_LEVEL> *)&grid[index];
     };
 
     if (interpolation_type == InterpolationType::Nearest) {
@@ -123,7 +98,7 @@ void kernel_grid(const uint32_t num_elements, const uint32_t num_grid_features, 
         }
     } else {
         // N-linear interpolation
-        tnn::tvec<T, N_FEATURES_PER_LEVEL, PARAMS_ALIGNED ? sizeof(T) * N_FEATURES_PER_LEVEL : sizeof(T)> result((T)0);
+        tnn::tvec<T, N_FEATURES_PER_LEVEL, sizeof(T) * N_FEATURES_PER_LEVEL> result((T)0);
 
         for (uint32_t idx = 0; idx < (1 << N_POS_DIMS); ++idx) {
             float weight = 1.0f;
@@ -581,8 +556,7 @@ class GridEncodingTemplated : public GridEncoding<T> {
             else if (grid_type == GridType::Hash)
                 params_in_level = std::min(params_in_level, (1u << log2_hashmap_size));
             else
-                throw std::runtime_error{
-                    tinydpcppnn::format("GridEncoding: invalid grid type {}", to_string(grid_type))};
+                throw std::runtime_error{tinydpcppnn::format("GridEncoding: invalid grid type {}", (int)grid_type)};
 
             m_offset_table.data[i] = offset;
             offset += params_in_level;
@@ -879,18 +853,18 @@ class GridEncodingTemplated : public GridEncoding<T> {
     json hyperparams() const // TODO: override
     {
         json result = {
-            {"otype", "Grid"},
-            {"type", to_string(m_grid_type)},
-            {"n_levels", m_n_levels},
-            {"n_features_per_level", N_FEATURES_PER_LEVEL},
-            {"base_resolution", m_base_resolution},
-            {"per_level_scale", m_per_level_scale},
-            {"interpolation", to_string(m_interpolation_type)},
-            {"hash", to_string(HASH_TYPE)},
+            {EncodingParams::ENCODING, EncodingNames::GRID},
+            {EncodingParams::GRID_TYPE, m_grid_type},
+            {EncodingParams::N_LEVELS, m_n_levels},
+            {EncodingParams::N_FEATURES_PER_LEVEL, N_FEATURES_PER_LEVEL},
+            {EncodingParams::BASE_RESOLUTION, m_base_resolution},
+            {EncodingParams::PER_LEVEL_SCALE, m_per_level_scale},
+            {EncodingParams::INTERPOLATION_METHOD, m_interpolation_type},
+            {EncodingParams::HASH, HASH_TYPE},
         };
 
         if (m_grid_type == GridType::Hash) {
-            result["log2_hashmap_size"] = m_log2_hashmap_size;
+            result[EncodingParams::LOG2_HASHMAP_SIZE] = m_log2_hashmap_size;
         }
 
         return result;
@@ -1000,5 +974,3 @@ template <typename T> std::shared_ptr<GridEncoding<T>> create_grid_encoding(cons
 } // namespace grid
 } // namespace encodings
 } // namespace tinydpcppnn
-
-#endif // Include guard.

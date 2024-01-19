@@ -1,17 +1,15 @@
-// Copyright (C) 2023 Intel Corporation
-// SPDX-License-Identifier: BSD-3-Clause
-
-// This file lists all the inference, forward, backward and fused (forward+backw)
-// functions we have.
-//
-// In general, there should always be one 'general' implementation which
-// ignores performance and then specialized implementations which are optimized
-// for their use case.
-
-// The netweork forward_impl, inference_impl, backward_impl functions will then
-// decide at runtime which one to choose. May do an abstraction around this?
-// The netweok *_impl functions may also have template specializations to
-// make the choice quicker.
+/**
+ * @file kernel.h
+ * @author Christoph Bauinger (christoph.bauinger@intel.com)
+ * @brief Old SYCL joint_matrix kenrel function implementation.
+ * TODO: remove this.
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #pragma once
 

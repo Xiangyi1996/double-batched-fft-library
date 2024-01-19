@@ -1,3 +1,15 @@
+/**
+ * @file tnn_api.cpp
+ * @author Kai Yuan
+ * @brief Definition of tnn_api functions.
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #include "tnn_api.h"
 
 #include "Encodings/identity.h"

@@ -1,3 +1,16 @@
+/**
+ * @file DeviceMatrix.h
+ * @author Christoph Bauinger (christoph.bauinger@intel.com)
+ * @brief Implementations of host and device representations of a single matrix
+ * and multiple matrices.
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #pragma once
 
 #include "common.h"
@@ -9,11 +22,12 @@
 
 enum class MatrixLayout { RowMajor = 0, ColumnMajor = 1 };
 
-// view class which can even be used on the device,
-// does not own any more
-// is always associated with a DeviceMatrix.
-// The associated DeviceMatrix owns the memory
-// if the associated DeviceMatrix is deleted, behaviour of DeviceMatrixView is undefined
+/**
+ * @brief View class for a single matrix which does not own any memory.
+ * This can be used on the device if the pointer ptr is a device pointer.
+ *
+ * @tparam T
+ */
 template <typename T> class DeviceMatrixView {
   public:
     DeviceMatrixView() = delete;
@@ -41,10 +55,13 @@ template <typename T> class DeviceMatrixView {
     T *const ptr_;
 };
 
-/// Class which gives a view into device memory classes
-/// These are meant to be used on the deivce.
-/// Thus, they cannot utilize inheritance and have to be
-/// trivially copyable.
+/**
+ * @brief A view class which can be used on the device and represents multiple
+ * matrices. One input matrix, one output matrix and n_matrices-2 middle matrices,
+ * Each of the three types can have different dimensions.
+ *
+ * @tparam T
+ */
 template <typename T> class DeviceMatricesView {
   public:
     DeviceMatricesView() = delete;
@@ -84,6 +101,15 @@ template <typename T> class DeviceMatricesView {
     T *const ptr_;
 };
 
+/**
+ * @brief Class which represents a matrix on the device.
+ * This class owns memory and the queue. It cannot be used directly on the device
+ * but can only be accessed on the device through a DeviceMatrixView or DeviceMatricesView
+ * class.
+ *
+ * @tparam T
+ * @tparam _layout
+ */
 template <typename T, MatrixLayout _layout = MatrixLayout::RowMajor> class DeviceMatrix {
   public:
     // Owning its memory as an allocation from a stream's memory arena
@@ -223,10 +249,15 @@ template <typename T, MatrixLayout _layout = MatrixLayout::RowMajor> class Devic
     T *m_data;
 };
 
-/// Class which represents a vector of matrices.
-/// This is a host class which does not work on the GPU
-/// But it provides interfaces to generate pointers to the MatrixView classes which
-/// are meant to be used on the GPU
+/**
+ * @brief Class which represents multiple device matrices as required by our
+ * MLP algorithms. This class owns the device memory and cannot be used on the device directly.
+ * Usage on the device has to be through the DeviceMatrixView and DeviceMatricesView classes.
+ * TODO: consolidate this class with DeviceMatrix class and DeviceMem class, they are all just
+ * containers which hold and manage device memory.
+ *
+ * @tparam T
+ */
 template <typename T> class DeviceMatrices {
 
   public:

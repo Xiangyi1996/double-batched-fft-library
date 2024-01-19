@@ -1,3 +1,15 @@
+/**
+ * @file encoding.h
+ * @author Christoph Bauinger (christoph.bauinger@intel.com)
+ * @brief Implementation of an absract base class for the encodings.
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #pragma once
 
 #include <common.h>
@@ -6,7 +18,7 @@
 #include <sycl/sycl.hpp>
 
 #include "DeviceMatrix.h"
-#include "common_host.h"
+#include "common.h"
 #include "json.hpp"
 
 using json = nlohmann::json;

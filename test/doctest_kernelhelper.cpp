@@ -1,5 +1,15 @@
-// Copyright (C) 2023 Intel Corporation
-// SPDX-License-Identifier: BSD-3-Clause
+/**
+ * @file doctest_kernelhelper.cpp
+ * @author Christoph Bauinger (christoph.bauinger@intel.com)
+ * @brief File which implements tests of the SYCL joint_matrix helper functions.
+ * TODO: update since all of the joint matrix stuff is outdated.
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #include "doctest/doctest.h"
 

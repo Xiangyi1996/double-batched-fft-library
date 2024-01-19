@@ -1,5 +1,14 @@
-// Copyright (C) 2023 Intel Corporation
-// SPDX-License-Identifier: BSD-3-Clause
+/**
+ * @file benchmark_training.cpp
+ * @author Christoph Bauinger (christoph.bauinger@intel.com)
+ * @brief Implementation of a main file for trainign benchmarks. Runs multiple training test cases.
+ * @version 0.1
+ * @date 2024-01-19
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 
 #include <iostream>
 #include <sycl/sycl.hpp>
