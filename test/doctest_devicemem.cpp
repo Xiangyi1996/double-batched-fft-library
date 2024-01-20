@@ -195,18 +195,10 @@ TEST_CASE("Zero Padding Input Test") {
 
     std::vector<float> result(dm.size());
     q.memcpy(result.data(), dm.data(), sizeof(float) * result.size()).wait();
-    // DeviceMatrix.print(0);
-    // DeviceMatrix.print(1);
-    // Zero pad the input
-    // for (int i = 0; i < out.size(); i++) {
-    //     std::cout << i << ": " << out[i] << std::endl;
-    // }
+
     int input_width = 2;
     dm.zero_pad_input(input_width, input_width_padded, output_width_padded, q);
     q.memcpy(result.data(), dm.data(), sizeof(float) * result.size()).wait();
-    // for (int i = 0; i < out.size(); i++) {
-    //     std::cout << i << ": " << out[i] << std::endl;
-    // }
 
     // Check the zero padding of the input
     CHECK_EQ(result[0], 1);
@@ -251,9 +243,7 @@ TEST_CASE("Zero pad output") {
     q.memcpy(result.data(), dm.data() + net_width * input_width + (net_width * net_width) * n_hidden_matrices,
              sizeof(float) * result.size())
         .wait();
-    // for (int i = 0; i < result.size(); i++) {
-    //     std::cout << i << ": " << result[i] << std::endl;
-    // }
+
     // Check the zero padding of the output
     CHECK_EQ(result[0], 1);
     CHECK_EQ(result[1], 1);

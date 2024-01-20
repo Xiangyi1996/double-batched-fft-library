@@ -26,12 +26,8 @@ using tinydpcppnn::encodings::grid::GridEncoding;
 
 /// Function which applies a grid encoding to a R2 vector, resulting in a vector of size
 /// network_input_width, then applies the network and the output is the network_output_width
-<<<<<<< HEAD
-template <typename T, int WIDTH = 64> void test_network_with_encoding(sycl::queue &q) {
-=======
 // ATTENTION: currently only works for WIDTH=64
 template <typename T, int WIDTH = 64> void test_network_with_encoding_grid(sycl::queue &q) {
->>>>>>> ca5ace6 (Added encoding tests)
 
     static_assert(WIDTH == 64);
     constexpr int n_hidden_layers = 1;
@@ -94,12 +90,6 @@ template <typename T, int WIDTH = 64> void test_network_with_encoding_grid(sycl:
     CHECK(areVectorsWithinTolerance(output_network.copy_to_host(), out_ref_cut, 1.0e-3));
 }
 
-<<<<<<< HEAD
-TEST_CASE("tinydpcppnn::network_with_encoding step-by-step") {
-    sycl::queue q(gpu_selector_v);
-    test_network_with_encoding<bf16, 64>(q);
-}
-
 TEST_CASE("tinydpcppnn::network_with_encoding class") {
     sycl::queue q(gpu_selector_v);
     constexpr int n_hidden_layers = 1;
@@ -137,7 +127,7 @@ TEST_CASE("tinydpcppnn::network_with_encoding class") {
 
     CHECK(isVectorWithinTolerance(output_network.copy_to_host(),
                                   input_val * std::pow(WIDTH * (double)weight_val, n_hidden_layers + 1), 1.0e-3));
-=======
+}
 template <typename T, int WIDTH = 64>
 void test_network_with_encoding_identity_inference(sycl::queue &q,
                                                    std::shared_ptr<NetworkWithEncoding<T>> network_with_encoding) {
@@ -154,20 +144,16 @@ void test_network_with_encoding_identity_inference(sycl::queue &q,
 
     DeviceMatrix<float> input_encoding(batch_size, encoding_input_width, q);
     input_encoding.fill(input_val).wait();
-    std::cout << "Input encoding init: " << std::endl;
     input_encoding.print();
 
     DeviceMatrix<T> output_encoding(batch_size, encoding_output_width, q);
     output_encoding.fill(0.0f).wait();
-    std::cout << "Output encoding init: " << std::endl;
     output_encoding.print();
     DeviceMatrix<T> output_network(batch_size, output_width, q);
 
     network_with_encoding->inference(input_encoding, output_encoding, output_network, {});
-    std::cout << "Output encoding after: " << std::endl;
     output_encoding.print();
 
-    std::cout << "Output network after: " << std::endl;
     output_network.print();
 
     q.wait();
@@ -228,16 +214,13 @@ test_create_network_with_encoding_as_shared_ptr(sycl::queue &q, const int encodi
 }
 TEST_CASE("tinydpcppnn::network_with_encoding step-by-step") {
     sycl::queue q(gpu_selector_v);
-    // SUBCASE("Create network_with_encoding for grid") {
-    // test_network_with_encoding_grid<bf16, 64>(q);
-    // }
-    // SUBCASE("Create network_with_encoding as shared_ptr") {
-    //     const int encoding_input_width = 64;
-    //     std::unordered_map<std::string, std::string> encoding_config = {
-    //         {"n_dims_to_encode", std::to_string(encoding_input_width)}, {"scale", "1.0"}, {"offset", "0.0"}};
-    //     test_create_network_with_encoding_as_shared_ptr<bf16, 64>(q, encoding_input_width, "Identity",
-    //     encoding_config);
-    // }
+    SUBCASE("Create network_with_encoding for grid") { test_network_with_encoding_grid<bf16, 64>(q); }
+    SUBCASE("Create network_with_encoding as shared_ptr") {
+        const int encoding_input_width = 64;
+        std::unordered_map<std::string, std::string> encoding_config = {
+            {"n_dims_to_encode", std::to_string(encoding_input_width)}, {"scale", "1.0"}, {"offset", "0.0"}};
+        test_create_network_with_encoding_as_shared_ptr<bf16, 64>(q, encoding_input_width, "Identity", encoding_config);
+    }
     SUBCASE("Create network_with_encoding as obj") { test_create_network_with_encoding_as_object<bf16, 64>(q); }
     SUBCASE("Identity encoding inference") {
         auto network_with_encoding = test_create_network_with_encoding_as_object<bf16, 64>(q);
@@ -245,5 +228,4 @@ TEST_CASE("tinydpcppnn::network_with_encoding step-by-step") {
     }
     // SUBCASE("Identity encoding forward") { test_network_with_encoding_identity<bf16, 64>(q); }
     // SUBCASE("Identity encoding backward") { test_network_with_encoding_identity<bf16, 64>(q); }
->>>>>>> ca5ace6 (Added encoding tests)
 }

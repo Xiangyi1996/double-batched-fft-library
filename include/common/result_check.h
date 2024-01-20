@@ -61,7 +61,9 @@ bool isVectorWithinTolerance(const std::vector<Tval> &value, const Ttarget targe
             count++;
         }
     }
-    std::cout << count << "/" << value.size() << " are wrong. Max diff = " << max_diff << std::endl;
+    if (count) {
+        std::cout << count << "/" << value.size() << " are wrong. Max diff = " << max_diff << std::endl;
+    }
 
     return is_same;
 }
@@ -82,7 +84,9 @@ bool areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector
             count++;
         }
     }
-    std::cout << count << "/" << target.size() << " are wrong. Max diff = " << max_diff << std::endl;
+    if (count) {
+        std::cout << count << "/" << target.size() << " are wrong. Max diff = " << max_diff << std::endl;
+    }
 
     return is_same;
 }

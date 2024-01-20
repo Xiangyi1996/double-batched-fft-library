@@ -80,9 +80,7 @@ void test_encoding_from_loaded_file(const int batch_size, const int input_width,
     // Check if the actual vector is equal to the expected vector within the tolerance
     for (size_t i = 0; i < out.size(); ++i) {
         CHECK(static_cast<float>(out[i]) == doctest::Approx(output_ref[i]).epsilon(epsilon));
-        // std::cout << out[i] << " | " << output_ref[i] << std::endl;
     }
-    // std::cout << std::endl;
 }
 
 TEST_CASE("tinydpcppnn::encoding Identity") {
@@ -118,7 +116,6 @@ TEST_CASE("tinydpcppnn::encoding Identity") {
         // Check if the actual vector is equal to the expected vector within the tolerance
         for (size_t i = 0; i < out.size(); ++i) {
             CHECK(static_cast<float>(in[i]) == doctest::Approx(out[i]).epsilon(epsilon));
-            // std::cout << out[i] << " | " << output_ref[i] << std::endl;
         }
     }
 
