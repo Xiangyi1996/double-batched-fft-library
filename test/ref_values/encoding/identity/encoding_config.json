@@ -1,1 +1,5 @@
-{"otype": "Identity", "scale": 2.0, "offset": 0.1}
+{
+    "otype": "Identity",
+    "scale": 2.0,
+    "offset": 0.1
+}

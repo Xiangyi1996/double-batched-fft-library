@@ -15,7 +15,7 @@ include(CMakeDependentOption)
 
 option(BUILD_TEST "Build tests in 'test' directory" ON)
 option(BUILD_PYBIND "Build pybindings in 'dpcpp_bindings' directory" OFF)
-option(BUILD_BENCHMARK "Build benchmarks in 'benchmark' directory" ON)
+option(BUILD_BENCHMARK "Build benchmarks in 'benchmark' directory" OFF)
 
 message(WARNING "cmake build system is still WIP.")
 

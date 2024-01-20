@@ -913,7 +913,8 @@ std::shared_ptr<GridEncoding<T>> create_grid_encoding_templated_2(const json &en
     }
 
     const uint32_t n_levels = n_features / N_FEATURES_PER_LEVEL;
-    const GridType grid_type = encoding.value(EncodingParams::GRID_TYPE, GridType::Hash);
+    const GridType grid_type = string_to_grid_type(encoding.value(EncodingParams::GRID_TYPE, "Hash"));
+
     const uint32_t base_resolution = encoding.value(EncodingParams::BASE_RESOLUTION, 16u);
 
 #define TCNN_GRID_PARAMS                                                                                               \
@@ -956,7 +957,8 @@ std::shared_ptr<GridEncoding<T>> create_grid_encoding_templated_1(const json &en
 }
 
 template <typename T> std::shared_ptr<GridEncoding<T>> create_grid_encoding(const json &encoding_config) {
-    const HashType hash_type = encoding_config.value(EncodingParams::HASH, HashType::CoherentPrime);
+    const HashType hash_type = string_to_hash_type(encoding_config.value(EncodingParams::HASH, "CoherentPrime"));
+
     switch (hash_type) {
     case HashType::Prime:
         return create_grid_encoding_templated_1<T, HashType::Prime>(encoding_config);

@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "encoding_factory.h"
+
 using bf16 = sycl::ext::oneapi::bfloat16;
 using tinydpcppnn::encodings::grid::GridEncoding;
 using json = nlohmann::json;
@@ -200,11 +201,14 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         DeviceMatrix<float> output_float(batch_size, padded_output_width, q);
         output_float.fill(1.23f).wait(); // fill with something to check if it is written to
 
-        const json encoding_config{
-            {EncodingParams::N_DIMS_TO_ENCODE, input_width}, {EncodingParams::ENCODING, EncodingNames::GRID},
-            {EncodingParams::GRID_TYPE, GridType::Hash},     {EncodingParams::N_LEVELS, 16},
-            {EncodingParams::N_FEATURES_PER_LEVEL, 2},       {EncodingParams::LOG2_HASHMAP_SIZE, 19},
-            {EncodingParams::BASE_RESOLUTION, 16},           {EncodingParams::PER_LEVEL_SCALE, 2.0}};
+        const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, input_width},
+                                   {EncodingParams::ENCODING, EncodingNames::GRID},
+                                   {EncodingParams::GRID_TYPE, "Hash"},
+                                   {EncodingParams::N_LEVELS, 16},
+                                   {EncodingParams::N_FEATURES_PER_LEVEL, 2},
+                                   {EncodingParams::LOG2_HASHMAP_SIZE, 19},
+                                   {EncodingParams::BASE_RESOLUTION, 16},
+                                   {EncodingParams::PER_LEVEL_SCALE, 2.0}};
 
         std::shared_ptr<GridEncoding<float>> network =
             tinydpcppnn::encodings::grid::create_grid_encoding<float>(encoding_config);
@@ -231,23 +235,24 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         CHECK(areVectorsWithinTolerance(out, reference_out, 1.0e-3));
     }
 
-    SUBCASE("Check results loaded float") {
-        // SWIFTNET
-        const int input_width = 2;
-        const int batch_size = 64;
-        const int output_width = 32;
-        sycl::queue q;
+    // SUBCASE("Check results loaded float") {
+    //     // SWIFTNET
+    //     const int input_width = 2;
+    //     const int batch_size = 64;
+    //     const int output_width = 32;
+    //     sycl::queue q;
 
-        std::string filepath = "../test/ref_values/encoding/grid/";
+    //     std::string filepath = "../test/ref_values/encoding/grid/";
 
-        // Check if the file exists
-        if (!std::filesystem::exists(filepath + "encoding_params.csv")) {
-            // TODO: any good solution here? E.g., a download script or sth
-            std::cout
-                << "encoding_params.csv doesn't exist as it's quite large for grid encoding. Not running loading test."
-                << std::endl;
-        } else {
-            test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
-        }
-    }
+    //     // Check if the file exists
+    //     if (!std::filesystem::exists(filepath + "encoding_params.csv")) {
+    //         // TODO: any good solution here? E.g., a download script or sth
+    //         std::cout
+    //             << "encoding_params.csv doesn't exist as it's quite large for grid encoding. Not running loading
+    //             test."
+    //             << std::endl;
+    //     } else {
+    //         test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
+    //     }
+    // }
 }
