@@ -23,7 +23,7 @@ find_package(MPI REQUIRED)
 
 add_library(encodings INTERFACE)
 target_include_directories(encodings INTERFACE "${PROJECT_SOURCE_DIR}/include/encodings/"
-    "${PROJECT_SOURCE_DIR}/include/json/")
+    "${PROJECT_SOURCE_DIR}/extern/json/single_include/nlohmann")
 target_link_libraries(encodings INTERFACE common)
 target_compile_options(encodings INTERFACE -qmkl)
 target_link_options(encodings INTERFACE -qmkl)
