@@ -24,6 +24,64 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 using tinydpcppnn::encodings::grid::GridEncoding;
 using json = nlohmann::json;
 
+template <typename T, int WIDTH>
+std::vector<T> load_from_file(std::string filename, int m_n_hidden_layers, int input_width, int output_width) {
+    // Read each value from the file and set it as a bf16 value in weights matrices
+    std::vector<T> data_vec;
+    std::ifstream file(filename);
+
+    if (!file.is_open()) {
+        std::cerr << "Error opening file: " << filename << std::endl;
+    }
+
+    std::string line;
+    while (std::getline(file, line)) {
+        try {
+            float value = std::stod(line);
+            data_vec.push_back((T)(value));
+        } catch (const std::invalid_argument &e) {
+            std::cerr << "Invalid argument: " << e.what() << std::endl;
+        } catch (const std::out_of_range &e) {
+            std::cerr << "Out of range: " << e.what() << std::endl;
+        }
+    }
+
+    file.close();
+
+    std::vector<T> weights_packed(data_vec.size(), 0.0);
+
+    for (int idx = 0; idx < weights_packed.size(); idx++) {
+        int i = 0;
+        int j = 0;
+        if (idx < input_width * WIDTH) {
+
+            i = idx / WIDTH; // rows
+            j = idx % WIDTH; // cols
+
+            weights_packed[toPackedLayoutCoord(i + j * WIDTH, WIDTH, WIDTH)] = data_vec[idx];
+        } else if ((idx >= input_width * WIDTH) &&
+                   (idx < input_width * WIDTH + (m_n_hidden_layers - 1) * WIDTH * WIDTH)) {
+            int layer = (idx - input_width * WIDTH) / (WIDTH * WIDTH);
+            int mat_offset = (idx - (input_width * WIDTH + layer * WIDTH * WIDTH)) % (WIDTH * WIDTH);
+
+            i = mat_offset / WIDTH; // rows
+            j = mat_offset % WIDTH; // cols
+
+            weights_packed[input_width * WIDTH + layer * WIDTH * WIDTH +
+                           toPackedLayoutCoord(i + j * WIDTH, WIDTH, WIDTH)] = data_vec[idx];
+        } else {
+            int mat_offset =
+                (idx - input_width * WIDTH - (m_n_hidden_layers - 1) * WIDTH * WIDTH) % (WIDTH * output_width);
+            i = mat_offset / WIDTH; // rows
+            j = mat_offset % WIDTH; // cols
+
+            weights_packed[input_width * WIDTH + (m_n_hidden_layers - 1) * WIDTH * WIDTH +
+                           toPackedLayoutCoord(i + j * WIDTH, WIDTH, WIDTH)] = data_vec[idx];
+        }
+    }
+
+    return weights_packed;
+}
 json loadJsonConfig(const std::string &filename) {
     std::ifstream file{filename};
     if (!file) {
@@ -49,8 +107,8 @@ void test_network_with_encoding_loaded(sycl::queue &q, std::string filepath, con
     json encoding_config = loadJsonConfig(filepath + "encoding_config.json");
     encoding_config[EncodingParams::N_DIMS_TO_ENCODE] = encoding_input_width;
 
-    auto Net = create_network_with_encoding<bf16, WIDTH>(q, input_width, unpadded_output_width, n_hidden_layers,
-                                                         Activation::ReLU, Activation::None, encoding_config);
+    auto Net = create_network_with_encoding<T, WIDTH>(q, input_width, unpadded_output_width, n_hidden_layers,
+                                                      Activation::ReLU, Activation::None, encoding_config);
 
     std::vector<T> encoding_params = loadVectorFromCSV<T>(filepath + "encoding_params.csv");
 
@@ -62,10 +120,10 @@ void test_network_with_encoding_loaded(sycl::queue &q, std::string filepath, con
     }
 
     Net->get_encoding()->set_padded_output_width(encoding_output_width);
-    std::vector<T> network_weights_ref = loadVectorFromCSV<T>(filepath + "network_params.csv");
-
+    // std::vector<T> network_weights_ref = loadVectorFromCSV<T>(filepath + "network_params.csv");
+    std::vector<T> network_weights_ref =
+        load_from_file<T, WIDTH>(filepath + "network_params.csv", n_hidden_layers, input_width, output_width);
     Net->get_network()->set_weights_matrices(network_weights_ref);
-
     DeviceMatrix<float> input_encoding(batch_size, encoding_input_width, q);
     std::vector<float> input_encoding_ref = loadVectorFromCSV<float>(filepath + "input_encoding.csv");
     input_encoding.copy_from_host(input_encoding_ref);
@@ -80,13 +138,13 @@ void test_network_with_encoding_loaded(sycl::queue &q, std::string filepath, con
     std::vector<T> output_network_vec(output_network.size());
     std::vector<T> output_encoding_vec(output_encoding.size());
 
-    std::vector<T> network_output_ref = loadVectorFromCSV<T>(filepath + "output_network.csv");
-    output_network.copy_to_host(output_network_vec).wait();
-    CHECK(areVectorsWithinTolerance(output_network_vec, network_output_ref, 2.0e-2));
-
     std::vector<T> encoding_output_ref = loadVectorFromCSV<T>(filepath + "output_encoding.csv");
     output_encoding.copy_to_host(output_encoding_vec).wait();
     CHECK(areVectorsWithinTolerance(output_encoding_vec, encoding_output_ref, 2.0e-2));
+
+    std::vector<T> network_output_ref = loadVectorFromCSV<T>(filepath + "output_network.csv");
+    output_network.copy_to_host(output_network_vec).wait();
+    CHECK(areVectorsWithinTolerance(output_network_vec, network_output_ref, 2.0e-2));
 }
 
 void test_network_with_encoding_identity_inference(sycl::queue &q) {
