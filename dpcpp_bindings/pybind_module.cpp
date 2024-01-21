@@ -15,9 +15,9 @@
     CHECK_XPU(x);                                                                                                      \
     CHECK_CONTIGUOUS(x)
 
-class Module {
+template <typename T> class Module {
   public:
-    Module(tnn::Module *module) : m_module{module} {}
+    Module(tnn::Module<T> *module) : m_module{module} {}
     //   Module() {}
 
     torch::Tensor fwd(torch::Tensor input, torch::Tensor params) {
@@ -52,37 +52,41 @@ class Module {
     void free_memory() { m_module->free_memory(); }
 
   private:
-    std::unique_ptr<tnn::Module> m_module;
+    std::unique_ptr<tnn::Module<bf16>> m_module;
 };
 
-Module create_network_module(const int width, int input_width, int output_width, int n_hidden_layers,
-                             Activation activation, Activation output_activation, std::string device_name) {
-    std::unordered_map<std::string, std::string> encoding_config = {
-        {"n_dims_to_encode", std::to_string(input_width)}, {"scale", "1.0"}, {"offset", "0.0"}};
+// template <typename T>
+// Module<T> create_network_module(const int width, int input_width, int output_width, int n_hidden_layers,
+//                                 Activation activation, Activation output_activation, std::string device_name) {
 
-    tnn::NetworkWithEncodingModule *networkwithencoding_module =
-        new tnn::NetworkWithEncodingModule(width, input_width, output_width, n_hidden_layers, activation,
-                                           output_activation, "Identity", encoding_config, device_name);
-    return Module{networkwithencoding_module};
-}
+//     // Define the parameters for creating IdentityEncoding
+//     const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, input_width},
+//                                {EncodingParams::SCALE, 1.0},
+//                                {EncodingParams::OFFSET, 0.0},
+//                                {EncodingParams::ENCODING, EncodingNames::IDENTITY}};
 
-Module create_encoding_module(int input_width, std::string encoding_name,
-                              const std::unordered_map<std::string, std::string> &encoding_config,
-                              std::string device_name) {
-    tnn::EncodingModule *encoding_module =
-        new tnn::EncodingModule(input_width, encoding_name, encoding_config, device_name);
-    return Module{encoding_module};
-}
+//     tnn::NetworkWithEncodingModule<T> *networkwithencoding_module = new tnn::NetworkWithEncodingModule<T>(
+//         width, input_width, output_width, n_hidden_layers, activation, output_activation, encoding_config,
+//         device_name);
+//     return Module{networkwithencoding_module};
+// }
 
-Module create_networkwithencoding_module(int width, int input_width, int output_width, int n_hidden_layers,
-                                         Activation activation, Activation output_activation, std::string encoding_name,
-                                         const std::unordered_map<std::string, std::string> &encoding_config,
-                                         std::string device_name) {
-    tnn::NetworkWithEncodingModule *networkwithencoding_module =
-        new tnn::NetworkWithEncodingModule(width, input_width, output_width, n_hidden_layers, activation,
-                                           output_activation, encoding_name, encoding_config, device_name);
-    return Module{networkwithencoding_module};
-}
+// template <typename T>
+// Module<T> create_encoding_module(int input_width, std::string encoding_name, const json &encoding_config,
+//                                  std::string device_name) {
+//     tnn::EncodingModule<T> *encoding_module = new tnn::EncodingModule<T>(input_width, encoding_config, device_name);
+//     return Module{encoding_module};
+// }
+
+// template <typename T>
+// Module<T> create_networkwithencoding_module(int width, int input_width, int output_width, int n_hidden_layers,
+//                                             Activation activation, Activation output_activation,
+//                                             const json &encoding_config, std::string device_name) {
+//     tnn::NetworkWithEncodingModule<T> *networkwithencoding_module = new tnn::NetworkWithEncodingModule<T>(
+//         width, input_width, output_width, n_hidden_layers, activation, output_activation, encoding_config,
+//         device_name);
+//     return Module{networkwithencoding_module};
+// }
 
 PYBIND11_MODULE(tiny_nn, m) {
     pybind11::enum_<Activation>(m, "Activation")
@@ -97,16 +101,16 @@ PYBIND11_MODULE(tiny_nn, m) {
         .value("Linear", Activation::None)
         .export_values();
 
-    pybind11::class_<Module>(m, "Module")
-        .def("fwd", &Module::fwd)
-        .def("inference", &Module::inference)
-        .def("bwd", &Module::bwd)
-        .def("initial_params", &Module::initial_params)
-        .def("n_params", &Module::n_params)
-        .def("n_output_dims", &Module::n_output_dims)
-        .def("free_memory", &Module::free_memory);
+    pybind11::class_<Module<bf16>>(m, "Module")
+        .def("fwd", &Module<bf16>::fwd)
+        .def("inference", &Module<bf16>::inference)
+        .def("bwd", &Module<bf16>::bwd)
+        .def("initial_params", &Module<bf16>::initial_params)
+        .def("n_params", &Module<bf16>::n_params)
+        .def("n_output_dims", &Module<bf16>::n_output_dims)
+        .def("free_memory", &Module<bf16>::free_memory);
 
-    m.def("create_network", &create_network_module);
-    m.def("create_encoding", &create_encoding_module);
-    m.def("create_networkwithencoding", &create_networkwithencoding_module);
+    // m.def("create_network", &create_network_module<bf16>);
+    // m.def("create_encoding", &create_encoding_module<bf16>);
+    // m.def("create_networkwithencoding", &create_networkwithencoding_module<bf16>);
 }
