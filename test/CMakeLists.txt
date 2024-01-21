@@ -7,6 +7,11 @@ include(CTest)
 include(${PROJECT_SOURCE_DIR}/extern/doctest/cmake/doctest.cmake)
 include(CommonOptions)
 
+# Pass a preprocessor variable to the C++ code based on the option
+if(USE_REFERENCE_TESTS)
+    message(STATUS "Using downloaded data")
+    add_definitions(-DUSE_REFERENCE_TEST)
+endif()
 
 add_library(test-lib STATIC main.cpp)
 target_include_directories(test-lib PUBLIC ${PROJECT_SOURCE_DIR}/extern)
