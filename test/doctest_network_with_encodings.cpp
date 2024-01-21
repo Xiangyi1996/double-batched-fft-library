@@ -80,9 +80,9 @@ void test_network_with_encoding_loaded(sycl::queue &q, std::string filepath, con
     std::vector<T> output_network_vec(output_network.size());
     std::vector<T> output_encoding_vec(output_encoding.size());
 
-    // std::vector<T> network_output_ref = loadVectorFromCSV<T>(filepath + "output_network.csv");
-    // output_network.copy_to_host(output_network_vec).wait();
-    // CHECK(areVectorsWithinTolerance(output_network_vec, network_output_ref, 2.0e-2));
+    std::vector<T> network_output_ref = loadVectorFromCSV<T>(filepath + "output_network.csv");
+    output_network.copy_to_host(output_network_vec).wait();
+    CHECK(areVectorsWithinTolerance(output_network_vec, network_output_ref, 2.0e-2));
 
     std::vector<T> encoding_output_ref = loadVectorFromCSV<T>(filepath + "output_encoding.csv");
     output_encoding.copy_to_host(output_encoding_vec).wait();
@@ -170,15 +170,24 @@ TEST_CASE("tinydpcppnn::network_with_encoding step-by-step") {
     //     const int batch_size = 128;
     //     const int unpadded_output_width = 1;
     //     const int encoding_input_width = 2;
+    //     test_network_with_encoding_loaded<float, 64>(q, filepath, n_hidden_layers, batch_size, unpadded_output_width,
+    //                                                  encoding_input_width);
+    // }
+    // SUBCASE("Identity encoding inference, loaded data") {
+    //     std::string filepath = "../../test/ref_values/network_with_grid_encoding/Identity/";
+    //     const int n_hidden_layers = 2;
+    //     const int batch_size = 128;
+    //     const int unpadded_output_width = 64;
+    //     const int encoding_input_width = 64;
     //     test_network_with_encoding_loaded<bf16, 64>(q, filepath, n_hidden_layers, batch_size, unpadded_output_width,
     //                                                 encoding_input_width);
     // }
-    SUBCASE("Identity encoding inference, loaded data") {
-        std::string filepath = "../../test/ref_values/network_with_grid_encoding/Identity/";
+    SUBCASE("Identity encoding inference test 2, loaded data") {
+        std::string filepath = "../../test/ref_values/network_with_grid_encoding/Identity2/";
         const int n_hidden_layers = 2;
         const int batch_size = 128;
-        const int unpadded_output_width = 64;
-        const int encoding_input_width = 64;
+        const int unpadded_output_width = 1;
+        const int encoding_input_width = 32;
         test_network_with_encoding_loaded<bf16, 64>(q, filepath, n_hidden_layers, batch_size, unpadded_output_width,
                                                     encoding_input_width);
     }
