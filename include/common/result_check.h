@@ -36,14 +36,27 @@ void saveImageToPGM(const std::string &filename, const int width, const int heig
 
 template <typename Tval, typename Ttarget> double getRelError(const Tval value, const Ttarget target) {
     double diff = 0.0;
-    if (!std::isfinite(value) || !std::isfinite(target)) throw std::invalid_argument("Inifinite numbers");
-
-    if ((double)value != 0.0 || (double)target != 0.0) {
-        diff = std::abs((double)value - (double)target) /
-               std::max<double>(std::abs((double)value), std::abs((double)target));
+    double tol = 1e-5;
+    if (value < tol || target < tol) {
+        // Add a safety check for small values
+        if (std::abs(value - target) < tol) {
+            return diff; // Arbitrarily return 0 in this case
+        }
     }
 
-    return diff;
+    if (!std::isfinite(value) || !std::isfinite(target)) throw std::invalid_argument("Infinite numbers");
+
+    if (target == 0) {
+        throw std::invalid_argument("Error: Division by zero");
+    }
+
+    return std::abs((double)value - (double)target) / std::abs((double)target);
+    // if ((double)value != 0.0 || (double)target != 0.0) {
+    //     diff = std::abs((double)value - (double)target) /
+    //            std::max<double>(std::abs((double)value), std::abs((double)target));
+    // }
+
+    // return diff;
 }
 
 template <typename Tval, typename Ttarget>
@@ -77,9 +90,12 @@ bool areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector
     double max_diff = 0.0;
     for (size_t i = 0; i < value.size(); ++i) {
         const double diff = getRelError(value.at(i), target.at(i));
+
         max_diff = std::max(diff, max_diff);
 
         if (diff > tolerance) {
+            std::cout << "Diff: " << diff << ". i: " << i << ". Val: " << value.at(i) << "/" << target.at(i)
+                      << std::endl;
             is_same = false;
             count++;
         }

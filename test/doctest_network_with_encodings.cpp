@@ -253,4 +253,5 @@ TEST_CASE("tinydpcppnn::network_with_encoding step-by-step") {
     // }
 // SUBCASE("Identity encoding backward") { test_network_with_encoding_identity<bf16, 64>(q); }
 #endif
+
 }
