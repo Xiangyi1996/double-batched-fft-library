@@ -41,6 +41,4 @@ build/
 **/__pycache__/
 *.egg-info
 
-benchmarks/data
-test/ref_values/
 
