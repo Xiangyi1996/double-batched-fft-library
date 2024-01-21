@@ -84,107 +84,108 @@ void test_encoding_from_loaded_file(const int batch_size, const int input_width,
     }
 }
 
-TEST_CASE("tinydpcppnn::encoding Identity") {
-    SUBCASE("Not padded") {
-        const int batch_size = 2;
+TEST_CASE("tinydpcppnn::encoding Identity"){SUBCASE("Not padded"){const int batch_size = 2;
 
-        const int input_width = 3;
-        const int output_width = 3;
+const int input_width = 3;
+const int output_width = 3;
 
-        sycl::queue q;
-        DeviceMatrix<float> input(batch_size, input_width, q);
-        input.fill(1.23f).wait();
+sycl::queue q;
+DeviceMatrix<float> input(batch_size, input_width, q);
+input.fill(1.23f).wait();
 
-        DeviceMatrix<float> output_float(batch_size, output_width, q);
-        output_float.fill(0.0f).wait();
+DeviceMatrix<float> output_float(batch_size, output_width, q);
+output_float.fill(0.0f).wait();
 
-        // Define the parameters for creating IdentityEncoding
-        const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, input_width},
-                                   {EncodingParams::SCALE, 1.0},
-                                   {EncodingParams::OFFSET, 0.0},
-                                   {EncodingParams::ENCODING, EncodingNames::IDENTITY}};
-        std::shared_ptr<Encoding<float>> network = create_encoding<float>(encoding_config);
-        network->set_padded_output_width(output_width);
+// Define the parameters for creating IdentityEncoding
+const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, input_width},
+                           {EncodingParams::SCALE, 1.0},
+                           {EncodingParams::OFFSET, 0.0},
+                           {EncodingParams::ENCODING, EncodingNames::IDENTITY}};
+std::shared_ptr<Encoding<float>> network = create_encoding<float>(encoding_config);
+network->set_padded_output_width(output_width);
 
-        std::unique_ptr<Context> model_ctx = network->forward_impl(&q, input, &output_float);
-        q.wait();
+std::unique_ptr<Context> model_ctx = network->forward_impl(&q, input, &output_float);
+q.wait();
 
-        std::vector<float> in = input.copy_to_host();
-        std::vector<float> out = output_float.copy_to_host();
+std::vector<float> in = input.copy_to_host();
+std::vector<float> out = output_float.copy_to_host();
 
-        const float epsilon = 1e-3; // Set the tolerance for floating-point comparisons
+const float epsilon = 1e-3; // Set the tolerance for floating-point comparisons
 
-        // Check if the actual vector is equal to the expected vector within the tolerance
-        for (size_t i = 0; i < out.size(); ++i) {
-            CHECK(static_cast<float>(in[i]) == doctest::Approx(out[i]).epsilon(epsilon));
-        }
-    }
+// Check if the actual vector is equal to the expected vector within the tolerance
+for (size_t i = 0; i < out.size(); ++i) {
+    CHECK(static_cast<float>(in[i]) == doctest::Approx(out[i]).epsilon(epsilon));
+}
+}
+#ifdef USE_REFERENCE_TEST
 
-    SUBCASE("Check results loaded float") {
-        // SWIFTNET
-        const int input_width = 3;
-        const int batch_size = 64;
-        const int output_width = 3;
-        sycl::queue q;
+SUBCASE("Check results loaded float") {
+    // SWIFTNET
+    const int input_width = 3;
+    const int batch_size = 64;
+    const int output_width = 3;
+    sycl::queue q;
 
-        std::string filepath = "../test/ref_values/encoding/identity/";
-        test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
-    }
-
-    SUBCASE("Check results loaded bf16") {
-        // SWIFTNET
-        const int input_width = 3;
-        const int batch_size = 64;
-        const int output_width = 3;
-        sycl::queue q;
-
-        std::string filepath = "../test/ref_values/encoding/identity/";
-        test_encoding_from_loaded_file<bf16>(batch_size, input_width, output_width, filepath, q);
-    }
+    std::string filepath = "../test/ref_values/encoding/identity/";
+    test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
 }
 
-TEST_CASE("tinydpcppnn::encoding Spherical Harmonics") {
-    SUBCASE("Not padded") {
-        const int batch_size = 2;
+SUBCASE("Check results loaded bf16") {
+    // SWIFTNET
+    const int input_width = 3;
+    const int batch_size = 64;
+    const int output_width = 3;
+    sycl::queue q;
 
-        const int input_width = 3;
-        const int output_width = 3;
-        const int DEGREE = 1;
+    std::string filepath = "../test/ref_values/encoding/identity/";
+    test_encoding_from_loaded_file<bf16>(batch_size, input_width, output_width, filepath, q);
+}
+#endif
+}
 
-        sycl::queue q;
-        std::vector<float> input_float(input_width * batch_size);
-        initialize_arange(input_float);
-        DeviceMatrix<float> input(batch_size, input_width, q);
-        input.copy_from_host(input_float).wait();
+TEST_CASE("tinydpcppnn::encoding Spherical Harmonics"){SUBCASE("Not padded"){const int batch_size = 2;
 
-        DeviceMatrix<float> output_float(batch_size, output_width, q);
-        output_float.fill(0.0f).wait();
+const int input_width = 3;
+const int output_width = 3;
+const int DEGREE = 1;
 
-        const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, input_width},
-                                   {EncodingParams::DEGREE, DEGREE},
-                                   {EncodingParams::ENCODING, EncodingNames::SPHERICALHARMONICS}};
-        std::shared_ptr<Encoding<float>> network = create_encoding<float>(encoding_config);
-        network->set_padded_output_width(output_float.n());
-        std::unique_ptr<Context> model_ctx = network->forward_impl(&q, input, &output_float);
-        q.wait();
+sycl::queue q;
+std::vector<float> input_float(input_width *batch_size);
+initialize_arange(input_float);
+DeviceMatrix<float> input(batch_size, input_width, q);
+input.copy_from_host(input_float).wait();
 
-        std::vector<float> out = output_float.copy_to_host();
-        const std::vector<float> reference_out = {0.2821, 1.0, 1.0, 0.2821, 1.0, 1.0};
+DeviceMatrix<float> output_float(batch_size, output_width, q);
+output_float.fill(0.0f).wait();
 
-        const double epsilon = 1e-3;
-        // Check if the actual vector is equal to the expected vector within the tolerance
-        CHECK(areVectorsWithinTolerance(out, reference_out, epsilon));
-    }
-    SUBCASE("Check results loaded float") {
-        // SWIFTNET
-        const int input_width = 3;
-        const int batch_size = 64;
-        const int output_width = 16;
-        sycl::queue q;
+const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, input_width},
+                           {EncodingParams::DEGREE, DEGREE},
+                           {EncodingParams::ENCODING, EncodingNames::SPHERICALHARMONICS}};
+std::shared_ptr<Encoding<float>> network = create_encoding<float>(encoding_config);
+network->set_padded_output_width(output_float.n());
+std::unique_ptr<Context> model_ctx = network->forward_impl(&q, input, &output_float);
+q.wait();
 
-        std::string filepath = "../test/ref_values/encoding/spherical/";
-        test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
-    }
+std::vector<float> out = output_float.copy_to_host();
+const std::vector<float> reference_out = {0.2821, 1.0, 1.0, 0.2821, 1.0, 1.0};
+
+const double epsilon = 1e-3;
+// Check if the actual vector is equal to the expected vector within the tolerance
+CHECK(areVectorsWithinTolerance(out, reference_out, epsilon));
+}
+#ifdef USE_REFERENCE_TEST
+
+SUBCASE("Check results loaded float") {
+    // SWIFTNET
+    const int input_width = 3;
+    const int batch_size = 64;
+    const int output_width = 16;
+    sycl::queue q;
+
+    std::string filepath = "../test/ref_values/encoding/spherical/";
+    test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
+}
+#endif
 }
 
 TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
@@ -234,25 +235,41 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         // Check if the actual vector is equal to the expected vector within the tolerance
         CHECK(areVectorsWithinTolerance(out, reference_out, 1.0e-3));
     }
+#ifdef USE_REFERENCE_TEST
 
-    // SUBCASE("Check results loaded float") {
-    //     // SWIFTNET
-    //     const int input_width = 2;
-    //     const int batch_size = 64;
-    //     const int output_width = 32;
-    //     sycl::queue q;
+    SUBCASE("Check results loaded float small grid") {
+        // SWIFTNET
+        const int input_width = 2;
+        const int batch_size = 64;
+        const int output_width = 32;
+        sycl::queue q;
 
-    //     std::string filepath = "../test/ref_values/encoding/grid/";
+        std::string filepath = "../test/ref_values/encoding/grid/";
 
-    //     // Check if the file exists
-    //     if (!std::filesystem::exists(filepath + "encoding_params.csv")) {
-    //         // TODO: any good solution here? E.g., a download script or sth
-    //         std::cout
-    //             << "encoding_params.csv doesn't exist as it's quite large for grid encoding. Not running loading
-    //             test."
-    //             << std::endl;
-    //     } else {
-    //         test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
-    //     }
-    // }
+        // Check if the file exists
+        if (!std::filesystem::exists(filepath + "encoding_params.csv")) {
+            // TODO: any good solution here? E.g., a download script or sth
+            std::cout << "encoding_params.csv doesn't exist as it's quite large for grid encoding." << std::endl;
+        } else {
+            test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
+        }
+    }
+    SUBCASE("Check results loaded float. Large grid") {
+        // SWIFTNET
+        const int input_width = 2;
+        const int batch_size = 128;
+        const int output_width = 32;
+        sycl::queue q;
+
+        std::string filepath = "../test/ref_values/network_with_grid_encoding/HashGrid/";
+
+        // Check if the file exists
+        if (!std::filesystem::exists(filepath + "encoding_params.csv")) {
+            // TODO: any good solution here? E.g., a download script or sth
+            std::cout << "encoding_params.csv doesn't exist as it's quite large for grid encoding." << std::endl;
+        } else {
+            test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
+        }
+    }
+#endif
 }

@@ -16,12 +16,14 @@ include(CMakeDependentOption)
 option(BUILD_TEST "Build tests in 'test' directory" ON)
 option(BUILD_PYBIND "Build pybindings in 'dpcpp_bindings' directory" OFF)
 option(BUILD_BENCHMARK "Build benchmarks in 'benchmark' directory" OFF)
+option(USE_REFERENCE_TESTS "Use reference tests from downloaded data for test" ON)
 
 message(WARNING "cmake build system is still WIP.")
 
 add_subdirectory(source)
 
 enable_testing()
+
 
 if(BUILD_TEST)
     add_subdirectory(test)
@@ -36,5 +38,3 @@ if(BUILD_PYBIND)
     add_subdirectory(extern/pybind11)
     add_subdirectory(dpcpp_bindings)
 endif()
-
-
