@@ -53,6 +53,31 @@ enum class GradientMode {
     Accumulate,
 };
 
+enum class GridType {
+    Hash,
+    Dense,
+    Tiled,
+};
+
+enum class HashType {
+    Prime,
+    CoherentPrime,
+    ReversedPrime,
+    Rng,
+};
+
+enum class InterpolationType {
+    Nearest,
+    Linear,
+    Smoothstep,
+};
+
+enum class ReductionType {
+    Concatenation,
+    Sum,
+    Product,
+};
+
 template <typename T> class Encoding {
   public:
     Encoding() {}

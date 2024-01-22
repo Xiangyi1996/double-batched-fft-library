@@ -84,8 +84,9 @@ void test_encoding_from_loaded_file(const int batch_size, const int input_width,
     }
 }
 
-TEST_CASE("tinydpcppnn::encoding Identity"){SUBCASE("Not padded"){const int batch_size = 2;
+TEST_CASE("tinydpcppnn::encoding Identity"){
 
+    SUBCASE("Not padded"){const int batch_size = 2;
 const int input_width = 3;
 const int output_width = 3;
 
@@ -117,8 +118,8 @@ for (size_t i = 0; i < out.size(); ++i) {
     CHECK(static_cast<float>(in[i]) == doctest::Approx(out[i]).epsilon(epsilon));
 }
 }
-#ifdef USE_REFERENCE_TEST
 
+#ifdef USE_REFERENCE_TEST
 SUBCASE("Check results loaded float") {
     // SWIFTNET
     const int input_width = 3;
@@ -143,7 +144,9 @@ SUBCASE("Check results loaded bf16") {
 #endif
 }
 
-TEST_CASE("tinydpcppnn::encoding Spherical Harmonics"){SUBCASE("Not padded"){const int batch_size = 2;
+TEST_CASE("tinydpcppnn::encoding Spherical Harmonics"){
+
+    SUBCASE("Not padded"){const int batch_size = 2;
 
 const int input_width = 3;
 const int output_width = 3;
@@ -173,8 +176,8 @@ const double epsilon = 1e-3;
 // Check if the actual vector is equal to the expected vector within the tolerance
 CHECK(areVectorsWithinTolerance(out, reference_out, epsilon));
 }
-#ifdef USE_REFERENCE_TEST
 
+#ifdef USE_REFERENCE_TEST
 SUBCASE("Check results loaded float") {
     // SWIFTNET
     const int input_width = 3;
@@ -202,14 +205,11 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         DeviceMatrix<float> output_float(batch_size, padded_output_width, q);
         output_float.fill(1.23f).wait(); // fill with something to check if it is written to
 
-        const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, input_width},
-                                   {EncodingParams::ENCODING, EncodingNames::GRID},
-                                   {EncodingParams::GRID_TYPE, "Hash"},
-                                   {EncodingParams::N_LEVELS, 16},
-                                   {EncodingParams::N_FEATURES_PER_LEVEL, 2},
-                                   {EncodingParams::LOG2_HASHMAP_SIZE, 19},
-                                   {EncodingParams::BASE_RESOLUTION, 16},
-                                   {EncodingParams::PER_LEVEL_SCALE, 2.0}};
+        const json encoding_config{
+            {EncodingParams::N_DIMS_TO_ENCODE, input_width}, {EncodingParams::ENCODING, EncodingNames::GRID},
+            {EncodingParams::GRID_TYPE, GridType::Hash},     {EncodingParams::N_LEVELS, 16},
+            {EncodingParams::N_FEATURES_PER_LEVEL, 2},       {EncodingParams::LOG2_HASHMAP_SIZE, 19},
+            {EncodingParams::BASE_RESOLUTION, 16},           {EncodingParams::PER_LEVEL_SCALE, 2.0}};
 
         std::shared_ptr<GridEncoding<float>> network =
             tinydpcppnn::encodings::grid::create_grid_encoding<float>(encoding_config);
@@ -235,8 +235,8 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         // Check if the actual vector is equal to the expected vector within the tolerance
         CHECK(areVectorsWithinTolerance(out, reference_out, 1.0e-3));
     }
-#ifdef USE_REFERENCE_TEST
 
+#ifdef USE_REFERENCE_TEST
     SUBCASE("Check results loaded float small grid") {
         // SWIFTNET
         const int input_width = 2;

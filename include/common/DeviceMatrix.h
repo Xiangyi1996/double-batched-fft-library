@@ -193,6 +193,7 @@ template <typename T, MatrixLayout _layout = MatrixLayout::RowMajor> class Devic
     size_t size() const { return n_elements(); }
     size_t n_bytes() const { return n_elements() * sizeof(T); }
 
+    // why? This just does not make any sense
     uint32_t stride() const { return _layout == MatrixLayout::ColumnMajor ? m() : n(); }
 
     constexpr MatrixLayout layout() const { return _layout; }

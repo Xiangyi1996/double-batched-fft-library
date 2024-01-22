@@ -37,31 +37,6 @@ enum class Activation {
     None,
 };
 
-enum class GridType {
-    Hash,
-    Dense,
-    Tiled,
-};
-
-enum class HashType {
-    Prime,
-    CoherentPrime,
-    ReversedPrime,
-    Rng,
-};
-
-enum class InterpolationType {
-    Nearest,
-    Linear,
-    Smoothstep,
-};
-
-enum class ReductionType {
-    Concatenation,
-    Sum,
-    Product,
-};
-
 struct Context {
     Context() = default;
     virtual ~Context() {}
@@ -251,6 +226,3 @@ template <typename T> std::string type_to_string() {
 
     return "unknown";
 }
-
-HashType string_to_hash_type(const std::string &hash_type);
-GridType string_to_grid_type(const std::string &grid_type);

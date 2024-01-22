@@ -150,32 +150,6 @@ Activation string_to_activation(const std::string &activation_name) {
     throw std::runtime_error{"Invalid activation name: {}"}; //, activation_name)};
 }
 
-HashType string_to_hash_type(const std::string &hash_type) {
-    if (equals_case_insensitive(hash_type, "Prime")) {
-        return HashType::Prime;
-    } else if (equals_case_insensitive(hash_type, "CoherentPrime")) {
-        return HashType::CoherentPrime;
-    } else if (equals_case_insensitive(hash_type, "ReversedPrime")) {
-        return HashType::ReversedPrime;
-    } else if (equals_case_insensitive(hash_type, "Rng")) {
-        return HashType::Rng;
-    }
-
-    throw std::runtime_error{tinydpcppnn::format("Invalid hash type: {}", hash_type)};
-}
-
-GridType string_to_grid_type(const std::string &grid_type) {
-    if (equals_case_insensitive(grid_type, "Hash")) {
-        return GridType::Hash;
-    } else if (equals_case_insensitive(grid_type, "Dense")) {
-        return GridType::Dense;
-    } else if (equals_case_insensitive(grid_type, "Tiled") || equals_case_insensitive(grid_type, "Tile")) {
-        return GridType::Tiled;
-    }
-
-    throw std::runtime_error{tinydpcppnn::format("Invalid grid type: {}", grid_type)};
-}
-
 std::string to_string(Activation activation) {
     switch (activation) {
     case Activation::None:

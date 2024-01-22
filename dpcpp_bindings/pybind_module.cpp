@@ -1,3 +1,15 @@
+/**
+ * @file pybind_module.cpp
+ * @author Kai Yuan
+ * @brief
+ * @version 0.1
+ * @date 2024-01-22
+ *
+ * Copyright (c) 2024 Intel Corporation
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #include <pybind11/functional.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>

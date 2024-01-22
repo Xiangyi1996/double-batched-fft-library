@@ -34,49 +34,55 @@ void saveImageToPGM(const std::string &filename, const int width, const int heig
     outputFile.close();
 }
 
-template <typename Tval, typename Ttarget> double getRelError(const Tval value, const Ttarget target) {
-    double diff = 0.0;
-    double tol = 1e-5;
-    if (value < tol || target < tol) {
-        // Add a safety check for small values
-        if (std::abs(value - target) < tol) {
-            return diff; // Arbitrarily return 0 in this case
-        }
+template <typename T> double GetInfNorm(const std::vector<T> &v) {
+    double norm = 0.0;
+    for (auto val : v) {
+        norm = std::max(norm, std::abs((double)val));
     }
 
-    if (!std::isfinite(value) || !std::isfinite(target)) throw std::invalid_argument("Infinite numbers");
+    return norm;
+}
 
-    if (target == 0) {
-        throw std::invalid_argument("Error: Division by zero");
+template <typename Tl, typename Tr>
+std::vector<double> GetAbsDiff(const std::vector<Tl> &lhs, const std::vector<Tr> &rhs) {
+    if (lhs.size() != rhs.size()) throw std::invalid_argument("Size mismatch.");
+    std::vector<double> ret(lhs.size(), 0.0);
+
+    for (size_t iter = 0; iter < lhs.size(); iter++) {
+        if (!std::isfinite(lhs[iter]) || !std::isfinite(rhs[iter])) throw std::invalid_argument("Infinite numbers");
+        ret[iter] = std::abs(lhs[iter] - rhs[iter]);
     }
 
-    return std::abs((double)value - (double)target) / std::abs((double)target);
-    // if ((double)value != 0.0 || (double)target != 0.0) {
-    //     diff = std::abs((double)value - (double)target) /
-    //            std::max<double>(std::abs((double)value), std::abs((double)target));
-    // }
+    return ret;
+}
 
-    // return diff;
+template <typename Tl, typename Tr> std::vector<double> GetAbsDiff(const std::vector<Tl> &lhs, const Tr rhs) {
+    std::vector<double> ret(lhs.size(), 0.0);
+
+    for (size_t iter = 0; iter < lhs.size(); iter++) {
+        if (!std::isfinite(lhs[iter]) || !std::isfinite(rhs)) throw std::invalid_argument("Infinite numbers");
+        ret[iter] = std::abs(lhs[iter] - rhs);
+    }
+
+    return ret;
 }
 
 template <typename Tval, typename Ttarget>
 bool isVectorWithinTolerance(const std::vector<Tval> &value, const Ttarget target, const double tolerance) {
 
-    long long count = 0;
     bool is_same = true;
     double max_diff = 0.0;
-    for (size_t i = 0; i < value.size(); ++i) {
-        const double diff = getRelError(value.at(i), target);
-        max_diff = std::max(diff, max_diff);
+    const double inf_diff = GetInfNorm(GetAbsDiff(value, target));
+    const double inf_val = GetInfNorm(value);
+    if ((double)target == 0.0)
+        max_diff = inf_diff;
+    else
+        max_diff = inf_diff / std::max(std::abs((double)target), inf_val);
 
-        if (diff > tolerance) {
-            is_same = false;
-            count++;
-        }
-    }
-    if (count) {
-        std::cout << count << "/" << value.size() << " are wrong. Max diff = " << max_diff << std::endl;
-    }
+    if (max_diff > tolerance) is_same = false;
+
+    std::cout << "Values are within tolerance = " << std::boolalpha << is_same << ". Max diff = " << max_diff
+              << std::endl;
 
     return is_same;
 }
@@ -85,24 +91,20 @@ template <typename Tval, typename Ttarget>
 bool areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector<Ttarget> &target,
                                const double tolerance) {
 
-    long long count = 0;
     bool is_same = true;
     double max_diff = 0.0;
-    for (size_t i = 0; i < value.size(); ++i) {
-        const double diff = getRelError(value.at(i), target.at(i));
+    const double inf_diff = GetInfNorm(GetAbsDiff(value, target));
+    const double inf_val = GetInfNorm(value);
+    const double inf_tar = GetInfNorm(target);
+    if ((double)inf_tar == 0.0)
+        max_diff = inf_diff;
+    else
+        max_diff = inf_diff / std::max(inf_tar, inf_val);
 
-        max_diff = std::max(diff, max_diff);
+    if (max_diff > tolerance) is_same = false;
 
-        if (diff > tolerance) {
-            std::cout << "Diff: " << diff << ". i: " << i << ". Val: " << value.at(i) << "/" << target.at(i)
-                      << std::endl;
-            is_same = false;
-            count++;
-        }
-    }
-    if (count) {
-        std::cout << count << "/" << target.size() << " are wrong. Max diff = " << max_diff << std::endl;
-    }
+    std::cout << "Values are within tolerance = " << std::boolalpha << is_same << ". Max diff = " << max_diff
+              << std::endl;
 
     return is_same;
 }
