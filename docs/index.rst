@@ -17,9 +17,9 @@ License
 .. Table of contents
 .. -----------------
 
-.. .. toctree::
-..    :includehidden:
-..    :maxdepth: 2
+.. toctree::
+  :includehidden:
+  :maxdepth: 2
 
-..    manual/index
-..    api/index
+  manual/index
+  api/index

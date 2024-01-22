@@ -8,7 +8,7 @@ include(${PROJECT_SOURCE_DIR}/extern/doctest/cmake/doctest.cmake)
 include(CommonOptions)
 
 # Pass a preprocessor variable to the C++ code based on the option
-if(USE_REFERENCE_TESTS)
+if(BUILD_MORE_TEST)
     message(STATUS "Using downloaded data")
     add_definitions(-DUSE_REFERENCE_TEST)
 endif()

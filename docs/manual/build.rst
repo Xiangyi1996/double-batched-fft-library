@@ -1,0 +1,63 @@
+.. Copyright (C) 2024 Intel Corporation
+   SPDX-License-Identifier: BSD-3-Clause
+
+====================
+Building and linking
+====================
+
+Dependencies
+============
+
+Installing the
+`Intel oneAPI Base Toolkit <https://www.intel.com/content/www/us/en/developer/tools/oneapi/toolkits.html>`_
+is sufficent to compile the library.
+
+In particular, the project depends on:
+
+- CMake >= 3.23
+- Intel C++ compiler, icpx
+- Intel MPI
+- Intel oneMKL
+- Intel DPCT
+
+Build from source using oneAPI
+==============================
+
+Clone the repository
+
+.. code:: console
+
+    git clone ...
+
+
+Initialize the oneAPI environment.
+
+.. code:: console
+
+    . /opt/intel/oneapi/setvars.sh
+
+Enter the directory containing your local copy
+of the repository (typically called tiny-dpcpp-nn) and run
+
+.. code:: console
+
+    cmake -Bbuild
+    cmake --build build
+
+
+Build options
+=============
+
+The build can be customized by passing -D<option>=ON or OFF to cmake.
+The following options are supported:
+
+====================== ================================================== ========
+Option                 Description                                        Default
+====================== ================================================== ========
+BUILD_DOCUMENTATION    Generate the documentation                         OFF
+BUILD_BENCHMARK        Build benchmark executables                        ON
+BUILD_EXAMPLE          Build examples                                     OFF
+BUILD_TEST             Build unit tests                                   ON
+BUILD_REF_TEST         Download reference data and build tests using it   OFF
+BUILD_PYBIND           Build Python bindings for, e.g., PyTorch           OFF
+====================== ================================================== ========

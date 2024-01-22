@@ -17,6 +17,11 @@
 
 using bf16 = sycl::ext::oneapi::bfloat16;
 
+/**
+ * @brief Main which calls multiple inference tests.
+ *
+ * @return int 0 if everything is alright. If an exception is caught 1 or 2
+ */
 int main() {
     try {
         MPI_Init(NULL, NULL);
