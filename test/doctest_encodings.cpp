@@ -119,7 +119,7 @@ for (size_t i = 0; i < out.size(); ++i) {
 }
 }
 
-#ifdef USE_REFERENCE_TEST
+#ifdef TEST_PATH
 SUBCASE("Check results loaded float") {
     // SWIFTNET
     const int input_width = 3;
@@ -127,7 +127,7 @@ SUBCASE("Check results loaded float") {
     const int output_width = 3;
     sycl::queue q;
 
-    std::string filepath = "../test/ref_values/encoding/identity/";
+    std::string filepath = TEST_PATH + "/tiny-dpcpp-data/ref_values/encoding/identity/";
     test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
 }
 
@@ -138,7 +138,7 @@ SUBCASE("Check results loaded bf16") {
     const int output_width = 3;
     sycl::queue q;
 
-    std::string filepath = "../test/ref_values/encoding/identity/";
+    std::string filepath = TEST_PATH + "/tiny-dpcpp-data/ref_values/encoding/identity/";
     test_encoding_from_loaded_file<bf16>(batch_size, input_width, output_width, filepath, q);
 }
 #endif
@@ -147,7 +147,6 @@ SUBCASE("Check results loaded bf16") {
 TEST_CASE("tinydpcppnn::encoding Spherical Harmonics"){
 
     SUBCASE("Not padded"){const int batch_size = 2;
-
 const int input_width = 3;
 const int output_width = 3;
 const int DEGREE = 1;
@@ -177,7 +176,7 @@ const double epsilon = 1e-3;
 CHECK(areVectorsWithinTolerance(out, reference_out, epsilon));
 }
 
-#ifdef USE_REFERENCE_TEST
+#ifdef TEST_PATH
 SUBCASE("Check results loaded float") {
     // SWIFTNET
     const int input_width = 3;
@@ -185,7 +184,7 @@ SUBCASE("Check results loaded float") {
     const int output_width = 16;
     sycl::queue q;
 
-    std::string filepath = "../test/ref_values/encoding/spherical/";
+    std::string filepath = TEST_PATH + "/tiny-dpcpp-data/ref_values/encoding/spherical/";
     test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
 }
 #endif
@@ -236,7 +235,7 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         CHECK(areVectorsWithinTolerance(out, reference_out, 1.0e-3));
     }
 
-#ifdef USE_REFERENCE_TEST
+#ifdef TEST_PATH
     SUBCASE("Check results loaded float small grid") {
         // SWIFTNET
         const int input_width = 2;
@@ -244,15 +243,9 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         const int output_width = 32;
         sycl::queue q;
 
-        std::string filepath = "../test/ref_values/encoding/grid/";
+        std::string filepath = TEST_PATH + "/tiny-dpcpp-data/ref_values/encoding/grid/";
 
-        // Check if the file exists
-        if (!std::filesystem::exists(filepath + "encoding_params.csv")) {
-            // TODO: any good solution here? E.g., a download script or sth
-            std::cout << "encoding_params.csv doesn't exist as it's quite large for grid encoding." << std::endl;
-        } else {
-            test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
-        }
+        test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
     }
     SUBCASE("Check results loaded float. Large grid") {
         // SWIFTNET
@@ -261,15 +254,9 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         const int output_width = 32;
         sycl::queue q;
 
-        std::string filepath = "../test/ref_values/network_with_grid_encoding/HashGrid/";
+        std::string filepath = TEST_PATH + "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/HashGrid/";
 
-        // Check if the file exists
-        if (!std::filesystem::exists(filepath + "encoding_params.csv")) {
-            // TODO: any good solution here? E.g., a download script or sth
-            std::cout << "encoding_params.csv doesn't exist as it's quite large for grid encoding." << std::endl;
-        } else {
-            test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
-        }
+        test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
     }
 #endif
 }

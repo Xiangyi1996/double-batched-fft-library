@@ -10,7 +10,7 @@ include(CommonOptions)
 # Pass a preprocessor variable to the C++ code based on the option
 if(BUILD_MORE_TEST)
     message(STATUS "Using downloaded data")
-    add_definitions(-DUSE_REFERENCE_TEST)
+    set(TEST_PATH "${CMAKE_SOURCE_DIR}/path/to/your/file.txt")
 endif()
 
 add_library(test-lib STATIC main.cpp)
