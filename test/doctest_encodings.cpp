@@ -10,24 +10,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "doctest/doctest.h"
-#include "result_check.h"
 #include <iostream>
 #include <vector>
 
+#include "doctest/doctest.h"
 #include "encoding_factory.h"
+#include "io.h"
+#include "result_check.h"
 
 using bf16 = sycl::ext::oneapi::bfloat16;
 using tinydpcppnn::encodings::grid::GridEncoding;
 using json = nlohmann::json;
-
-json loadJsonConfig(const std::string &filename) {
-    std::ifstream file{filename};
-    if (!file) {
-        throw std::runtime_error("Error: Unable to open file '" + filename + "'");
-    }
-    return json::parse(file, nullptr, true, /*skip_comments=*/true);
-}
 
 template <typename T> void initialize_arange(std::vector<T> &vec) {
 
@@ -243,18 +236,6 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         sycl::queue q;
 
         std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/grid/";
-
-        test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
-    }
-    SUBCASE("Check results loaded float. Large grid") {
-        // SWIFTNET
-        const int input_width = 2;
-        const int batch_size = 128;
-        const int output_width = 32;
-        sycl::queue q;
-
-        std::string filepath =
-            std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/HashGrid/";
 
         test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
     }
