@@ -126,8 +126,7 @@ SUBCASE("Check results loaded float") {
     const int batch_size = 64;
     const int output_width = 3;
     sycl::queue q;
-
-    std::string filepath = TEST_PATH + "/tiny-dpcpp-data/ref_values/encoding/identity/";
+    std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/identity/";
     test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
 }
 
@@ -138,7 +137,7 @@ SUBCASE("Check results loaded bf16") {
     const int output_width = 3;
     sycl::queue q;
 
-    std::string filepath = TEST_PATH + "/tiny-dpcpp-data/ref_values/encoding/identity/";
+    std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/identity/";
     test_encoding_from_loaded_file<bf16>(batch_size, input_width, output_width, filepath, q);
 }
 #endif
@@ -184,7 +183,7 @@ SUBCASE("Check results loaded float") {
     const int output_width = 16;
     sycl::queue q;
 
-    std::string filepath = TEST_PATH + "/tiny-dpcpp-data/ref_values/encoding/spherical/";
+    std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/spherical/";
     test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
 }
 #endif
@@ -243,7 +242,7 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         const int output_width = 32;
         sycl::queue q;
 
-        std::string filepath = TEST_PATH + "/tiny-dpcpp-data/ref_values/encoding/grid/";
+        std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/grid/";
 
         test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
     }
@@ -254,7 +253,8 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         const int output_width = 32;
         sycl::queue q;
 
-        std::string filepath = TEST_PATH + "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/HashGrid/";
+        std::string filepath =
+            std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/HashGrid/";
 
         test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
     }
