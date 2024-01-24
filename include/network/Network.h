@@ -66,6 +66,12 @@ template <typename T> class Network : public NetworkBase<T> {
     sycl::queue &get_queue() { return m_q; }
 
     virtual void set_weights_matrices(const std::vector<T> &weights) {
+
+        m_weights_matrices.copy_from_host(weights).wait();
+        TransposeWeights(m_weights_matrices, m_weightsT_matrices);
+    };
+
+    virtual void set_weights_matrices(const T *weights) {
         m_weights_matrices.copy_from_host(weights).wait();
         TransposeWeights(m_weights_matrices, m_weightsT_matrices);
     };
@@ -169,7 +175,6 @@ template <typename T> class Network : public NetworkBase<T> {
     }
 
     void TransposeWeights(const DeviceMatrices<T> &weights, DeviceMatrices<T> &weightsT) {
-
         weights.PackedTranspose(weightsT);
         m_q.wait();
     }
@@ -181,7 +186,6 @@ template <typename T> class Network : public NetworkBase<T> {
     ///@todo: remove this from the network class.
     void initialize_weights_matrices(const int unpadded_input_width, const int unpadded_output_width,
                                      WeightInitMode mode) {
-
         if (mode == WeightInitMode::arange) {
             throw std::invalid_argument("arange not supported");
         } else if (mode == WeightInitMode::constant_pos) {
@@ -191,7 +195,7 @@ template <typename T> class Network : public NetworkBase<T> {
         } else if (mode == WeightInitMode::he_normal) {
             throw std::invalid_argument("he_normal not supported");
         } else if (mode == WeightInitMode::none) {
-            initialize_constant(m_weights_matrices, 0);
+            initialize_constant(m_weights_matrices, 1.0);
         } else {
             throw std::invalid_argument("Invalid weights initialization mode.");
         }

@@ -98,7 +98,7 @@ void test_network_with_encoding_loaded(sycl::queue &q, std::string filepath, con
 
     json encoding_config = loadJsonConfig(filepath + "encoding_config.json");
     encoding_config[EncodingParams::N_DIMS_TO_ENCODE] = encoding_input_width;
-    
+
     auto Net = create_network_with_encoding<T_enc, T_net, WIDTH>(q, input_width, unpadded_output_width, n_hidden_layers,
                                                                  Activation::ReLU, Activation::None, encoding_config);
 
@@ -159,6 +159,7 @@ void test_network_with_encoding_identity_inference(sycl::queue &q) {
 
     const bf16 weight_val = 0.01;
     std::vector<bf16> new_weights(Net->get_network()->get_weights_matrices().nelements(), weight_val);
+
     Net->get_network()->set_weights_matrices(new_weights);
 
     constexpr float input_val = 1.0f;

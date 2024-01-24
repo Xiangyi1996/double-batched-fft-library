@@ -323,6 +323,11 @@ template <typename T> class DeviceMatrices {
         return m_q.memcpy(matrices_, src.data(), nelements() * sizeof(T));
     }
 
+    sycl::event copy_from_host(const T *src) {
+        std::cout << "YES " << std::endl;
+        return m_q.memcpy(matrices_, src, nelements() * sizeof(T));
+    }
+
     std::vector<T> copy_to_host() const {
         std::vector<T> ret(nelements());
         m_q.memcpy(ret.data(), matrices_, nelements() * sizeof(T)).wait();

@@ -1,3 +1,5 @@
+#pragma once
+
 #include "encoding.h"
 #include "json.hpp"
 #include <string>
