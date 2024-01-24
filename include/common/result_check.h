@@ -45,7 +45,11 @@ template <typename T> double GetInfNorm(const std::vector<T> &v) {
 
 template <typename Tl, typename Tr>
 std::vector<double> GetAbsDiff(const std::vector<Tl> &lhs, const std::vector<Tr> &rhs) {
-    if (lhs.size() != rhs.size()) throw std::invalid_argument("Size mismatch.");
+
+    if (lhs.size() != rhs.size()) {
+        throw std::invalid_argument("Size mismatch: lhs size = " + std::to_string(lhs.size()) +
+                                    ", rhs size = " + std::to_string(rhs.size()));
+    }
     std::vector<double> ret(lhs.size(), 0.0);
 
     for (size_t iter = 0; iter < lhs.size(); iter++) {
@@ -91,6 +95,7 @@ template <typename Tval, typename Ttarget>
 bool areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector<Ttarget> &target,
                                const double tolerance) {
 
+    std::cout << value.size() << ", " << target.size() << std::endl;
     bool is_same = true;
     double max_diff = 0.0;
     const double inf_diff = GetInfNorm(GetAbsDiff(value, target));

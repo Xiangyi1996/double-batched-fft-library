@@ -46,5 +46,6 @@ json loadJsonConfig(const std::string &filename) {
         config[EncodingParams::INTERPOLATION_METHOD] =
             stringToEnum(config[EncodingParams::INTERPOLATION_METHOD], interpolationTypeMap);
     }
+
     return config;
 }
