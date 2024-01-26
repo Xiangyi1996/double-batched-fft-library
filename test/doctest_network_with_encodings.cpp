@@ -222,19 +222,18 @@ TEST_CASE("tinydpcppnn::network_with_encoding step-by-step") {
     }
     SUBCASE("Identity encoding inference") { test_network_with_encoding_identity_inference(q); }
 
-#ifdef USE_REFERENCE_TEST
+#ifdef TEST_PATH
 
     // SUBCASE("Grid encoding inference, loaded data") {
-    //     std::string filepath = "../../test/ref_values/network_with_grid_encoding/HashGrid/";
-    //     const int n_hidden_layers = 2;
-    //     const int batch_size = 128;
-    //     const int unpadded_output_width = 1;
-    //     const int encoding_input_width = 2;
+    //     std::string filepath = std::string(TEST_PATH) +
+    //     "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/HashGrid/"; const int n_hidden_layers = 2; const int
+    //     batch_size = 128; const int unpadded_output_width = 1; const int encoding_input_width = 2;
     //     test_network_with_encoding_loaded<float, 64>(q, filepath, n_hidden_layers, batch_size, unpadded_output_width,
     //                                                  encoding_input_width);
     // }
     SUBCASE("Identity encoding inference, loaded data") {
-        std::string filepath = "../../test/ref_values/network_with_grid_encoding/Identity/";
+        std::string filepath =
+            std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/Identity/";
         const int n_hidden_layers = 2;
         const int batch_size = 128;
         const int unpadded_output_width = 64;
@@ -243,15 +242,12 @@ TEST_CASE("tinydpcppnn::network_with_encoding step-by-step") {
                                                     encoding_input_width);
     }
     // SUBCASE("Identity encoding inference test 2, loaded data") {
-    //     std::string filepath = "../../test/ref_values/network_with_grid_encoding/Identity2/";
-    //     const int n_hidden_layers = 2;
-    //     const int batch_size = 128;
-    //     const int unpadded_output_width = 1;
-    //     const int encoding_input_width = 32;
+    //     std::string filepath = std::string(TEST_PATH) +
+    //     "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/Identity2/"; const int n_hidden_layers = 2; const int
+    //     batch_size = 128; const int unpadded_output_width = 1; const int encoding_input_width = 32;
     //     test_network_with_encoding_loaded<bf16, 64>(q, filepath, n_hidden_layers, batch_size, unpadded_output_width,
     //                                                 encoding_input_width);
     // }
 // SUBCASE("Identity encoding backward") { test_network_with_encoding_identity<bf16, 64>(q); }
 #endif
-
 }

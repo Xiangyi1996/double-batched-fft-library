@@ -109,7 +109,7 @@ Then you can build the library using :
 source /usr/share/modules/init/profile.sh && module load intel/oneapi/2023.2.1 && module load intel-comp-rt/agama-ci-devel/682.16 && module load cmake/3.26.0 && module load intel/dpl/2022.2.0
 mkdir build && cd build/
 cmake -DBUILD_TEST=YES -DoneDPL_DIR=/opt/intel/oneapi/dpl/2022.2.0/lib/cmake/oneDPL/ ..
-make 
+make
 ```
 
 where <options> can be dg2 or pvc depending on the hardware you want to build for.
@@ -167,6 +167,10 @@ For the benchmark, tensorflow with XPU support is required:
 pip install tensorflow==2.13.0
 pip install --upgrade intel-extension-for-tensorflow[xpu]
 ```
+
+
+# Tests
+When setting the additional flag BUILD_REF_TEST=ON, additional data from [tiny-dpcpp-data](https://github.com/intel-sandbox/tiny-dpcpp-data) will be downloaded.
 
 # Acknowledgement
 
