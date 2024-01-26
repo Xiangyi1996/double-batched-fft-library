@@ -35,7 +35,7 @@ namespace grid {
 namespace kernels {
 
 template <typename T, uint32_t N_POS_DIMS, uint32_t N_FEATURES_PER_LEVEL, HashType HASH_TYPE>
-void kernel_grid(const uint32_t num_elements, const uint32_t num_grid_features, const GridOffsetTable offset_table,
+void kernel_grid(const uint32_t num_elements, const uint32_t num_grid_features, const GridOffsetTable &offset_table,
                  const uint32_t base_resolution, const float log2_per_level_scale, float max_level,
                  const InterpolationType interpolation_type, const GridType grid_type, T const *__restrict__ grid,
                  const DeviceMatrixView<float> &positions_in, DeviceMatrixView<T> encoded_positions,
@@ -126,7 +126,7 @@ void kernel_grid(const uint32_t num_elements, const uint32_t num_grid_features, 
 template <typename T, typename GRAD_T, uint32_t N_POS_DIMS, uint32_t N_FEATURES_PER_LEVEL,
           uint32_t N_FEATURES_PER_THREAD, HashType HASH_TYPE>
 void kernel_grid_backward(const size_t num_elements, const uint32_t num_grid_features,
-                          const GridOffsetTable offset_table, const uint32_t base_resolution,
+                          const GridOffsetTable &offset_table, const uint32_t base_resolution,
                           const float log2_per_level_scale, float max_level, const bool stochastic_interpolation,
                           const InterpolationType interpolation_type, const GridType grid_type,
                           GRAD_T *__restrict__ grid_gradient, DeviceMatrixView<float> positions_in,
@@ -148,7 +148,7 @@ void kernel_grid_backward(const size_t num_elements, const uint32_t num_grid_fea
 
     auto add_grid_gradient = [&](const tnn::uvec<N_POS_DIMS> &local_pos,
                                  const tnn::tvec<GRAD_T, N_FEATURES_PER_THREAD> &grad, const float weight) {
-        uint32_t index =
+        const uint32_t index =
             grid_index<N_POS_DIMS, HASH_TYPE>(grid_type, hashmap_size, resolution, local_pos) * N_FEATURES_PER_LEVEL +
             feature;
 
@@ -242,7 +242,7 @@ void kernel_grid_backward_input(const size_t num_elements, const uint32_t num_gr
 template <typename T, typename GRAD_T, uint32_t N_POS_DIMS, uint32_t N_FEATURES_PER_LEVEL,
           uint32_t N_FEATURES_PER_THREAD, HashType HASH_TYPE>
 void kernel_grid_backward_input_backward_grid(const size_t num_elements, const uint32_t num_grid_features,
-                                              const GridOffsetTable offset_table, const uint32_t base_resolution,
+                                              const GridOffsetTable &offset_table, const uint32_t base_resolution,
                                               const float log2_per_level_scale, float max_level,
                                               const InterpolationType interpolation_type, const GridType grid_type,
                                               const DeviceMatrixView<float> dL_ddLdx,
@@ -344,7 +344,7 @@ void kernel_grid_backward_input_backward_grid(const size_t num_elements, const u
 template <typename T, uint32_t N_POS_DIMS, uint32_t N_FEATURES_PER_LEVEL, uint32_t N_FEATURES_PER_THREAD,
           HashType HASH_TYPE>
 void kernel_grid_backward_input_backward_input(const size_t num_elements, const uint32_t num_grid_features,
-                                               const GridOffsetTable offset_table, const uint32_t base_resolution,
+                                               const GridOffsetTable &offset_table, const uint32_t base_resolution,
                                                const float log2_per_level_scale, float max_level,
                                                const InterpolationType interpolation_type, const GridType grid_type,
                                                const DeviceMatrixView<float> dL_ddLdx,

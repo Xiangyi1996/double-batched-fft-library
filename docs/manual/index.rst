@@ -5,3 +5,5 @@
   networks
   encodings
   examples
+  contributing
+  pytorch

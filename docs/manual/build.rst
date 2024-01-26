@@ -23,7 +23,7 @@ In particular, the project depends on:
 Build from source using oneAPI
 ==============================
 
-Clone the repository
+Clone the repository.
 
 .. code:: console
 
@@ -36,8 +36,7 @@ Initialize the oneAPI environment.
 
     . /opt/intel/oneapi/setvars.sh
 
-Enter the directory containing your local copy
-of the repository (typically called tiny-dpcpp-nn) and run
+Enter the directory containing your local copy of the repository (typically called tiny-dpcpp-nn) and run the following  cmake commands.
 
 .. code:: console
 
@@ -48,8 +47,8 @@ of the repository (typically called tiny-dpcpp-nn) and run
 Build options
 =============
 
-The build can be customized by passing -D<option>=ON or OFF to cmake.
-The following options are supported:
+The build allows customization with the following options.
+To toggle them ON or OFF, set -D<option>=ON or OFF to cmake.
 
 ====================== ================================================== ========
 Option                 Description                                        Default
