@@ -41,4 +41,5 @@ build/
 **/__pycache__/
 *.egg-info
 
-
+# test data
+test/tiny-dpcpp-data/

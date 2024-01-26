@@ -17,10 +17,10 @@
 #include "SwiftNetMLP.h"
 #include "encoding_factory.h"
 
-template <typename T> class NetworkWithEncoding {
+template <typename T_enc, typename T_net> class NetworkWithEncoding {
   public:
     NetworkWithEncoding() = delete;
-    NetworkWithEncoding(std::shared_ptr<Encoding<T>> encoding, std::shared_ptr<Network<T>> network)
+    NetworkWithEncoding(std::shared_ptr<Encoding<T_enc>> encoding, std::shared_ptr<Network<T_net>> network)
         : encoding_(encoding), network_(network) {
 
         SanityCheck();
@@ -28,8 +28,9 @@ template <typename T> class NetworkWithEncoding {
 
     ~NetworkWithEncoding() {}
 
-    std::vector<sycl::event> inference(const DeviceMatrix<float> &input, DeviceMatrix<T> &encoding_output,
-                                       DeviceMatrix<T> &network_output, const std::vector<sycl::event> &deps) {
+    std::vector<sycl::event> inference(const DeviceMatrix<float> &input, DeviceMatrix<T_net> &network_input,
+                                       DeviceMatrix<T_enc> &encoding_output, DeviceMatrix<T_net> &network_output,
+                                       const std::vector<sycl::event> &deps) {
         /// TODO: implemente proper usage of deps. Requires proper implementation of forward_impl
         /// in encodings which takes it as input and returns new dependencies.
 
@@ -43,11 +44,13 @@ template <typename T> class NetworkWithEncoding {
 
         auto ctxt = encoding_->forward_impl(&network_->get_queue(), input, &encoding_output);
         network_->get_queue().wait();
-        return network_->inference(encoding_output, network_output, {});
+        network_input.copy_from_device(encoding_output.data());
+        return network_->inference(network_input, network_output, {});
     }
 
-    DeviceMatrixView<T> forward_pass(const DeviceMatrix<float> &input, DeviceMatrix<T> &encoding_output,
-                                     DeviceMatrix<T> &intermediate_forward, const std::vector<sycl::event> &deps) {
+    DeviceMatrixView<T_net> forward_pass(const DeviceMatrix<float> &input, DeviceMatrix<T_enc> &encoding_output,
+                                         DeviceMatrix<T_net> &intermediate_forward,
+                                         const std::vector<sycl::event> &deps) {
         /// TODO: implemente proper usage of deps. Requires proper implementation of forward_impl
         /// in encodings which takes it as input and returns new dependencies.
 
@@ -70,43 +73,43 @@ template <typename T> class NetworkWithEncoding {
                                                 network_->get_network_width() * network_->get_n_hidden_layers());
     }
 
-    std::vector<sycl::event> backward_pass(const DeviceMatrix<T> &input_backward, DeviceMatrix<T> &output,
-                                           DeviceMatrix<T> &intermediate_backward,
-                                           const DeviceMatrix<T> &intermediate_forward, const int batch_size,
+    std::vector<sycl::event> backward_pass(const DeviceMatrix<T_net> &input_backward, DeviceMatrix<T_net> &output,
+                                           DeviceMatrix<T_net> &intermediate_backward,
+                                           const DeviceMatrix<T_net> &intermediate_forward, const int batch_size,
                                            const std::vector<sycl::event> &deps) {
         return network_->backward_pass(input_backward, output, intermediate_backward, intermediate_forward, deps);
     }
 
     // functions which simplify the usage by generating the intermediate arrays
-    DeviceMatrix<T> GenerateIntermediateForwardMatrix(const size_t batch_size) {
+    DeviceMatrix<T_net> GenerateIntermediateForwardMatrix(const size_t batch_size) {
         const uint32_t tmp_n_cols = network_->get_input_width() +
                                     network_->get_network_width() * network_->get_n_hidden_layers() +
                                     network_->get_output_width();
-        return std::move(DeviceMatrix<T>(batch_size, tmp_n_cols, network_->get_queue()));
+        return std::move(DeviceMatrix<T_net>(batch_size, tmp_n_cols, network_->get_queue()));
     }
 
-    DeviceMatrix<T> GenerateIntermediateBackwardMatrix(const size_t batch_size) {
+    DeviceMatrix<T_net> GenerateIntermediateBackwardMatrix(const size_t batch_size) {
         const uint32_t tmp_n_cols =
             network_->get_network_width() * network_->get_n_hidden_layers() + network_->get_output_width();
-        return std::move(DeviceMatrix<T>(batch_size, tmp_n_cols, network_->get_queue()));
+        return std::move(DeviceMatrix<T_net>(batch_size, tmp_n_cols, network_->get_queue()));
     }
-    DeviceMatrix<T> GenerateEncodingOutputMatrix(const size_t batch_size) {
+    DeviceMatrix<T_enc> GenerateEncodingOutputMatrix(const size_t batch_size) {
         const uint32_t tmp_n_cols = network_->get_input_width();
-        return std::move(DeviceMatrix<T>(batch_size, tmp_n_cols, network_->get_queue()));
+        return std::move(DeviceMatrix<T_enc>(batch_size, tmp_n_cols, network_->get_queue()));
     }
-    DeviceMatrix<T> GenerateForwardOutputMatrix(const size_t batch_size) {
+    DeviceMatrix<T_net> GenerateForwardOutputMatrix(const size_t batch_size) {
         const uint32_t tmp_n_cols = network_->get_output_width();
-        return std::move(DeviceMatrix<T>(batch_size, tmp_n_cols, network_->get_queue()));
+        return std::move(DeviceMatrix<T_net>(batch_size, tmp_n_cols, network_->get_queue()));
     }
-    DeviceMatrix<T> GenerateBackwardOutputMatrix() {
+    DeviceMatrix<T_net> GenerateBackwardOutputMatrix() {
         const uint32_t tmp_n_rows = network_->get_network_width();
         const uint32_t tmp_n_cols = network_->get_n_hidden_matrices() * network_->get_network_width() +
                                     network_->get_input_width() + network_->get_output_width();
-        return std::move(DeviceMatrix<T>(tmp_n_rows, tmp_n_cols, network_->get_queue()));
+        return std::move(DeviceMatrix<T_net>(tmp_n_rows, tmp_n_cols, network_->get_queue()));
     }
 
-    std::shared_ptr<Network<T>> get_network() { return network_; }
-    std::shared_ptr<Encoding<T>> get_encoding() { return encoding_; }
+    std::shared_ptr<Encoding<T_enc>> get_encoding() { return encoding_; }
+    std::shared_ptr<Network<T_net>> get_network() { return network_; }
 
   private:
     void SanityCheck() const {
@@ -114,17 +117,17 @@ template <typename T> class NetworkWithEncoding {
         // Check that the dimensions of network and encoding match
     }
 
-    std::shared_ptr<Encoding<T>> encoding_;
-    std::shared_ptr<Network<T>> network_;
+    std::shared_ptr<Encoding<T_enc>> encoding_;
+    std::shared_ptr<Network<T_net>> network_;
 };
 
-template <typename T, int WIDTH>
-std::shared_ptr<NetworkWithEncoding<T>>
+template <typename T_enc, typename T_net, int WIDTH>
+std::shared_ptr<NetworkWithEncoding<T_enc, T_net>>
 create_network_with_encoding(sycl::queue &q, const int input_width, const int output_width, const int n_hidden_layers,
                              Activation activation, Activation output_activation, const json &encoding_config) {
 
-    std::shared_ptr<SwiftNetMLP<T, WIDTH>> net = std::make_shared<SwiftNetMLP<T, WIDTH>>(
+    std::shared_ptr<SwiftNetMLP<T_net, WIDTH>> net = std::make_shared<SwiftNetMLP<T_net, WIDTH>>(
         q, input_width, output_width, n_hidden_layers, activation, output_activation);
-    std::shared_ptr<Encoding<T>> enc = create_encoding<T>(encoding_config);
-    return std::make_shared<NetworkWithEncoding<T>>(enc, net);
+    std::shared_ptr<Encoding<T_enc>> enc = create_encoding<T_enc>(encoding_config);
+    return std::make_shared<NetworkWithEncoding<T_enc, T_net>>(enc, net);
 }
