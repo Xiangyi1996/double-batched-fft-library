@@ -68,21 +68,21 @@ class _module_function(torch.autograd.Function):
         return None, None, grad
 
 
-# class Embedding(torch.nn.Module):
-#     def __init__(self, input_dim, output_dim, requires_grad=False):
-#         super(Embedding, self).__init__()
+class Embedding(torch.nn.Module):
+    def __init__(self, input_dim, output_dim, requires_grad=False):
+        super(Embedding, self).__init__()
 
-#         self.embedding = torch.nn.Linear(input_dim, output_dim, bias=False)
-#         if not requires_grad:
-#             # Initialize the parameters with the specified value
-#             torch.nn.init.constant_(self.embedding.weight, 0.1)
+        self.embedding = torch.nn.Linear(input_dim, output_dim, bias=False)
+        if not requires_grad:
+            # Initialize the parameters with the specified value
+            torch.nn.init.constant_(self.embedding.weight, 0.1)
 
-#         for param in self.embedding.parameters():
-#             param.requires_grad = requires_grad
+        for param in self.embedding.parameters():
+            param.requires_grad = requires_grad
 
-#     def forward(self, x):
-#         x = self.embedding(x)
-#         return x
+    def forward(self, x):
+        x = self.embedding(x)
+        return x
 
 
 class Module(torch.nn.Module):
@@ -92,9 +92,8 @@ class Module(torch.nn.Module):
 
         self.tnn_module = self.create_module()
         if self.tnn_module.n_params():
-            torch_params = torch.ones(self.tnn_module.n_params(), dtype=torch.bfloat16)
+            torch_params = torch.rand(self.tnn_module.n_params(), dtype=torch.bfloat16)
             initial_params = self.tnn_module.initial_params(torch_params)
-            # initial_params = self.tnn_module.initial_params()
 
             self.params = torch.nn.Parameter(
                 initial_params.to(device), requires_grad=True

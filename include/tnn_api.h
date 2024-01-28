@@ -100,7 +100,7 @@ class Module {
     }
     virtual ~Module() {}
 
-    virtual torch::Tensor forward_pass(torch::Tensor input_list, torch::Tensor params, int use_inference = 0) = 0;
+    virtual torch::Tensor forward_pass(torch::Tensor input_list, torch::Tensor params, bool use_inference) = 0;
 
     virtual torch::Tensor backward_pass(torch::Tensor input_tensor, torch::Tensor grad_output,
                                         torch::Tensor params) = 0;
@@ -126,8 +126,8 @@ template <typename T> class EncodingModule : public Module {
     }
     ~EncodingModule() {}
 
-    torch::Tensor forward_pass(torch::Tensor input_list, torch::Tensor params,
-                               int use_inference = 0) override { //   assert(input_tensor.sizes() == 2 &&p
+    torch::Tensor forward_pass(torch::Tensor input_list, torch::Tensor params, bool use_inference) override {
+        //   assert(input_tensor.sizes() == 2 &&p
         //          "Tensor length for Encoding forward is not equal to 2!");
         //   std::cout << "Input tensor sizes: " << input_tensor.sizes() << std::endl;
         // int batch_size = input_tensor.sizes()[1];
@@ -187,9 +187,9 @@ template <typename T_enc, typename T_net, int WIDTH> class NetworkWithEncodingMo
             this->sycl_queue, m_width, output_width, n_hidden_layers, activation, output_activation, encoding_config);
     }
 
-    ~NetworkWithEncodingModule() {}
+    ~NetworkWithEncodingModule() { delete interm_forw; }
 
-    torch::Tensor forward_pass(torch::Tensor input_tensor, torch::Tensor params, int use_inference = 0) override {
+    torch::Tensor forward_pass(torch::Tensor input_tensor, torch::Tensor params, const bool use_inference) override {
         set_params(params);
         int batch_size = input_tensor.sizes()[0];
         DeviceMatrix<T_enc> input_encoding(batch_size, m_input_width, this->sycl_queue);
@@ -200,35 +200,39 @@ template <typename T_enc, typename T_net, int WIDTH> class NetworkWithEncodingMo
         DeviceMatrix<T_enc> output_encoding(batch_size, m_width, this->sycl_queue);
         DeviceMatrix<T_net> output_network(batch_size, m_output_width, this->sycl_queue);
         DeviceMatrix<T_net> input_network(batch_size, WIDTH, this->sycl_queue);
-
         if (use_inference) {
             network->inference(input_encoding, input_network, output_encoding, output_network, {});
             return convertDeviceMatrixToTensor(output_network);
         } else {
-            DeviceMatrices<T> interm_forw(network.get_n_hidden_layers() + 2, batch_size, network.get_input_width(),
-                                          batch_size, network.get_network_width(), batch_size,
-                                          network.get_output_width(), q);
-            network->forward_pass(input_encoding, input_network, output_encoding, interm_forw, {});
-            return convertDeviceMatricesToTensor(interm_forw);
+            interm_forw = new DeviceMatrices<T_net>(network->get_network()->get_n_hidden_layers() + 2, batch_size,
+                                                    network->get_network()->get_input_width(), batch_size,
+                                                    network->get_network()->get_network_width(), batch_size,
+                                                    network->get_network()->get_output_width(), this->sycl_queue);
+            network->forward_pass(input_encoding, input_network, output_encoding, *interm_forw, {});
+            return convertDeviceMatricesToTensor(*interm_forw);
         }
     }
 
     torch::Tensor backward_pass(torch::Tensor input_tensor, torch::Tensor grad_output, torch::Tensor params) override {
-        // int batch_size = input_tensor.sizes()[1];
+        set_params(params);
 
-        // DeviceMem<bf16> input_backward = DeviceMem<bf16>(batch_size * m_input_width, sycl_queue);
-        // DeviceMem<bf16> grads = DeviceMem<bf16>(batch_size * m_output_width, sycl_queue);
+        int batch_size = input_tensor.sizes()[1];
 
-        // convert_tensor_to_dev_mem(grad_output, &grads);
-        // convert_tensor_to_dev_mem(input_tensor, &input_backward);
+        DeviceMatrix<T_net> loss(batch_size, m_output_width, this->sycl_queue);
+        this->sycl_queue.memcpy(loss.data(), reinterpret_cast<T_net *>(input_tensor.data_ptr<float>()),
+                                loss.size() * sizeof(T_net));
+        this->sycl_queue.wait();
 
-        // set_params(params);
+        DeviceMatrices<T_net> grads(network->get_network()->get_n_hidden_layers() + 1,
+                                    network->get_network()->get_network_width(), WIDTH, WIDTH, WIDTH, WIDTH,
+                                    network->get_network()->get_output_width(), this->sycl_queue);
+        DeviceMatrices<T_net> interm_backw(network->get_network()->get_n_hidden_layers() + 1, batch_size,
+                                           network->get_network()->get_network_width(), batch_size,
+                                           network->get_network()->get_network_width(), batch_size,
+                                           network->get_network()->get_output_width(), this->sycl_queue);
+        network->backward_pass(loss, grads, interm_backw, *interm_forw, {});
 
-        // DeviceMem<bf16> *grads_matrices = network->backward_pass(input_backward, grads, forward, batch_size);
-
-        // torch::Tensor grad_loss = get_converted_tensor_from_dev_mem(*grads_matrices);
-
-        // return grad_loss;
+        return convertDeviceMatricesToTensor(grads);
     }
 
     torch::Tensor initialize_params() override {
@@ -266,6 +270,7 @@ template <typename T_enc, typename T_net, int WIDTH> class NetworkWithEncodingMo
     int m_output_width;
     int m_width;
     int m_n_hidden_layers;
+    DeviceMatrices<T_net> *interm_forw = nullptr; // allocated in forward_pass, deallocated in deconstructor
 };
 
 } // namespace tnn

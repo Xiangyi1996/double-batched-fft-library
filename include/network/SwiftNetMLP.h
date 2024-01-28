@@ -156,7 +156,9 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
     void SanityCheckForward(const DeviceMatrix<T> &input, DeviceMatrices<T> &intermediate_output_forward) const {
         // Static assertion and assertion checks
         if ((input.m() % 8) != 0) throw std::invalid_argument("Batch size is not divisible by 8.");
-        if (input.n() != Network<T>::get_input_width()) throw std::invalid_argument("Input array too small");
+        if (input.n() != Network<T>::get_input_width())
+            throw std::invalid_argument("Input array too small. Input n: " + std::to_string(input.n()) +
+                                        " != input width " + std::to_string(Network<T>::get_input_width()));
         if (intermediate_output_forward.input_m() != input.m() || intermediate_output_forward.input_n() != input.n())
             throw std::invalid_argument("intermediate_output_forward array too small for input");
         if (intermediate_output_forward.middle_m() != input.m() || intermediate_output_forward.middle_n() != WIDTH)

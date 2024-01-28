@@ -25,65 +25,6 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 using tinydpcppnn::encodings::grid::GridEncoding;
 using json = nlohmann::json;
 
-template <typename T, int WIDTH>
-std::vector<T> load_from_file(std::string filename, int m_n_hidden_layers, int input_width, int output_width) {
-    // Read each value from the file and set it as a bf16 value in weights matrices
-    std::vector<T> data_vec;
-    std::ifstream file(filename);
-
-    if (!file.is_open()) {
-        std::cerr << "Error opening file: " << filename << std::endl;
-    }
-
-    std::string line;
-    while (std::getline(file, line)) {
-        try {
-            float value = std::stod(line);
-            data_vec.push_back((T)(value));
-        } catch (const std::invalid_argument &e) {
-            std::cerr << "Invalid argument: " << e.what() << std::endl;
-        } catch (const std::out_of_range &e) {
-            std::cerr << "Out of range: " << e.what() << std::endl;
-        }
-    }
-
-    file.close();
-
-    std::vector<T> weights_packed(data_vec.size(), 0.0);
-
-    for (int idx = 0; idx < weights_packed.size(); idx++) {
-        int i = 0;
-        int j = 0;
-        if (idx < input_width * WIDTH) {
-
-            i = idx / WIDTH; // rows
-            j = idx % WIDTH; // cols
-
-            weights_packed[toPackedLayoutCoord(i + j * WIDTH, WIDTH, WIDTH)] = data_vec[idx];
-        } else if ((idx >= input_width * WIDTH) &&
-                   (idx < input_width * WIDTH + (m_n_hidden_layers - 1) * WIDTH * WIDTH)) {
-            int layer = (idx - input_width * WIDTH) / (WIDTH * WIDTH);
-            int mat_offset = (idx - (input_width * WIDTH + layer * WIDTH * WIDTH)) % (WIDTH * WIDTH);
-
-            i = mat_offset / WIDTH; // rows
-            j = mat_offset % WIDTH; // cols
-
-            weights_packed[input_width * WIDTH + layer * WIDTH * WIDTH +
-                           toPackedLayoutCoord(i + j * WIDTH, WIDTH, WIDTH)] = data_vec[idx];
-        } else {
-            int mat_offset =
-                (idx - input_width * WIDTH - (m_n_hidden_layers - 1) * WIDTH * WIDTH) % (WIDTH * output_width);
-            i = mat_offset / WIDTH; // rows
-            j = mat_offset % WIDTH; // cols
-
-            weights_packed[input_width * WIDTH + (m_n_hidden_layers - 1) * WIDTH * WIDTH +
-                           toPackedLayoutCoord(i + j * WIDTH, WIDTH, WIDTH)] = data_vec[idx];
-        }
-    }
-
-    return weights_packed;
-}
-
 /// Function which applies a grid encoding to a R2 vector, resulting in a vector of size
 /// network_input_width, then applies the network and the output is the network_output_width
 // ATTENTION: currently only works for WIDTH=64
@@ -112,8 +53,8 @@ void test_network_with_encoding_loaded(sycl::queue &q, std::string filepath, con
     }
 
     Net->get_encoding()->set_padded_output_width(encoding_output_width);
-    std::vector<T_net> network_weights_ref =
-        load_from_file<T_net, WIDTH>(filepath + "network_params.csv", n_hidden_layers, input_width, output_width);
+    std::vector<T_net> network_weights_ref = load_weights_as_packed_from_file<T_net, WIDTH>(
+        filepath + "network_params.csv", n_hidden_layers, input_width, output_width);
     Net->get_network()->set_weights_matrices(network_weights_ref);
     DeviceMatrix<float> input_encoding(batch_size, encoding_input_width, q);
     std::vector<float> input_encoding_ref = loadVectorFromCSV<float>(filepath + "input_encoding.csv");

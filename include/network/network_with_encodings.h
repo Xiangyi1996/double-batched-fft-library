@@ -75,9 +75,9 @@ template <typename T_enc, typename T_net> class NetworkWithEncoding {
         //                                         network_->get_network_width() * network_->get_n_hidden_layers());
     }
 
-    std::vector<sycl::event> backward_pass(const DeviceMatrix<T_net> &input_backward, DeviceMatrix<T_net> &output,
-                                           DeviceMatrix<T_net> &intermediate_backward,
-                                           const DeviceMatrix<T_net> &intermediate_forward, const int batch_size,
+    std::vector<sycl::event> backward_pass(const DeviceMatrix<T_net> &input_backward, DeviceMatrices<T_net> &output,
+                                           DeviceMatrices<T_net> &intermediate_backward,
+                                           const DeviceMatrices<T_net> &intermediate_forward,
                                            const std::vector<sycl::event> &deps) {
         return network_->backward_pass(input_backward, output, intermediate_backward, intermediate_forward, deps);
     }
