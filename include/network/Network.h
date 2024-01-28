@@ -71,11 +71,6 @@ template <typename T> class Network : public NetworkBase<T> {
         TransposeWeights(m_weights_matrices, m_weightsT_matrices);
     };
 
-    virtual void set_weights_matrices(const T *weights) {
-        m_weights_matrices.copy_from_host(weights).wait();
-        TransposeWeights(m_weights_matrices, m_weightsT_matrices);
-    };
-
     // this is the result from the backward pass. Not sure why this is here to be honest.
     virtual const DeviceMatrices<T> &get_weights_matrices() const { return m_weights_matrices; }
     virtual const DeviceMatrices<T> &get_weightsT_matrices() const { return m_weightsT_matrices; }

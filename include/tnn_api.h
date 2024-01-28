@@ -79,6 +79,9 @@ template <> torch::Tensor convertVectorToTensor<bf16>(const std::vector<bf16> &v
 template <typename T> torch::Tensor convertDeviceMatrixToTensor(DeviceMatrix<T> &device_matrix) {
     return convertVectorToTensor(device_matrix.copy_to_host());
 }
+template <typename T> torch::Tensor convertDeviceMatricesToTensor(DeviceMatrices<T> &device_matrices) {
+    return convertVectorToTensor(device_matrices.copy_to_host());
+}
 
 namespace tnn {
 class Module {
@@ -200,9 +203,14 @@ template <typename T_enc, typename T_net, int WIDTH> class NetworkWithEncodingMo
 
         if (use_inference) {
             network->inference(input_encoding, input_network, output_encoding, output_network, {});
+            return convertDeviceMatrixToTensor(output_network);
+        } else {
+            DeviceMatrices<T> interm_forw(network.get_n_hidden_layers() + 2, batch_size, network.get_input_width(),
+                                          batch_size, network.get_network_width(), batch_size,
+                                          network.get_output_width(), q);
+            network->forward_pass(input_encoding, input_network, output_encoding, interm_forw, {});
+            return convertDeviceMatricesToTensor(interm_forw);
         }
-
-        return convertDeviceMatrixToTensor(output_network);
     }
 
     torch::Tensor backward_pass(torch::Tensor input_tensor, torch::Tensor grad_output, torch::Tensor params) override {
