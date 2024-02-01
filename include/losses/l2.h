@@ -19,7 +19,6 @@
 template <typename T>
 inline static void l2_loss(const float inv_n_elements, const float loss_scale, const T prediction, const float target,
                            float &value, T &gradient) {
-
     const float difference = static_cast<float>(prediction) - target;
     value = difference * difference * inv_n_elements;
     gradient = static_cast<T>(loss_scale * 2 * difference * inv_n_elements);

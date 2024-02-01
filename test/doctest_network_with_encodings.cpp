@@ -190,16 +190,16 @@ test_create_network_with_encoding_as_shared_ptr(sycl::queue &q, const int encodi
 
 TEST_CASE("tinydpcppnn::network_with_encoding step-by-step") {
     sycl::queue q(gpu_selector_v);
-    // SUBCASE("Create network_with_encoding as shared_ptr") {
-    //     const int encoding_input_width = 64;
+    SUBCASE("Create network_with_encoding as shared_ptr") {
+        const int encoding_input_width = 64;
 
-    //     const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, encoding_input_width},
-    //                                {EncodingParams::SCALE, 1.0},
-    //                                {EncodingParams::OFFSET, 0.0},
-    //                                {EncodingParams::ENCODING, EncodingNames::IDENTITY}};
-    //     test_create_network_with_encoding_as_shared_ptr<float, bf16, 64>(q, encoding_input_width, encoding_config);
-    // }
-    // SUBCASE("Identity encoding inference") { test_network_with_encoding_identity_inference(q); }
+        const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, encoding_input_width},
+                                   {EncodingParams::SCALE, 1.0},
+                                   {EncodingParams::OFFSET, 0.0},
+                                   {EncodingParams::ENCODING, EncodingNames::IDENTITY}};
+        test_create_network_with_encoding_as_shared_ptr<float, bf16, 64>(q, encoding_input_width, encoding_config);
+    }
+    SUBCASE("Identity encoding inference") { test_network_with_encoding_identity_inference(q); }
     SUBCASE("Identity encoding fwd") { test_network_with_encoding_identity_forward_backward(q); }
 
     // #ifdef TEST_PATH

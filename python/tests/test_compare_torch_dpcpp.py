@@ -227,13 +227,13 @@ if __name__ == "__main__":
     output_func = "linear"
     # output_func = "sigmoid"
 
-    test_fwd(input_width, n_hidden_layers, output_width, activation_func, output_func)
-    print("Passed fwd test")
+    # test_fwd(input_width, n_hidden_layers, output_width, activation_func, output_func)
+    # print("Passed fwd test")
 
-    # test_grad(
-    #     input_width,
-    #     n_hidden_layers,
-    #     output_width,
-    #     activation_func,
-    #     output_func,
-    # )
+    test_grad(
+        input_width,
+        n_hidden_layers,
+        output_width,
+        activation_func,
+        output_func,
+    )

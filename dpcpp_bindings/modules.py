@@ -61,9 +61,11 @@ class _module_function(torch.autograd.Function):
     @staticmethod
     def backward(ctx, doutput):
         input, output, params = ctx.saved_tensors
-
+        # print(input.dtype)
+        # print(doutput.dtype)
+        # print(params.dtype)
         with torch.no_grad():
-            grad = ctx.native_tcnn_module.bwd(input, doutput, params)
+            grad = ctx.native_tcnn_module.bwd(input, doutput.to("xpu"), params)
         # 3 inputs to forward, so need 3 grads
         return None, None, grad
 
@@ -92,7 +94,8 @@ class Module(torch.nn.Module):
 
         self.tnn_module = self.create_module()
         if self.tnn_module.n_params():
-            torch_params = torch.rand(self.tnn_module.n_params(), dtype=torch.bfloat16)
+            # torch_params = torch.rand(self.tnn_module.n_params(), dtype=torch.bfloat16)
+            torch_params = torch.ones(self.tnn_module.n_params(), dtype=torch.bfloat16)
             initial_params = self.tnn_module.initial_params(torch_params)
 
             self.params = torch.nn.Parameter(

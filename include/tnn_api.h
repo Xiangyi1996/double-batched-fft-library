@@ -209,7 +209,11 @@ template <typename T_enc, typename T_net, int WIDTH> class NetworkWithEncodingMo
                                                     network->get_network()->get_network_width(), batch_size,
                                                     network->get_network()->get_output_width(), this->sycl_queue);
             network->forward_pass(input_encoding, input_network, output_encoding, *interm_forw, {});
-            return convertDeviceMatricesToTensor(*interm_forw);
+
+            std::vector<T_net> interm_forw_vec = interm_forw->copy_to_host();
+            std::vector<T_net> output_network_vec(interm_forw_vec.end() - (batch_size * m_output_width),
+                                                  interm_forw_vec.end());
+            return convertVectorToTensor(output_network_vec);
         }
     }
 
@@ -219,7 +223,7 @@ template <typename T_enc, typename T_net, int WIDTH> class NetworkWithEncodingMo
         int batch_size = input_tensor.sizes()[1];
 
         DeviceMatrix<T_net> loss(batch_size, m_output_width, this->sycl_queue);
-        this->sycl_queue.memcpy(loss.data(), reinterpret_cast<T_net *>(input_tensor.data_ptr<float>()),
+        this->sycl_queue.memcpy(loss.data(), reinterpret_cast<T_net *>(grad_output.data_ptr<float>()),
                                 loss.size() * sizeof(T_net));
         this->sycl_queue.wait();
 

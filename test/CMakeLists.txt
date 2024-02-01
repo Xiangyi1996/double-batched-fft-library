@@ -5,7 +5,7 @@ find_package(IntelSYCL REQUIRED)
 
 # Define a function to check for and clone the repository if necessary
 function(check_or_clone_data_repository)
-    if(NOT EXISTS "${PROJECT_SOURCE_DIR}/test/tiny-dpcpp-data")
+    if(NOT EXISTS "${PROJECT_SOURCE_DIR}/test/tiny-dpcpp-data/ref_values")
         message(STATUS "tiny-dpcpp-data does not exist in test/. Clone tiny-dpcpp-data repository. This might take a bit")
         execute_process(
             COMMAND git clone https://github.com/intel-sandbox/tiny-dpcpp-data.git test/tiny-dpcpp-data
@@ -29,11 +29,18 @@ if(BUILD_REF_TEST)
     check_or_clone_data_repository()
     add_definitions(-DTEST_PATH="${PROJECT_SOURCE_DIR}/test/")
 endif()
-
 add_library(test-lib STATIC main.cpp)
-target_include_directories(test-lib PUBLIC ${PROJECT_SOURCE_DIR}/extern)
+target_include_directories(test-lib PUBLIC ${PROJECT_SOURCE_DIR}/extern
+
+)
 target_compile_features(test-lib PUBLIC cxx_std_20)
 add_common_flags(test-lib)
+
+# Pass a preprocessor variable to the C++ code based on the option
+if(BUILD_BWD_TEST)
+    add_definitions(-DTEST_BWD)
+    target_include_directories(test-lib PUBLIC ${PROJECT_SOURCE_DIR}/extern/eigen)
+endif()
 
 add_executable(test-common doctest_common.cpp)
 add_sycl_to_target(TARGET test-common SOURCES doctest_common.cpp)
@@ -67,12 +74,12 @@ doctest_discover_tests(test-kernel-esimd)
 
 # add_executable(test-devicemem doctest_devicemem.cpp)
 # add_sycl_to_target(TARGET test-devicemem SOURCES doctest_devicemem.cpp)
-# target_link_libraries(test-devicemem PRIVATE test-lib swiftnetmlp)
+# target_link_libraries(test-devicemem PRIVATE test-lib network)
 # doctest_discover_tests(test-devicemem)
 
 # add_executable(test-losses doctest_losses.cpp)
 # add_sycl_to_target(TARGET test-losses SOURCES doctest_losses.cpp)
-# target_link_libraries(test-losses PRIVATE test-lib swiftnetmlp)
+# target_link_libraries(test-losses PRIVATE test-lib )
 # doctest_discover_tests(test-losses)
 
 # add_executable(test-kernelhelper doctest_kernelhelper.cpp)
@@ -85,5 +92,5 @@ doctest_discover_tests(test-kernel-esimd)
 
 # add_executable(test-save-image doctest_image_save.cpp)
 # add_sycl_to_target(TARGET test-save-image SOURCES doctest_image_save.cpp)
-# target_link_libraries(test-save-image PRIVATE test-lib swiftnetmlp)
+# target_link_libraries(test-save-image PRIVATE test-lib network)
 # doctest_discover_tests(test-save-image)

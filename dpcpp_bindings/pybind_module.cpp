@@ -34,7 +34,7 @@ class PybindingModule {
     torch::Tensor fwd(torch::Tensor input, torch::Tensor params) {
         CHECK_INPUT(input);
         CHECK_INPUT(params);
-        return m_module->forward_pass(input, params, 1);
+        return m_module->forward_pass(input, params, 0);
     }
 
     torch::Tensor inference(torch::Tensor input, torch::Tensor params) {

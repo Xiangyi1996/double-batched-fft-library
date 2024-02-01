@@ -69,9 +69,10 @@ bool isVectorWithinTolerance(const std::vector<Tval> &value, const Ttarget targe
         max_diff = inf_diff / std::max(std::abs((double)target), inf_val);
 
     if (max_diff > tolerance) is_same = false;
-
-    std::cout << "Values are within tolerance = " << std::boolalpha << is_same << std::noboolalpha
-              << ". Max diff = " << max_diff << std::endl;
+    if (!is_same) {
+        std::cout << "Values are within tolerance = " << std::boolalpha << is_same << std::noboolalpha
+                  << ". Max diff = " << max_diff << std::endl;
+    }
 
     return is_same;
 }
@@ -92,8 +93,9 @@ bool areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector
 
     if (max_diff > tolerance) is_same = false;
 
-    std::cout << "Values are within tolerance = " << std::boolalpha << is_same << std::noboolalpha
-              << ". Max diff = " << max_diff << std::endl;
-
+    if (!is_same) {
+        std::cout << "Values are within tolerance = " << std::boolalpha << is_same << std::noboolalpha
+                  << ". Max diff = " << max_diff << std::endl;
+    }
     return is_same;
 }
