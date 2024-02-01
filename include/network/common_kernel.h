@@ -17,8 +17,12 @@
 
 #include "DeviceMatrix.h"
 
-// abstract kernels class. We derive from this template classes for the various
-// different kernels. They are then registered in the SwiftNetMLP?
+/**
+ * @brief Abstract base class for kernels which declares interfaces to forward
+ * and backward functions utilized in the training, and inference function.
+ *
+ * @tparam T Type of the kernel.
+ */
 template <typename T> class Kernels {
 
   public:

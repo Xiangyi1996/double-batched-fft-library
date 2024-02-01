@@ -53,6 +53,14 @@ using sycl::ext::intel::experimental::esimd::cache_hint;
 using namespace sycl::ext::intel::experimental::esimd;
 using bf16 = sycl::ext::oneapi::bfloat16;
 
+/**
+ * @brief Struct to decide type for accumulation (CType) for XMX at compile time,
+ * depending on the given type T.
+ *
+ * Currently returns CType == T, except when T == bf16, then CType == float.
+ *
+ * @tparam T
+ */
 template <typename T> struct XMXCType {
     typedef T CType;
 };
@@ -63,6 +71,19 @@ template <> struct XMXCType<sycl::half> {
     typedef sycl::half CType;
 };
 
+/**
+ * @brief
+ *
+ * @tparam T type for the computations. Everything that is supported by xmx::dpas
+ * should work fine.
+ * @tparam INPUT_WIDTH The width of the input layer of the network. In general
+ * it should be a multiple of TK, right now it is equal to WIDTH.
+ * @tparam WIDTH Denotes the width of every hidden layer, may be 16, 32, 64, 128.
+ * @tparam OUTPUT_WIDTH The width of the output layer, currently equal to WIDTH. Later a multiple of TN.
+ * @tparam activation Activation function. Currently either none or ReLU.
+ * @tparam output_activation Activation for the output layer. Currently None.
+ * @tparam TN Device dependent, whatever is supported by the chosen device. 8 for DG2, 16 for PVC.
+ */
 template <typename T, int INPUT_WIDTH, int WIDTH, int OUTPUT_WIDTH, Activation activation, Activation output_activation,
           size_t TN>
 class EsimdKernels : public Kernels<T> {
@@ -250,12 +271,36 @@ class EsimdKernels : public Kernels<T> {
     SYCL_ESIMD_FUNCTION static void applyActivation(simd<Tsrc, N> &Src, simd<Tdest, N> &Dest) {
         static_assert(TM >= 1 && TM <= 8);
         static_assert(TN == 16 || TN == 8);
-        static_assert(TK == TN); // otherwise we would need to reshuffle due to block major format
+        static_assert(TK == 8 || TK == 16 || TK == 32 || TK == 64);
 
         if constexpr (act == Activation::None)
-            Dest = convert<Tdest, Tsrc>(Src);
+            reBlock<TM, TK>(convert<Tdest, Tsrc>(Src), Dest);
         else if constexpr (act == Activation::ReLU)
-            Dest = max<Tdest>(convert<Tdest, Tsrc>(Src), simd<Tdest, N>(static_cast<Tdest>(0)));
+            reBlock<TM, TK>(max<Tdest>(convert<Tdest, Tsrc>(Src), simd<Tdest, N>(static_cast<Tdest>(0))), Dest);
+    }
+
+    // TK == 8, 16, 32, 64; TN == 8 (DG2), 16 (PVC)
+    // Src contains of blocks sized TM*TN
+    // Dest of blocks sized TM*TK
+    template <int TM, int TK, int N> SYCL_ESIMD_FUNCTION static void reBlock(const simd<T, N> &Src, simd<T, N> &Dest) {
+        static_assert(TK == TN || TK == 2 * TN || TK == 4 * TN || TK == 8 * TN || TK == TN / 2);
+
+        if constexpr (TK == TN) {
+            Dest = Src;
+        } else if constexpr (TK == 2 * TN || TK == 4 * TN || TK == 8 * TN) {
+            constexpr int FAC = TK / TN;
+            auto Dest_2d = Dest.template bit_cast_view<T, N / TK, TK>(); // block major 2d layout
+            for (int iter = 0; iter < WIDTH / TN; iter++) {              // iterate over the blocks in SRC
+                Dest_2d.template select<TM, 1, TN, 1>((iter / FAC) * TM, (iter % FAC) * TN) =
+                    Src.template select<TM * TN, 1>(iter * TM * TN);
+            }
+        } else if constexpr (TK == TN / 2) {
+            auto Src_2d = Src.template bit_cast_view<T, N / TN, TN>(); // block major 2d layout
+            for (int iter = 0; iter < WIDTH / TK; iter++) {            // iterate over the blocks in SRC
+                Dest.template select<TM * TK, 1>(iter * TM * TK) =
+                    Src_2d.template select<TM, 1, TK, 1>((iter / 2) * TM, (iter % 2) * TK);
+            }
+        }
     }
 
   private:

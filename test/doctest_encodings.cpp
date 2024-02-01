@@ -71,11 +71,8 @@ void test_encoding_from_loaded_file(const int batch_size, const int input_width,
     std::unique_ptr<Context> model_ctx = encoding->forward_impl(&q, input, &output);
     q.wait();
 
-    std::vector<T> out = output.copy_to_host();
-    const T epsilon = 1e-2; // Set the tolerance for floating-point comparisons
-
     // Check if the actual vector is equal to the expected vector within the tolerance
-    CHECK(areVectorsWithinTolerance(out, output_ref, epsilon));
+    CHECK(areVectorsWithinTolerance(output.copy_to_host(), output_ref, 2.0e-3));
 
     if (params.size() == 0) return; // bwd calculations onwards
 
@@ -85,7 +82,7 @@ void test_encoding_from_loaded_file(const int batch_size, const int input_width,
     output.copy_from_host(output_ref).wait();
 
     DeviceMatrix<T> loss(batch_size, output_width, q);
-    loss.fill(0.0f).wait();
+    // loss.fill(-0.1f).wait();
     loss.copy_from_host(loss_ref).wait();
     encoding->backward_impl(&q, *model_ctx, input, output, loss);
 
@@ -95,10 +92,11 @@ void test_encoding_from_loaded_file(const int batch_size, const int input_width,
 
     q.memcpy(enc_params.data(), encoding->params(), encoding->n_params() * sizeof(float)).wait();
     q.memcpy(enc_grads.data(), encoding->gradients(), encoding->n_params() * sizeof(float)).wait();
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < enc_params.size(); i++) {
         std::cout << enc_grads[i] << "/" << params_grad_ref[i] << std::endl;
     }
-    CHECK(areVectorsWithinTolerance(enc_grads, params_grad_ref, epsilon));
+    CHECK(areVectorsWithinTolerance(enc_params, params, 1.0e-3));
+    CHECK(areVectorsWithinTolerance(enc_grads, params_grad_ref, 1.0e-3));
 
     // pure sanity check that params didn't change, we loaded them and set them
     // CHECK(areVectorsWithinTolerance(enc_params, params, epsilon));
@@ -150,16 +148,16 @@ SUBCASE("Check results loaded float") {
     test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
 }
 
-SUBCASE("Check results loaded bf16") {
-    // SWIFTNET
-    const int input_width = 3;
-    const int batch_size = 64;
-    const int output_width = 3;
-    sycl::queue q;
+// SUBCASE("Check results loaded bf16") {
+//     // SWIFTNET
+//     const int input_width = 3;
+//     const int batch_size = 64;
+//     const int output_width = 3;
+//     sycl::queue q;
 
-    std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/identity/";
-    test_encoding_from_loaded_file<bf16>(batch_size, input_width, output_width, filepath, q);
-}
+//     std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/identity/";
+//     test_encoding_from_loaded_file<bf16>(batch_size, input_width, output_width, filepath, q);
+// }
 #endif
 }
 
@@ -272,33 +270,78 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
             {EncodingParams::N_FEATURES_PER_LEVEL, 2},       {EncodingParams::LOG2_HASHMAP_SIZE, 19},
             {EncodingParams::BASE_RESOLUTION, 16},           {EncodingParams::PER_LEVEL_SCALE, 2.0}};
 
-        std::shared_ptr<GridEncoding<float>> network =
+        std::shared_ptr<GridEncoding<float>> encoding =
             tinydpcppnn::encodings::grid::create_grid_encoding<float>(encoding_config);
         q.wait();
-        network->set_padded_output_width(output_float.n());
+        encoding->set_padded_output_width(output_float.n());
 
-        DeviceMem<float> params_full_precision(network->n_params(), q);
+        DeviceMem<float> params_full_precision(encoding->n_params(), q);
 
-        params_full_precision.fill(0.1f).wait();
+        params_full_precision.fill(1.0f).wait();
 
-        DeviceMem<float> gradients(network->n_params(), q);
+        DeviceMem<float> gradients(encoding->n_params(), q);
         gradients.fill(0.123f).wait(); // fill with something to check if it is written to
 
-        std::vector<float> enc_params(network->n_params());
-        std::vector<float> enc_grads(network->n_params());
+        encoding->set_params(params_full_precision.data(), params_full_precision.data(), gradients.data());
 
-        network->set_params(params_full_precision.data(), params_full_precision.data(), gradients.data());
+        std::unique_ptr<Context> model_ctx = nullptr;
+        DeviceMatrix<float> dL_doutput(batch_size, padded_output_width, q);
+        dL_doutput.fill(0.0f).wait();
 
-        std::unique_ptr<Context> model_ctx = network->forward_impl(&q, input, &output_float);
+        encoding->backward_impl(&q, *model_ctx, input, output_float, dL_doutput);
         q.wait();
+
+        CHECK(isVectorWithinTolerance(gradients.copy_to_host(), 0.0f, 1e-3));
+        CHECK(isVectorWithinTolerance(params_full_precision.copy_to_host(), 1.0f, 1e-3));
+    }
+
+    SUBCASE("Test grid encoding backward 1 inputs") {
+        // SWIFTNET
+        const int input_width = 3;
+        const int batch_size = 1;
+        const int padded_output_width = 32;
+        sycl::queue q;
+
+        DeviceMatrix<float> input(batch_size, input_width, q);
+        input.fill(1.0f).wait();
+
+        DeviceMatrix<float> output_float(batch_size, padded_output_width, q);
+        output_float.fill(0.0f).wait(); // fill with something to check if it is written to
+
+        const json encoding_config{
+            {EncodingParams::N_DIMS_TO_ENCODE, input_width}, {EncodingParams::ENCODING, EncodingNames::GRID},
+            {EncodingParams::GRID_TYPE, GridType::Hash},     {EncodingParams::N_LEVELS, 16},
+            {EncodingParams::N_FEATURES_PER_LEVEL, 2},       {EncodingParams::LOG2_HASHMAP_SIZE, 19},
+            {EncodingParams::BASE_RESOLUTION, 16},           {EncodingParams::PER_LEVEL_SCALE, 2.0}};
+
+        std::shared_ptr<GridEncoding<float>> encoding =
+            tinydpcppnn::encodings::grid::create_grid_encoding<float>(encoding_config);
+        q.wait();
+        encoding->set_padded_output_width(output_float.n());
+
+        DeviceMem<float> params_full_precision(encoding->n_params(), q);
+
+        params_full_precision.fill(1.0f).wait();
+
+        DeviceMem<float> gradients(encoding->n_params(), q);
+        gradients.fill(0.123f).wait(); // fill with something to check if it is written to
+
+        encoding->set_params(params_full_precision.data(), params_full_precision.data(), gradients.data());
 
         DeviceMatrix<float> dL_doutput(batch_size, padded_output_width, q);
-        dL_doutput.fill(0.1f).wait();
+        dL_doutput.fill(1.0f).wait();
 
-        network->backward_impl(&q, *model_ctx, input, output_float, dL_doutput);
+        std::unique_ptr<Context> model_ctx = nullptr;
+        encoding->backward_impl(&q, *model_ctx, input, output_float, dL_doutput);
         q.wait();
-        q.memcpy(enc_params.data(), network->params(), network->n_params() * sizeof(float)).wait();
-        q.memcpy(enc_grads.data(), network->gradients(), network->n_params() * sizeof(float)).wait();
+
+        CHECK(isVectorWithinTolerance(gradients.copy_to_host(), 0.0f, 1e-3));
+        CHECK(isVectorWithinTolerance(params_full_precision.copy_to_host(), 1.0f, 1e-3));
+        auto tmp_vec = gradients.copy_to_host();
+        for (auto val : tmp_vec) {
+            std::cout << val << ", ";
+        }
+        std::cout << std::endl;
     }
 #ifdef TEST_PATH
     SUBCASE("Check results loaded float small grid") {

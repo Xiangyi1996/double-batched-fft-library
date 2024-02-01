@@ -169,7 +169,7 @@ void kernel_grid_backward(const size_t num_elements, const uint32_t num_grid_fea
             const float tmp = sycl::floor(pos[dim]);
             pos_grid[dim] = (uint32_t)(int)tmp;
             pos[dim] -= tmp;
-            pos[dim] = identity_fun(pos[dim]);
+            // pos[dim] = identity_fun(pos[dim]);
         }
     } else {
         for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
@@ -201,7 +201,7 @@ void kernel_grid_backward(const size_t num_elements, const uint32_t num_grid_fea
     } else { // N-linear interpolation
 
         for (uint32_t idx = 0; idx < (1 << N_POS_DIMS); ++idx) {
-            float weight = 1;
+            float weight = 1.0f;
             tnn::uvec<N_POS_DIMS> pos_grid_local;
 
             for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {

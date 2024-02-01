@@ -25,7 +25,7 @@ template <typename T> class Trainer {
                                            DeviceMatrices<T> &out_inter_backw,
                                            const std::vector<sycl::event> &dependencies) {
 
-        // return m_network->training(input, target, m_network->m_forward, m_network->m_out_inter, deps);
+            // return m_network->training(input, target, m_network->m_forward, m_network->m_out_inter, deps);
         auto deps = m_network->forward_pass(input, out_inter_forw, dependencies);
         // auto e = m_loss->evaluate(m_network->get_queue(), scale, output, target, grads, losses);
         // deps = {e};

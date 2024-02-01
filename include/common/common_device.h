@@ -764,7 +764,7 @@ uint32_t grid_index(const GridType grid_type, const uint32_t hashmap_size, const
     return index % hashmap_size;
 }
 
-inline float grid_scale(uint32_t level, float log2_per_level_scale, uint32_t base_resolution) {
+inline float grid_scale(const uint32_t level, const float log2_per_level_scale, const uint32_t base_resolution) {
     // The -1 means that `base_resolution` refers to the number of grid _vertices_
     // rather than the number of cells. This is slightly different from the
     // notation in the paper, but results in nice, power-of-2-scaled parameter
@@ -784,17 +784,17 @@ inline uint32_t expand_bits(uint32_t v) {
     return v;
 }
 
-inline float smoothstep(float val) { return val * val * (3.0f - 2.0f * val); }
+inline float smoothstep(const float val) { return val * val * (3.0f - 2.0f * val); }
 
-inline float smoothstep_derivative(float val) { return 6 * val * (1.0f - val); }
+inline float smoothstep_derivative(const float val) { return 6 * val * (1.0f - val); }
 
-inline float smoothstep_2nd_derivative(float val) { return 6.0f - 12.0f * val; }
+inline float smoothstep_2nd_derivative(const float val) { return 6.0f - 12.0f * val; }
 
-inline float identity_fun(float val) { return val; }
+inline float identity_fun(const float val) { return val; }
 
-inline float identity_derivative(float val) { return 1.0f; }
+inline float identity_derivative(const float val) { return 1.0f; }
 
-inline float identity_2nd_derivative(float val) { return 0.0f; }
+inline float identity_2nd_derivative(const float val) { return 0.0f; }
 
 inline float quartic(const float x, const float inv_radius) {
     const float u = x * inv_radius;

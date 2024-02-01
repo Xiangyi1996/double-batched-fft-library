@@ -35,7 +35,7 @@ template <typename T> class DeviceMatrixView {
         : m_(m), n_(n), stride_col_(stride_col), ptr_(ptr) {}
 
     // T &operator()(const int i, const int j) { return ptr_[j + i * stride_col_]; }
-    T &operator()(const int i, const int j) const { return ptr_[j + i * stride_col_]; }
+    T &operator()(const size_t i, const size_t j) const { return ptr_[j + i * stride_col_]; }
 
     T *const GetPointer(const size_t i, const size_t j) const { return ptr_ + j + i * stride_col_; }
     T *const GetPointer() const { return ptr_; }

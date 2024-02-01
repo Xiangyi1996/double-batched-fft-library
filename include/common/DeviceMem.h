@@ -13,14 +13,11 @@
 
 #pragma once
 
-#include <level_zero/ze_api.h>
-
 #include <atomic>
 #include <dpct/dpct.hpp>
 #include <fstream>
 #include <iostream>
 #include <random>
-#include <sycl/ext/oneapi/backend/level_zero.hpp>
 #include <sycl/sycl.hpp>
 #include <vector>
 
@@ -54,8 +51,8 @@ template <typename T> class DeviceMem {
     DeviceMem(const size_t size, sycl::queue &q) : m_size(size), m_q(q) {
         // allocate less than 4 GB in one go.
         /// TODO: make sure this works with arbitrary sizes and that we only take the device memory as limit
-        if ((m_size * sizeof(T)) > ((size_t)4 * (1 << 30)))
-            throw std::invalid_argument("Trying to allocate too large DeviceMem (> 4GB).");
+        // if ((size() * sizeof(T)) > ((size_t)4 * (1 << 30)))
+        //     throw std::invalid_argument("Trying to allocate too large DeviceMem (> 4GB).");
         m_data = sycl::malloc_device<T>(m_size, m_q);
     }
 
@@ -63,20 +60,26 @@ template <typename T> class DeviceMem {
 
     // Copy data from host to device
     sycl::event copy_from_host(const std::vector<T> &data) {
-        assert(data.size() == m_size);
+        assert(data.size() == size());
         return m_q.memcpy(m_data, data.data(), get_bytes());
     }
 
     // Copy data from device to host
     sycl::event copy_to_host(std::vector<T> &data) const {
-        assert(data.size() == m_size);
+        assert(data.size() == size());
         return m_q.memcpy(data.data(), m_data, get_bytes());
+    }
+
+    std::vector<T> copy_to_host() const {
+        std::vector<T> ret(size());
+        copy_to_host(ret).wait();
+        return ret;
     }
 
     /// Copies size elements from another device array to this one, automatically
     /// resizing it
     sycl::event copy_from_device(const DeviceMem<T> &other) {
-        assert(other.m_size <= m_size);
+        assert(other.size() <= size());
 
         return m_q.memcpy(m_data, other.m_data, other.get_bytes());
     }
@@ -101,7 +104,7 @@ template <typename T> class DeviceMem {
     size_t size() const { return m_size; }
 
     // Get bytes of allocated memory size
-    size_t get_bytes() const { return m_size * sizeof(T); }
+    size_t get_bytes() const { return size() * sizeof(T); }
 
     static void save_to_file(const DeviceMem<T> &vec, std::string filename) {
         // Open the file for writing
