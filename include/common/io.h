@@ -5,6 +5,8 @@
 #include <string>
 #include <unordered_map>
 
+namespace io {
+
 using json = nlohmann::json;
 // Define the enum classes
 
@@ -210,3 +212,4 @@ void saveImageToPGM(const std::string &filename, const int width, const int heig
     // Close the file
     outputFile.close();
 }
+} // namespace io

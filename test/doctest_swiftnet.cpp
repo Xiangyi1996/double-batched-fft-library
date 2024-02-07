@@ -255,7 +255,7 @@ void test_backward_1layer(sycl::queue &q, const int input_width, const int outpu
                    [](float val) { return static_cast<T>(val); });
 
     network.set_weights_matrices(
-        get_packed_weights<T, WIDTH>(unpacked_weights, n_hidden_layers, input_width, output_width));
+        io::get_packed_weights<T, WIDTH>(unpacked_weights, n_hidden_layers, input_width, output_width));
 
     DeviceMatrix<T> network_input(batch_size, input_width, q);
     DeviceMatrices<T> interm_forw(network.get_n_hidden_layers() + 2, batch_size, network.get_input_width(), batch_size,

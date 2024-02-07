@@ -37,13 +37,13 @@ void test_network_with_encoding_loaded(sycl::queue &q, std::string filepath, con
     constexpr int output_width = WIDTH;
     constexpr int encoding_output_width = input_width;
 
-    json encoding_config = loadJsonConfig(filepath + "encoding_config.json");
+    json encoding_config = io::loadJsonConfig(filepath + "encoding_config.json");
     encoding_config[EncodingParams::N_DIMS_TO_ENCODE] = encoding_input_width;
 
     auto Net = create_network_with_encoding<T_enc, T_net, WIDTH>(q, input_width, unpadded_output_width, n_hidden_layers,
                                                                  Activation::ReLU, Activation::None, encoding_config);
 
-    std::vector<T_enc> encoding_params = loadVectorFromCSV<T_enc>(filepath + "encoding_params.csv");
+    std::vector<T_enc> encoding_params = io::loadVectorFromCSV<T_enc>(filepath + "encoding_params.csv");
 
     DeviceMem<T_enc> params_full_precision(Net->get_encoding()->n_params(), q);
     if (encoding_params.size()) {
@@ -57,7 +57,7 @@ void test_network_with_encoding_loaded(sycl::queue &q, std::string filepath, con
         filepath + "network_params.csv", n_hidden_layers, input_width, output_width);
     Net->get_network()->set_weights_matrices(network_weights_ref);
     DeviceMatrix<float> input_encoding(batch_size, encoding_input_width, q);
-    std::vector<float> input_encoding_ref = loadVectorFromCSV<float>(filepath + "input_encoding.csv");
+    std::vector<float> input_encoding_ref = io::loadVectorFromCSV<float>(filepath + "input_encoding.csv");
     input_encoding.copy_from_host(input_encoding_ref);
     q.wait();
 
@@ -72,11 +72,11 @@ void test_network_with_encoding_loaded(sycl::queue &q, std::string filepath, con
     std::vector<T_net> output_network_vec(output_network.size());
     std::vector<T_enc> output_encoding_vec(output_encoding.size());
 
-    std::vector<T_enc> encoding_output_ref = loadVectorFromCSV<T_enc>(filepath + "output_encoding.csv");
+    std::vector<T_enc> encoding_output_ref = io::loadVectorFromCSV<T_enc>(filepath + "output_encoding.csv");
     output_encoding.copy_to_host(output_encoding_vec).wait();
     CHECK(areVectorsWithinTolerance(output_encoding_vec, encoding_output_ref, 2.0e-2));
 
-    std::vector<T_net> network_output_ref = loadVectorFromCSV<T_net>(filepath + "output_network.csv");
+    std::vector<T_net> network_output_ref = io::loadVectorFromCSV<T_net>(filepath + "output_network.csv");
     output_network.copy_to_host(output_network_vec).wait();
     CHECK(areVectorsWithinTolerance(output_network_vec, network_output_ref, 2.0e-2));
 }

@@ -40,15 +40,15 @@ void test_encoding_forward_from_loaded_file(const int batch_size, const int inpu
 
     DeviceMatrix<T> output(batch_size, output_width, q);
     output.fill(0.0f).wait();
-    json config = loadJsonConfig(filepath + "/encoding_config.json");
+    json config = io::loadJsonConfig(filepath + "/encoding_config.json");
     config[EncodingParams::N_DIMS_TO_ENCODE] = input_width;
 
     std::shared_ptr<Encoding<T>> encoding = create_encoding<T>(config);
     encoding->set_padded_output_width(output_width);
 
-    std::vector<T> params = loadVectorFromCSV<T>(filepath + "encoding_params.csv");
-    std::vector<float> input_ref = loadVectorFromCSV<float>(filepath + "input_encoding.csv");
-    std::vector<T> output_ref = loadVectorFromCSV<T>(filepath + "output_encoding.csv");
+    std::vector<T> params = io::loadVectorFromCSV<T>(filepath + "encoding_params.csv");
+    std::vector<float> input_ref = io::loadVectorFromCSV<float>(filepath + "input_encoding.csv");
+    std::vector<T> output_ref = io::loadVectorFromCSV<T>(filepath + "output_encoding.csv");
 
     DeviceMem<float> gradients(encoding->n_params(), q);
     gradients.fill(0.123f).wait(); // fill with something to check if it is written to
@@ -77,8 +77,8 @@ void test_encoding_forward_from_loaded_file(const int batch_size, const int inpu
 
     template <typename T> void test_backward_from_loaded_file(std::string filepath, sycl::queue & q) {
         /// TODO: add loss correctly in here
-        // std::vector<T> params_grad_ref = loadVectorFromCSV<float>(filepath + "params_grad.csv");
-        // std::vector<T> loss_ref = loadVectorFromCSV<T>(filepath + "loss.csv");
+        // std::vector<T> params_grad_ref = io::loadVectorFromCSV<float>(filepath + "params_grad.csv");
+        // std::vector<T> loss_ref = io::loadVectorFromCSV<T>(filepath + "loss.csv");
 
         // output.copy_from_host(output_ref).wait();
 
