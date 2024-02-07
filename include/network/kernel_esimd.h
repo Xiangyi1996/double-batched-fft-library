@@ -154,8 +154,8 @@ class EsimdKernels : public Kernels<T> {
 
                     MAD<TM, TK>(As, weights.GetMatrixPointer(layer), Cs);
 
-                    // TODO: Apply correct backward activation
-                    applyActivation<Activation::None, TM, TK>(Cs, As);
+                    applyBackwardActivation<activation, TM, TK>(
+                        intermediate_forward.GetElementPointer(layer, loc_row_offset, 0), Cs, As);
 
                     storeRow<TM, TK, cache_hint::uncached, cache_hint::uncached>(
                         As, intermediate_backward.GetElementPointer(layer - 1, loc_row_offset, 0));
@@ -277,6 +277,24 @@ class EsimdKernels : public Kernels<T> {
             reBlock<TM, TK>(convert<Tdest, Tsrc>(Src), Dest);
         else if constexpr (act == Activation::ReLU)
             reBlock<TM, TK>(max<Tdest>(convert<Tdest, Tsrc>(Src), simd<Tdest, N>(static_cast<Tdest>(0))), Dest);
+    }
+
+    template <Activation act, int TM, int TK, int N, typename Tdec, typename Tsrc, typename Tdest>
+    SYCL_ESIMD_FUNCTION static void applyBackwardActivation(Tdec const *const Dec, simd<Tsrc, N> &Src,
+                                                            simd<Tdest, N> &Dest) {
+        static_assert(TM >= 1 && TM <= 8);
+        static_assert(TN == 16 || TN == 8);
+        static_assert(TK == 8 || TK == 16 || TK == 32 || TK == 64);
+
+        if constexpr (act == Activation::None)
+            reBlock<TM, TK>(convert<Tdest, Tsrc>(Src), Dest);
+        else if constexpr (act == Activation::ReLU) {
+            simd<Tdec, N> loc_dec;
+            loadRow<TM, TN, cache_hint::uncached, cache_hint::uncached>(Dec, loc_dec);
+            simd_mask<N> m = loc_dec <= simd<Tdec, N>(0);
+            Src.merge(simd<Tsrc, N>(0), m); // ATTENTION: this changes Src.
+            reBlock<TM, TK>(convert<Tdest, Tsrc>(Src), Dest);
+        }
     }
 
     // TK == 8, 16, 32, 64; TN == 8 (DG2), 16 (PVC)
