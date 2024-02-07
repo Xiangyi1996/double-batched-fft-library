@@ -220,7 +220,7 @@ class EsimdKernels : public Kernels<T> {
     // in register everything is in block major format with blocks of size TMxTK
     template <int TM, int TK, cache_hint L1, cache_hint L3, int TMWIDTH>
     SYCL_ESIMD_FUNCTION static void loadRow(T const *const src, simd<T, TMWIDTH> &dest) {
-        static_assert(TM >= 1 && TM <= 8);
+        static_assert(TM == 1 || TM == 2 || TM == 4 || TM == 8);
         static_assert(WIDTH % TK == 0);
         static_assert(TMWIDTH == TM * WIDTH);
         static_assert(sizeof(T) <= 4);
