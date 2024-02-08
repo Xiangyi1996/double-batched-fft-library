@@ -21,8 +21,6 @@ using sycl::ext::intel::experimental::esimd::cache_hint;
 using namespace tinydpcppnn::kernels::esimd;
 using namespace sycl::ext::intel::esimd;
 
-/// TODO: EVERYTHING
-
 template <int M, int N, int TK, typename T> void TestLoadRow(sycl::queue &q) {
     constexpr int nElems = M * N;
     T *in = sycl::malloc_shared<T>(nElems, q);
@@ -33,8 +31,8 @@ template <int M, int N, int TK, typename T> void TestLoadRow(sycl::queue &q) {
 
     q.parallel_for(sycl::nd_range<1>(1, 1), [=](sycl::nd_item<1> item) SYCL_ESIMD_KERNEL {
          simd<T, nElems> tmp;
-         EsimdKernels<T, N, N, N, Activation::ReLU, Activation::None, 16>::template loadRow<M, TK, cache_hint::none,
-                                                                                            cache_hint::none>(in, tmp);
+         EsimdKernels<T, N, N, N, Activation::ReLU, Activation::None>::template loadRow<M, TK, cache_hint::none,
+                                                                                        cache_hint::none>(in, tmp);
          tmp.copy_to(out);
      }).wait();
 
@@ -59,10 +57,10 @@ template <int M, int N, int TK, typename T> void TestLoadStoreRow(sycl::queue &q
 
     q.parallel_for(sycl::nd_range<1>(1, 1), [=](sycl::nd_item<1> item) SYCL_ESIMD_KERNEL {
          simd<T, nElems> tmp;
-         EsimdKernels<T, N, N, N, Activation::ReLU, Activation::None, 16>::template loadRow<M, TK, cache_hint::none,
-                                                                                            cache_hint::none>(in, tmp);
-         EsimdKernels<T, N, N, N, Activation::ReLU, Activation::None,
-                      16>::template storeRow<M, TK, cache_hint::none, cache_hint::none>(tmp, out);
+         EsimdKernels<T, N, N, N, Activation::ReLU, Activation::None>::template loadRow<M, TK, cache_hint::none,
+                                                                                        cache_hint::none>(in, tmp);
+         EsimdKernels<T, N, N, N, Activation::ReLU, Activation::None>::template storeRow<M, TK, cache_hint::none,
+                                                                                         cache_hint::none>(tmp, out);
      }).wait();
 
     for (int iter = 0; iter < nElems; iter++) {

@@ -19,7 +19,6 @@
 
 #include "DeviceMatrix.h"
 #include "common.h"
-#include "common_kernel.h"
 #include "oneapi/mkl.hpp"
 
 namespace sycl::ext::intel::esimd::xmx {
@@ -68,7 +67,11 @@ template <> struct XMXCType<bf16> {
     typedef float CType;
 };
 template <> struct XMXCType<sycl::half> {
+#if TARGET_DEVICE == 0
     typedef sycl::half CType;
+#elif TARGET_DEVICE == 1
+    typedef float CType;
+#endif
 };
 
 /**
@@ -84,24 +87,29 @@ template <> struct XMXCType<sycl::half> {
  * @tparam output_activation Activation for the output layer. Currently None.
  * @tparam TN Device dependent, whatever is supported by the chosen device. 8 for DG2, 16 for PVC.
  */
-template <typename T, int INPUT_WIDTH, int WIDTH, int OUTPUT_WIDTH, Activation activation, Activation output_activation,
-          size_t TN>
-class EsimdKernels : public Kernels<T> {
+template <typename T, int INPUT_WIDTH, int WIDTH, int OUTPUT_WIDTH, Activation activation, Activation output_activation>
+class EsimdKernels {
 
     using Tc = typename XMXCType<T>::CType;
+#if TARGET_DEVICE == 0
+    static constexpr int TN = 16;
+#elif TARGET_DEVICE == 1
+    static constexpr int TN = 8;
+#endif
 
   public:
-    std::vector<sycl::event> forward_impl(sycl::queue &q, const DeviceMatricesView<T> &weights,
-                                          const DeviceMatrixView<T> &input, DeviceMatricesView<T> intermediate_output,
-                                          const int n_hidden_layers, const std::vector<sycl::event> &deps) override {
+    static std::vector<sycl::event> forward_impl(sycl::queue &q, const DeviceMatricesView<T> &weights,
+                                                 const DeviceMatrixView<T> &input,
+                                                 DeviceMatricesView<T> intermediate_output, const int n_hidden_layers,
+                                                 const std::vector<sycl::event> &deps) {
         return forward_impl_general<false>(q, weights, input, intermediate_output, n_hidden_layers, deps);
     }
 
-    std::vector<sycl::event> backward_impl(sycl::queue &q, const DeviceMatricesView<T> &weights,
-                                           const DeviceMatrixView<T> &input, DeviceMatricesView<T> output,
-                                           DeviceMatricesView<T> intermediate_backward,
-                                           const DeviceMatricesView<T> &intermediate_forward, const int n_hidden_layers,
-                                           const std::vector<sycl::event> &deps) override {
+    static std::vector<sycl::event> backward_impl(sycl::queue &q, const DeviceMatricesView<T> &weights,
+                                                  const DeviceMatrixView<T> &input, DeviceMatricesView<T> output,
+                                                  DeviceMatricesView<T> intermediate_backward,
+                                                  const DeviceMatricesView<T> &intermediate_forward,
+                                                  const int n_hidden_layers, const std::vector<sycl::event> &deps) {
 
         // make sure there is no remainder and no out of bounds accesses
         static_assert(WIDTH % TN == 0);
@@ -185,9 +193,10 @@ class EsimdKernels : public Kernels<T> {
         return events;
     }
 
-    std::vector<sycl::event> inference_impl(sycl::queue &q, const DeviceMatricesView<T> &weights,
-                                            const DeviceMatrixView<T> &input, DeviceMatricesView<T> intermediate_output,
-                                            const int n_hidden_layers, const std::vector<sycl::event> &deps) override {
+    static std::vector<sycl::event> inference_impl(sycl::queue &q, const DeviceMatricesView<T> &weights,
+                                                   const DeviceMatrixView<T> &input,
+                                                   DeviceMatricesView<T> intermediate_output, const int n_hidden_layers,
+                                                   const std::vector<sycl::event> &deps) {
         return forward_impl_general<true>(q, weights, input, intermediate_output, n_hidden_layers, deps);
     }
 
@@ -324,10 +333,10 @@ class EsimdKernels : public Kernels<T> {
 
   private:
     template <bool INFERENCE>
-    std::vector<sycl::event> forward_impl_general(sycl::queue &q, const DeviceMatricesView<T> &weights,
-                                                  const DeviceMatrixView<T> &input,
-                                                  DeviceMatricesView<T> intermediate_output, const int n_hidden_layers,
-                                                  const std::vector<sycl::event> &deps) {
+    static std::vector<sycl::event>
+    forward_impl_general(sycl::queue &q, const DeviceMatricesView<T> &weights, const DeviceMatrixView<T> &input,
+                         DeviceMatricesView<T> intermediate_output, const int n_hidden_layers,
+                         const std::vector<sycl::event> &deps) {
 
         // throw std::logic_error("General function should not be called.");
         const size_t M = input.m();
@@ -407,77 +416,6 @@ class EsimdKernels : public Kernels<T> {
         return {e};
     }
 };
-
-template <typename T, int WIDTH, int TN, int INPUT_WIDTH, int OUTPUT_WIDTH, Activation ACT>
-std::unique_ptr<Kernels<T>> createKernels_helper3(Activation out_act) {
-    switch (out_act) {
-    case Activation::None:
-        return std::make_unique<EsimdKernels<T, INPUT_WIDTH, WIDTH, OUTPUT_WIDTH, ACT, Activation::None, TN>>();
-        break;
-    default:
-        throw std::invalid_argument("Invalid output activation");
-    }
-}
-
-template <typename T, int WIDTH, int TN, int INPUT_WIDTH, int OUTPUT_WIDTH>
-std::unique_ptr<Kernels<T>> createKernels_helper2(Activation act, Activation out_act) {
-    switch (act) {
-    case Activation::ReLU:
-        return createKernels_helper3<T, WIDTH, TN, INPUT_WIDTH, OUTPUT_WIDTH, Activation::ReLU>(out_act);
-        break;
-    case Activation::None:
-        return createKernels_helper3<T, WIDTH, TN, INPUT_WIDTH, OUTPUT_WIDTH, Activation::None>(out_act);
-        break;
-    default:
-        throw std::invalid_argument("Invalid activation");
-    }
-}
-
-template <typename T, int WIDTH, int TN, int INPUT_WIDTH>
-std::unique_ptr<Kernels<T>> createKernels_helper1(const int output_width, Activation act, Activation out_act) {
-
-    return createKernels_helper2<T, WIDTH, TN, INPUT_WIDTH, WIDTH>(act, out_act);
-    // switch (output_width) {
-    // case 16:
-    //     return createKernels_helper2<T, Tc, WIDTH, TN, INPUT_WIDTH, 16>(act, out_act);
-    //     break;
-    // case 32:
-    //     return createKernels_helper2<T, Tc, WIDTH, TN, INPUT_WIDTH, 32>(act, out_act);
-    //     break;
-    // case 64:
-    //     return createKernels_helper2<T, Tc, WIDTH, TN, INPUT_WIDTH, 64>(act, out_act);
-    //     break;
-    // case 128:
-    //     return createKernels_helper2<T, Tc, WIDTH, TN, INPUT_WIDTH, 128>(act, out_act);
-    //     break;
-    // default:
-    //     throw std::invalid_argument("Invalid output_width");
-    // }
-}
-
-template <typename T, int WIDTH, int TN>
-std::unique_ptr<Kernels<T>> createKernels(const int input_width, const int output_width, Activation act,
-                                          Activation out_act) {
-    // temporarily use this
-    return createKernels_helper1<T, WIDTH, TN, WIDTH>(output_width, act, out_act);
-
-    // switch (input_width) {
-    // case 16:
-    //     return createKernels_helper1<T, Tc, WIDTH, TN, 16>(output_width, act, out_act);
-    //     break;
-    // case 32:
-    //     return createKernels_helper1<T, Tc, WIDTH, TN, 32>(output_width, act, out_act);
-    //     break;
-    // case 64:
-    //     return createKernels_helper1<T, Tc, WIDTH, TN, 64>(output_width, act, out_act);
-    //     break;
-    // case 128:
-    //     return createKernels_helper1<T, Tc, WIDTH, TN, 128>(output_width, act, out_act);
-    //     break;
-    // default:
-    //     throw std::invalid_argument("Invalid input_width");
-    // }
-}
 
 } // namespace esimd
 } // namespace kernels

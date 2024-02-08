@@ -64,6 +64,7 @@ template <typename T> class Network : public NetworkBase<T> {
 
     /// @brief Get the SYCL queue associated with the network
     sycl::queue &get_queue() { return m_q; }
+    const sycl::queue &get_queue() const { return m_q; }
 
     virtual void set_weights_matrices(const std::vector<T> &weights) {
 

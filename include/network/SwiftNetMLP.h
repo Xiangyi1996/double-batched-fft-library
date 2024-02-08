@@ -42,7 +42,7 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
                 Activation activation, Activation output_activation,
                 const Network<T>::WeightInitMode mode = Network<T>::WeightInitMode::none)
         : Network<T>(q, n_hidden_layers, input_width, WIDTH, output_width, mode), m_activation{activation},
-          m_output_activation{output_activation}, kernels_(GenerateKernels()) {
+          m_output_activation{output_activation} {
 
         SanityCheck();
     }
@@ -58,13 +58,25 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
      */
     std::vector<sycl::event> forward_pass(const DeviceMatrix<T> &input, DeviceMatrices<T> &intermediate_output_forward,
                                           const std::vector<sycl::event> &deps) override {
+
+        using namespace tinydpcppnn::kernels::esimd;
         SanityCheckForward(input, intermediate_output_forward);
 
         // Perform forward pass based on activation function
-
-        return kernels_->forward_impl(Network<T>::get_queue(), Network<T>::get_weights_matrices().GetViews(),
-                                      input.GetView(), intermediate_output_forward.GetViews(),
-                                      Network<T>::get_n_hidden_layers(), deps);
+        switch (m_activation) {
+        case Activation::None:
+            return EsimdKernels<T, WIDTH, WIDTH, WIDTH, Activation::None, Activation::None>::forward_impl(
+                Network<T>::get_queue(), Network<T>::get_weights_matrices().GetViews(), input.GetView(),
+                intermediate_output_forward.GetViews(), Network<T>::get_n_hidden_layers(), deps);
+            break;
+        case Activation::ReLU:
+            return EsimdKernels<T, WIDTH, WIDTH, WIDTH, Activation::ReLU, Activation::None>::forward_impl(
+                Network<T>::get_queue(), Network<T>::get_weights_matrices().GetViews(), input.GetView(),
+                intermediate_output_forward.GetViews(), Network<T>::get_n_hidden_layers(), deps);
+            break;
+        default:
+            throw std::logic_error("Invalid activation should have been caught earlier.");
+        }
     }
 
     /**
@@ -76,9 +88,24 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
      */
     std::vector<sycl::event> inference(const DeviceMatrix<T> &input, DeviceMatrix<T> &output,
                                        const std::vector<sycl::event> &deps) override {
+
+        using namespace tinydpcppnn::kernels::esimd;
         SanityCheckInference(input, output);
-        return kernels_->inference_impl(Network<T>::get_queue(), Network<T>::get_weights_matrices().GetViews(),
-                                        input.GetView(), output.GetViews(), Network<T>::get_n_hidden_layers(), deps);
+        // Perform forward pass based on activation function
+        switch (m_activation) {
+        case Activation::None:
+            return EsimdKernels<T, WIDTH, WIDTH, WIDTH, Activation::None, Activation::None>::inference_impl(
+                Network<T>::get_queue(), Network<T>::get_weights_matrices().GetViews(), input.GetView(),
+                output.GetViews(), Network<T>::get_n_hidden_layers(), deps);
+            break;
+        case Activation::ReLU:
+            return EsimdKernels<T, WIDTH, WIDTH, WIDTH, Activation::ReLU, Activation::None>::inference_impl(
+                Network<T>::get_queue(), Network<T>::get_weights_matrices().GetViews(), input.GetView(),
+                output.GetViews(), Network<T>::get_n_hidden_layers(), deps);
+            break;
+        default:
+            throw std::logic_error("Invalid activation should have been caught earlier.");
+        }
     }
 
     /**
@@ -92,16 +119,30 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
                                            DeviceMatrices<T> &intermediate_output_backward,
                                            const DeviceMatrices<T> &intermediate_output_forward,
                                            const std::vector<sycl::event> &deps) override {
+        using namespace tinydpcppnn::kernels::esimd;
         SanityCheckBackward(input, output, intermediate_output_backward, intermediate_output_forward);
 
-        return kernels_->backward_impl(Network<T>::get_queue(), Network<T>::get_weightsT_matrices().GetViews(),
-                                       input.GetView(), output.GetViews(), intermediate_output_backward.GetViews(),
-                                       intermediate_output_forward.GetViews(), Network<T>::get_n_hidden_layers(), deps);
+        switch (m_activation) {
+        case Activation::None:
+            return EsimdKernels<T, WIDTH, WIDTH, WIDTH, Activation::None, Activation::None>::backward_impl(
+                Network<T>::get_queue(), Network<T>::get_weightsT_matrices().GetViews(), input.GetView(),
+                output.GetViews(), intermediate_output_backward.GetViews(), intermediate_output_forward.GetViews(),
+                Network<T>::get_n_hidden_layers(), deps);
+            break;
+        case Activation::ReLU:
+            return EsimdKernels<T, WIDTH, WIDTH, WIDTH, Activation::ReLU, Activation::None>::backward_impl(
+                Network<T>::get_queue(), Network<T>::get_weightsT_matrices().GetViews(), input.GetView(),
+                output.GetViews(), intermediate_output_backward.GetViews(), intermediate_output_forward.GetViews(),
+                Network<T>::get_n_hidden_layers(), deps);
+            break;
+        default:
+            throw std::logic_error("Invalid activation should have been caught earlier.");
+        }
     }
 
   private:
     /// Generate the relevant kernel class. Has to be called in constructor
-    std::unique_ptr<Kernels<T>> GenerateKernels() {
+    void checkKernels() const {
 #ifndef TARGET_DEVICE
         static_assert(false && "Need to set TARGET_DEVICE when building.");
 #else
@@ -114,11 +155,10 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
             std::string::npos)
             throw std::logic_error("Code built for ARC GPU but tried to run on different device.");
 #else
-        static_assert(false && "Values for TARGET_DEVICE either \"PVC\" or \"ARC\" ");
+        static_assert(false && "Values for TARGET_DEVICE either 0 for PVC or 1 for ARC. Set by cmake variable "
+                               "-DTARGET_DEVICE=\"PVC\" or -DTARGET_DEVICE=\"ARC\" ");
 #endif
 #endif
-        return tinydpcppnn::kernels::esimd::createKernels<T, WIDTH, 16>(
-            Network<T>::get_input_width(), Network<T>::get_output_width(), m_activation, m_output_activation);
     }
 
     // TODO: does this have to be virtual?
@@ -126,12 +166,14 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
         static_assert(WIDTH == 16 || WIDTH == 32 || WIDTH == 64 || WIDTH == 128);
         static_assert(std::is_same<T, sycl::ext::oneapi::bfloat16>::value || std::is_same<T, sycl::half>::value);
 
-        if (m_activation != Activation::ReLU) {
-            throw std::runtime_error("m_activation must be ReLU for now.");
+        if (m_activation != Activation::ReLU && m_activation != Activation::None) {
+            throw std::runtime_error("m_activation must be ReLU or None for now.");
         }
         if (m_output_activation != Activation::None) {
             throw std::runtime_error("m_output_activation must be None for now.");
         }
+
+        checkKernels();
     }
 
     void SanityCheckInference(const DeviceMatrix<T> &input, DeviceMatrix<T> &output) const {
@@ -195,5 +237,4 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
 
     Activation m_activation;
     Activation m_output_activation;
-    std::unique_ptr<Kernels<T>> kernels_;
 };
