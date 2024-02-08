@@ -163,22 +163,23 @@ class EsimdKernels : public Kernels<T> {
             });
         });
 
-        // NOTE: MKL gemm_batch is slower.
+        // NOTE: MKL gemm_batch is slower. Rescale with 1/M for stability.
         std::vector<sycl::event> events(n_hidden_layers + 1);
         if constexpr (std::is_same<T, sycl::ext::oneapi::bfloat16>::value) { // need to cast to onemkls bf16 type.
             for (int iter = 0; iter < n_hidden_layers + 1; iter++) {
                 events[iter] = oneapi::mkl::blas::row_major::gemm(
-                    q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M, 1.0f,
+                    q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M,
+                    (float)(1.0 / M),
                     reinterpret_cast<const oneapi::mkl::bfloat16 *>(intermediate_forward.GetMatrixPointer(iter)), WIDTH,
-                    reinterpret_cast<oneapi::mkl::bfloat16 *>(intermediate_backward.GetMatrixPointer(iter)), WIDTH,
-                    1.0f, reinterpret_cast<oneapi::mkl::bfloat16 *>(output.GetMatrixPointer(iter)), WIDTH, {e});
+                    reinterpret_cast<oneapi::mkl::bfloat16 *>(intermediate_backward.GetMatrixPointer(iter)), WIDTH, 0,
+                    reinterpret_cast<oneapi::mkl::bfloat16 *>(output.GetMatrixPointer(iter)), WIDTH, {e});
             }
         } else if constexpr (!std::is_same<T, sycl::ext::oneapi::bfloat16>::value) {
             for (int iter = 0; iter < n_hidden_layers + 1; iter++) {
                 events[iter] = oneapi::mkl::blas::row_major::gemm(
-                    q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M, 1.0,
+                    q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M, 1.0 / M,
                     intermediate_forward.GetMatrixPointer(iter), WIDTH, intermediate_backward.GetMatrixPointer(iter),
-                    WIDTH, 1.0, output.GetMatrixPointer(iter), WIDTH, {e});
+                    WIDTH, 0, output.GetMatrixPointer(iter), WIDTH, {e});
             }
         }
         return events;
