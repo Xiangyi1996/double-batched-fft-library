@@ -60,17 +60,29 @@ using bf16 = sycl::ext::oneapi::bfloat16;
  *
  * @tparam T
  */
-template <typename T> struct XMXCType {
+template <typename T> struct XMXParams {
     typedef T CType;
+#if TARGET_DEVICE == 0
+    static constexpr int TN = 16;
+#elif TARGET_DEVICE == 1
+    static constexpr int TN = 8;
+#endif
 };
-template <> struct XMXCType<bf16> {
+template <> struct XMXParams<bf16> {
     typedef float CType;
+#if TARGET_DEVICE == 0
+    static constexpr int TN = 16;
+#elif TARGET_DEVICE == 1
+    static constexpr int TN = 8;
+#endif
 };
-template <> struct XMXCType<sycl::half> {
+template <> struct XMXParams<sycl::half> {
 #if TARGET_DEVICE == 0
     typedef sycl::half CType;
+    static constexpr int TN = 16;
 #elif TARGET_DEVICE == 1
     typedef float CType;
+    static constexpr int TN = 8;
 #endif
 };
 
@@ -90,12 +102,8 @@ template <> struct XMXCType<sycl::half> {
 template <typename T, int INPUT_WIDTH, int WIDTH, int OUTPUT_WIDTH, Activation activation, Activation output_activation>
 class EsimdKernels {
 
-    using Tc = typename XMXCType<T>::CType;
-#if TARGET_DEVICE == 0
-    static constexpr int TN = 16;
-#elif TARGET_DEVICE == 1
-    static constexpr int TN = 8;
-#endif
+    using Tc = typename XMXParams<T>::CType;
+    static constexpr int TN = XMXParams<T>::TN;
 
   public:
     static std::vector<sycl::event> forward_impl(sycl::queue &q, const DeviceMatricesView<T> &weights,
