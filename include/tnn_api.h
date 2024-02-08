@@ -15,32 +15,76 @@
 #include <torch/extension.h>
 #include <torch/script.h>
 
+#include "common.h"
+#include "encoding.h"
+#include "io.h"
+#include "json.hpp"
+#include "network_with_encodings.h"
+#include "oneapi/mkl.hpp"
 #include <cassert>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
-#include <string> // Include the necessary header for std::string
+#include <string>
 #include <sycl/sycl.hpp>
 #include <vector>
 
-#include "common.h"
-#include "encoding.h"
-#include "json.hpp"
-#include "network_with_encodings.h"
-#include "oneapi/mkl.hpp"
 using json = nlohmann::json;
 
 using bf16 = sycl::ext::oneapi::bfloat16;
 
-template <typename T> void printVector(const std::vector<T> &vec) {
-    for (const T &element : vec) {
-        std::cout << element << " ";
+// Function to convert torch::Tensor to std::vector
+template <typename T> std::vector<T> convertTensorToVector(const torch::Tensor &tensor) {
+    static_assert(std::is_same<T, float>::value || std::is_same<T, double>::value || std::is_same<T, int>::value ||
+                      std::is_same<T, bf16>::value,
+                  "Unsupported data type");
+
+    if (tensor.dtype() != torch::kBFloat16) {
+        throw std::invalid_argument("Tensor is not of type bf16 ");
     }
-    std::cout << std::endl;
+
+    if constexpr (std::is_same<T, bf16>::value) {
+        std::vector<T> result(tensor.numel());
+        T *sycl_bf16_ptr = reinterpret_cast<T *>(tensor.data_ptr());
+        queue q; // TODO: how handle this? Is there even a better way without memcpy, as this is device to device -> no
+                 // conversion to vector, but passing the pointer directly for set_weights
+        q.memcpy(result.data(), sycl_bf16_ptr, sizeof(T) * result.size()).wait();
+
+        return result;
+    } else {
+        // Convert the tensor directly to the target data type, this is only supproted for float, double, and int
+        return std::vector<T>(tensor.data_ptr<T>(), tensor.data_ptr<T>() + tensor.numel());
+    }
+}
+
+// Template specialization for float, double, and int
+template <typename T> torch::Tensor convertVectorToTensor(const std::vector<T> &vector) {
+    static_assert(std::is_same<T, float>::value || std::is_same<T, double>::value || std::is_same<T, int>::value ||
+                      std::is_same<T, bf16>::value,
+                  "Unsupported data type");
+
+    torch::Tensor tensor = torch::from_blob((void *)vector.data(), {static_cast<int64_t>(vector.size())});
+    return tensor.clone(); // Ensure that the tensor is contiguous
+}
+
+// Template specialization for torch::kHalf (bf16 and sycl::half)
+template <> torch::Tensor convertVectorToTensor<bf16>(const std::vector<bf16> &vector) {
+    torch::Tensor tensor = torch::empty({static_cast<int64_t>(vector.size())}, torch::kFloat);
+    for (size_t i = 0; i < vector.size(); ++i) {
+        tensor[i] = static_cast<float>(vector[i]);
+    }
+    return tensor.to(torch::kBFloat16);
+}
+
+template <typename T> torch::Tensor convertDeviceMatrixToTensor(DeviceMatrix<T> &device_matrix) {
+    return convertVectorToTensor(device_matrix.copy_to_host());
+}
+template <typename T> torch::Tensor convertDeviceMatricesToTensor(DeviceMatrices<T> &device_matrices) {
+    return convertVectorToTensor(device_matrices.copy_to_host());
 }
 
 namespace tnn {
-template <typename T> class Module {
+class Module {
   public:
     Module(std::string device_name) : m_device(torch::kCPU), m_device_name(device_name) {
         std::cout << "Running on device: " << m_device_name << std::endl;
@@ -56,13 +100,14 @@ template <typename T> class Module {
     }
     virtual ~Module() {}
 
-    virtual torch::Tensor forward_pass(torch::Tensor input_list, torch::Tensor params, int use_inference = 0) = 0;
+    virtual torch::Tensor forward_pass(torch::Tensor input_list, torch::Tensor params, bool use_inference) = 0;
 
     virtual torch::Tensor backward_pass(torch::Tensor input_tensor, torch::Tensor grad_output,
                                         torch::Tensor params) = 0;
-    virtual void initialize_params(float *params_full_precision, int use_easy = 0) = 0;
-    virtual void free_memory() = 0;
-    virtual int n_params() = 0;
+    virtual torch::Tensor initialize_params() = 0;
+
+    virtual torch::Tensor initialize_params(const torch::Tensor &tensor) = 0;
+    virtual size_t n_params() = 0;
     virtual int n_output_dims() = 0;
 
   protected:
@@ -70,113 +115,166 @@ template <typename T> class Module {
 
     torch::Device m_device;
     std::string m_device_name;
-
-    std::vector<T> get_vector_from_tensor(torch::Tensor tensor) {
-        static_assert(std::is_same<T, bf16>::value || std::is_same<T, float>::value,
-                      "get_vector_from_tensor only accepts bf16 or float types.");
-
-        std::vector<T> array(tensor.numel());
-
-        float *tensor_data = tensor.data_ptr<float>();
-        for (int i = 0; i < tensor.numel(); ++i) {
-            if (std::is_same<T, bf16>::value) {
-                array[i] = bf16(tensor_data[i]);
-            } else {
-                array[i] = tensor_data[i];
-            }
-        }
-        return array;
-    }
-
-    void convert_tensor_to_dev_mem(torch::Tensor &tensor, DeviceMem<T> *device_mem_array) {
-        std::vector<T> array = get_vector_from_tensor<T>(tensor);
-        if (array.size() != device_mem_array->size()) {
-            std::cerr << "Assertion failed: array.size() == device_mem_array.size()\n"
-                      << "array.size(): " << array.size() << "\n"
-                      << "device_mem_array.size(): " << device_mem_array->size() << std::endl;
-            exit(1);
-        } // conversion to DeviceMem required by Swiftnet forward_pass
-
-        // copy array to device_mem_array
-        device_mem_array->copy_from_host(array, sycl_queue);
-    }
-
-    torch::Tensor get_converted_tensor_from_dev_mem(DeviceMem<T> &device_mem_array, int print_out = 0) {
-        // Conversion to float array for pybindings
-        std::vector<T> list_T(device_mem_array.size());
-        device_mem_array.copy_to_host(list_T, sycl_queue);
-
-        // Convert the original vector to a std::vector<float>
-        std::vector<float> list_float(list_T.size());
-        for (size_t i = 0; i < list_T.size(); ++i) {
-            list_float[i] = static_cast<float>(list_T[i]);
-        }
-        if (print_out) {
-            std::cout << "About to convert this " << std::endl;
-            printVector(list_float);
-        }
-        //   convert to torch tensor
-        torch::Tensor output_tensor =
-            torch::from_blob(list_float.data(), {static_cast<long>(list_float.size())}, torch::kFloat32).clone();
-        return output_tensor;
-    }
-
-    torch::Tensor get_converted_tensor_from_array(T *array, int size) {
-        torch::Tensor tensor = torch::from_blob(array, {size}, torch::kFloat32);
-        return tensor;
-    }
 };
 
-// template <typename T> class EncodingModule : public Module<T> {
-//   public:
-//     EncodingModule(int input_width, const json &encoding_config, std::string device_name);
-//     ~EncodingModule() {}
-
-//     torch::Tensor forward_pass(torch::Tensor input_list, torch::Tensor params, int use_inference = 0) override;
-
-//     torch::Tensor backward_pass(torch::Tensor input_tensor, torch::Tensor grad_output, torch::Tensor params)
-//     override; void initialize_params(float *params_full_precision, int use_easy = 0) override; void free_memory()
-//     override; int n_params() override {
-//         std::cout << "Encodings don't have params, thus: n_params = 0" << std::endl;
-//         return 0;
-//     };
-//     int n_output_dims() override {
-//         // std::cout << "Encoding width: " << encoding->output_width() << std::endl;
-//         return encoding->output_width();
-//     }
-
-//   private:
-//     Encoding<T> *encoding;
-//     int m_input_width;
-//     sycl::queue sycl_queue;
-// };
-
-template <typename T, int WIDTH> class NetworkWithEncodingModule : public Module<T> {
+template <typename T> class EncodingModule : public Module {
   public:
-    NetworkWithEncodingModule(int width, int input_width, int output_width, int n_hidden_layers, Activation activation,
-                              Activation output_activation, const json &encoding_config, std::string device_name);
-    ~NetworkWithEncodingModule() {}
+    EncodingModule(int input_width, const json &encoding_config, std::string device_name)
+        : Module(device_name), m_input_width(input_width) {
+        encoding = create_encoding<T>(encoding_config);
+        sycl_queue = sycl::queue();
+    }
+    ~EncodingModule() {}
 
-    torch::Tensor forward_pass(torch::Tensor input_list, torch::Tensor params, int use_inference = 0) override;
+    torch::Tensor forward_pass(torch::Tensor input_list, torch::Tensor params, bool use_inference) override {
+        //   assert(input_tensor.sizes() == 2 &&p
+        //          "Tensor length for Encoding forward is not equal to 2!");
+        //   std::cout << "Input tensor sizes: " << input_tensor.sizes() << std::endl;
+        // int batch_size = input_tensor.sizes()[1];
+        // DeviceMatrix<float> input_matrix = DeviceMatrix<float>(input_tensor.data_ptr<float>(), m_input_width,
+        // batch_size);
 
-    torch::Tensor backward_pass(torch::Tensor input_tensor, torch::Tensor grad_output, torch::Tensor params) override;
-    void initialize_params(float *params_full_precision, int use_easy = 0) override;
-    void free_memory() override;
-    int n_params() override;
-    void set_params(torch::Tensor &params);
+        // torch::Tensor output_tensor = torch::empty({encoding->output_width(), batch_size},
+        //                                            torch::TensorOptions().dtype(torch::kFloat32).device(m_device));
+        // DeviceMatrix<float> output_matrix = DeviceMatrix<float>(output_tensor.data_ptr<float>(), m_input_width,
+        // batch_size);
 
-    int n_output_dims() {
+        // std::unique_ptr<Context> model_ctx = encoding->forward_impl(&sycl_queue, input_matrix, &output_matrix);
+
+        // return output_tensor;};
+    }
+
+    torch::Tensor backward_pass(torch::Tensor input_tensor, torch::Tensor grad_output, torch::Tensor params) override {}
+
+    torch::Tensor initialize_params() override { throw std::invalid_argument("Not implemented yet."); }
+
+    virtual torch::Tensor initialize_params(const torch::Tensor &tensor) override {
+        throw std::invalid_argument("Not implemented yet.");
+    }
+
+    size_t n_params() override {
+        std::cout << "Encodings don't have params, thus: n_params = 0" << std::endl;
+        return 0;
+    }
+
+    int n_output_dims() override { return encoding->output_width(); }
+
+  private:
+    Encoding<T> *encoding;
+    int m_input_width;
+    sycl::queue sycl_queue;
+};
+
+template <typename T_enc, typename T_net, int WIDTH> class NetworkWithEncodingModule : public Module {
+  public:
+    NetworkWithEncodingModule(int input_width, int output_width, int n_hidden_layers, Activation activation,
+                              Activation output_activation, std::string filename, std::string device_name)
+        : Module(device_name), m_input_width(input_width), m_output_width(output_width), m_width(WIDTH),
+          m_n_hidden_layers(n_hidden_layers) {
+
+        json encoding_config = loadJsonConfig(filename);
+        encoding_config[EncodingParams::N_DIMS_TO_ENCODE] = input_width;
+        network = create_network_with_encoding<T_enc, T_net, WIDTH>(
+            this->sycl_queue, m_width, output_width, n_hidden_layers, activation, output_activation, encoding_config);
+    }
+
+    NetworkWithEncodingModule(int input_width, int output_width, int n_hidden_layers, Activation activation,
+                              Activation output_activation, const json &encoding_config, std::string device_name)
+        : Module(device_name), m_input_width(input_width), m_output_width(output_width), m_width(WIDTH),
+          m_n_hidden_layers(n_hidden_layers) {
+
+        network = create_network_with_encoding<T_enc, T_net, WIDTH>(
+            this->sycl_queue, m_width, output_width, n_hidden_layers, activation, output_activation, encoding_config);
+    }
+
+    ~NetworkWithEncodingModule() { delete interm_forw; }
+
+    torch::Tensor forward_pass(torch::Tensor input_tensor, torch::Tensor params, const bool use_inference) override {
+        set_params(params);
+        int batch_size = input_tensor.sizes()[0];
+        DeviceMatrix<T_enc> input_encoding(batch_size, m_input_width, this->sycl_queue);
+        this->sycl_queue.memcpy(input_encoding.data(), input_tensor.data_ptr<T_enc>(),
+                                input_encoding.size() * sizeof(T_enc));
+        this->sycl_queue.wait();
+
+        DeviceMatrix<T_enc> output_encoding(batch_size, m_width, this->sycl_queue);
+        DeviceMatrix<T_net> output_network(batch_size, m_output_width, this->sycl_queue);
+        DeviceMatrix<T_net> input_network(batch_size, WIDTH, this->sycl_queue);
+        if (use_inference) {
+            network->inference(input_encoding, input_network, output_encoding, output_network, {});
+            return convertDeviceMatrixToTensor(output_network);
+        } else {
+            interm_forw = new DeviceMatrices<T_net>(network->get_network()->get_n_hidden_layers() + 2, batch_size,
+                                                    network->get_network()->get_input_width(), batch_size,
+                                                    network->get_network()->get_network_width(), batch_size,
+                                                    network->get_network()->get_output_width(), this->sycl_queue);
+            network->forward_pass(input_encoding, input_network, output_encoding, *interm_forw, {});
+
+            std::vector<T_net> interm_forw_vec = interm_forw->copy_to_host();
+            std::vector<T_net> output_network_vec(interm_forw_vec.end() - (batch_size * m_output_width),
+                                                  interm_forw_vec.end());
+            return convertVectorToTensor(output_network_vec);
+        }
+    }
+
+    torch::Tensor backward_pass(torch::Tensor input_tensor, torch::Tensor grad_output, torch::Tensor params) override {
+        set_params(params);
+
+        int batch_size = input_tensor.sizes()[1];
+
+        DeviceMatrix<T_net> loss(batch_size, m_output_width, this->sycl_queue);
+        this->sycl_queue.memcpy(loss.data(), reinterpret_cast<T_net *>(grad_output.data_ptr<float>()),
+                                loss.size() * sizeof(T_net));
+        this->sycl_queue.wait();
+
+        DeviceMatrices<T_net> grads(network->get_network()->get_n_hidden_layers() + 1,
+                                    network->get_network()->get_network_width(), WIDTH, WIDTH, WIDTH, WIDTH,
+                                    network->get_network()->get_output_width(), this->sycl_queue);
+        DeviceMatrices<T_net> interm_backw(network->get_network()->get_n_hidden_layers() + 1, batch_size,
+                                           network->get_network()->get_network_width(), batch_size,
+                                           network->get_network()->get_network_width(), batch_size,
+                                           network->get_network()->get_output_width(), this->sycl_queue);
+        network->backward_pass(loss, grads, interm_backw, *interm_forw, {});
+
+        return convertDeviceMatricesToTensor(grads);
+    }
+
+    torch::Tensor initialize_params() override {
+        std::vector<bf16> network_weights = network->get_network()->get_weights_matrices().copy_to_host();
+        torch::Tensor network_weights_tensor = convertVectorToTensor<T_net>(network_weights);
+        return network_weights_tensor;
+    }
+
+    torch::Tensor initialize_params(const torch::Tensor &tensor) override {
+        network->get_network()->set_weights_matrices(convertTensorToVector<T_net>(tensor));
+        return tensor;
+    }
+
+    size_t n_params() override { return network->get_network()->get_weights_matrices().nelements(); }
+
+    void set_params(torch::Tensor &params) {
+        if (this->m_device_name == "cpu") {
+            throw std::invalid_argument("CPU currently not supported/tested. Run on XPU please");
+        } else if (this->m_device_name == "xpu") {
+            network->get_network()->set_weights_matrices(convertTensorToVector<T_net>(params));
+        } else {
+            std::cout << "No behaviour for device " << this->m_device_name << ". Exiting code." << std::endl;
+            exit(1);
+        }
+    }
+
+    int n_output_dims() override {
         std::cout << "Not implemented" << std::endl;
         return -1;
     }
 
   private:
-    std::shared_ptr<NetworkWithEncoding<T>> network;
+    std::shared_ptr<NetworkWithEncoding<T_enc, T_net>> network;
     int m_input_width;
     int m_output_width;
     int m_width;
     int m_n_hidden_layers;
-    sycl::queue sycl_queue;
+    DeviceMatrices<T_net> *interm_forw = nullptr; // allocated in forward_pass, deallocated in deconstructor
 };
 
 } // namespace tnn

@@ -25,65 +25,6 @@ using bf16 = sycl::ext::oneapi::bfloat16;
 using tinydpcppnn::encodings::grid::GridEncoding;
 using json = nlohmann::json;
 
-template <typename T, int WIDTH>
-std::vector<T> load_from_file(std::string filename, int m_n_hidden_layers, int input_width, int output_width) {
-    // Read each value from the file and set it as a bf16 value in weights matrices
-    std::vector<T> data_vec;
-    std::ifstream file(filename);
-
-    if (!file.is_open()) {
-        std::cerr << "Error opening file: " << filename << std::endl;
-    }
-
-    std::string line;
-    while (std::getline(file, line)) {
-        try {
-            float value = std::stod(line);
-            data_vec.push_back((T)(value));
-        } catch (const std::invalid_argument &e) {
-            std::cerr << "Invalid argument: " << e.what() << std::endl;
-        } catch (const std::out_of_range &e) {
-            std::cerr << "Out of range: " << e.what() << std::endl;
-        }
-    }
-
-    file.close();
-
-    std::vector<T> weights_packed(data_vec.size(), 0.0);
-
-    for (int idx = 0; idx < weights_packed.size(); idx++) {
-        int i = 0;
-        int j = 0;
-        if (idx < input_width * WIDTH) {
-
-            i = idx / WIDTH; // rows
-            j = idx % WIDTH; // cols
-
-            weights_packed[toPackedLayoutCoord(i + j * WIDTH, WIDTH, WIDTH)] = data_vec[idx];
-        } else if ((idx >= input_width * WIDTH) &&
-                   (idx < input_width * WIDTH + (m_n_hidden_layers - 1) * WIDTH * WIDTH)) {
-            int layer = (idx - input_width * WIDTH) / (WIDTH * WIDTH);
-            int mat_offset = (idx - (input_width * WIDTH + layer * WIDTH * WIDTH)) % (WIDTH * WIDTH);
-
-            i = mat_offset / WIDTH; // rows
-            j = mat_offset % WIDTH; // cols
-
-            weights_packed[input_width * WIDTH + layer * WIDTH * WIDTH +
-                           toPackedLayoutCoord(i + j * WIDTH, WIDTH, WIDTH)] = data_vec[idx];
-        } else {
-            int mat_offset =
-                (idx - input_width * WIDTH - (m_n_hidden_layers - 1) * WIDTH * WIDTH) % (WIDTH * output_width);
-            i = mat_offset / WIDTH; // rows
-            j = mat_offset % WIDTH; // cols
-
-            weights_packed[input_width * WIDTH + (m_n_hidden_layers - 1) * WIDTH * WIDTH +
-                           toPackedLayoutCoord(i + j * WIDTH, WIDTH, WIDTH)] = data_vec[idx];
-        }
-    }
-
-    return weights_packed;
-}
-
 /// Function which applies a grid encoding to a R2 vector, resulting in a vector of size
 /// network_input_width, then applies the network and the output is the network_output_width
 // ATTENTION: currently only works for WIDTH=64
@@ -96,13 +37,13 @@ void test_network_with_encoding_loaded(sycl::queue &q, std::string filepath, con
     constexpr int output_width = WIDTH;
     constexpr int encoding_output_width = input_width;
 
-    json encoding_config = loadJsonConfig(filepath + "encoding_config.json");
+    json encoding_config = io::loadJsonConfig(filepath + "encoding_config.json");
     encoding_config[EncodingParams::N_DIMS_TO_ENCODE] = encoding_input_width;
-    
+
     auto Net = create_network_with_encoding<T_enc, T_net, WIDTH>(q, input_width, unpadded_output_width, n_hidden_layers,
                                                                  Activation::ReLU, Activation::None, encoding_config);
 
-    std::vector<T_enc> encoding_params = loadVectorFromCSV<T_enc>(filepath + "encoding_params.csv");
+    std::vector<T_enc> encoding_params = io::loadVectorFromCSV<T_enc>(filepath + "encoding_params.csv");
 
     DeviceMem<T_enc> params_full_precision(Net->get_encoding()->n_params(), q);
     if (encoding_params.size()) {
@@ -112,11 +53,11 @@ void test_network_with_encoding_loaded(sycl::queue &q, std::string filepath, con
     }
 
     Net->get_encoding()->set_padded_output_width(encoding_output_width);
-    std::vector<T_net> network_weights_ref =
-        load_from_file<T_net, WIDTH>(filepath + "network_params.csv", n_hidden_layers, input_width, output_width);
+    std::vector<T_net> network_weights_ref = load_weights_as_packed_from_file<T_net, WIDTH>(
+        filepath + "network_params.csv", n_hidden_layers, input_width, output_width);
     Net->get_network()->set_weights_matrices(network_weights_ref);
     DeviceMatrix<float> input_encoding(batch_size, encoding_input_width, q);
-    std::vector<float> input_encoding_ref = loadVectorFromCSV<float>(filepath + "input_encoding.csv");
+    std::vector<float> input_encoding_ref = io::loadVectorFromCSV<float>(filepath + "input_encoding.csv");
     input_encoding.copy_from_host(input_encoding_ref);
     q.wait();
 
@@ -131,11 +72,11 @@ void test_network_with_encoding_loaded(sycl::queue &q, std::string filepath, con
     std::vector<T_net> output_network_vec(output_network.size());
     std::vector<T_enc> output_encoding_vec(output_encoding.size());
 
-    std::vector<T_enc> encoding_output_ref = loadVectorFromCSV<T_enc>(filepath + "output_encoding.csv");
+    std::vector<T_enc> encoding_output_ref = io::loadVectorFromCSV<T_enc>(filepath + "output_encoding.csv");
     output_encoding.copy_to_host(output_encoding_vec).wait();
     CHECK(areVectorsWithinTolerance(output_encoding_vec, encoding_output_ref, 2.0e-2));
 
-    std::vector<T_net> network_output_ref = loadVectorFromCSV<T_net>(filepath + "output_network.csv");
+    std::vector<T_net> network_output_ref = io::loadVectorFromCSV<T_net>(filepath + "output_network.csv");
     output_network.copy_to_host(output_network_vec).wait();
     CHECK(areVectorsWithinTolerance(output_network_vec, network_output_ref, 2.0e-2));
 }
@@ -159,6 +100,7 @@ void test_network_with_encoding_identity_inference(sycl::queue &q) {
 
     const bf16 weight_val = 0.01;
     std::vector<bf16> new_weights(Net->get_network()->get_weights_matrices().nelements(), weight_val);
+
     Net->get_network()->set_weights_matrices(new_weights);
 
     constexpr float input_val = 1.0f;
@@ -179,6 +121,48 @@ void test_network_with_encoding_identity_inference(sycl::queue &q) {
                                   input_val * std::pow(WIDTH * (double)weight_val, n_hidden_layers + 1), 1.0e-3));
 }
 
+void test_network_with_encoding_identity_forward_backward(sycl::queue &q) {
+    constexpr int n_hidden_layers = 1;
+    constexpr int WIDTH = 64;
+    constexpr int batch_size = 8;
+    constexpr int input_width = WIDTH;
+    constexpr int output_width = WIDTH;
+    constexpr int encoding_input_width = 64;
+    constexpr int encoding_output_width = input_width;
+
+    // Define the parameters for creating IdentityEncoding
+    const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, encoding_input_width},
+                               {EncodingParams::SCALE, 1.0},
+                               {EncodingParams::OFFSET, 0.0},
+                               {EncodingParams::ENCODING, EncodingNames::IDENTITY}};
+    auto Net = create_network_with_encoding<float, bf16, WIDTH>(q, input_width, output_width, n_hidden_layers,
+                                                                Activation::ReLU, Activation::None, encoding_config);
+
+    const bf16 weight_val = 0.01;
+    std::vector<bf16> new_weights(Net->get_network()->get_weights_matrices().nelements(), weight_val);
+
+    Net->get_network()->set_weights_matrices(new_weights);
+
+    constexpr float input_val = 1.0f;
+    DeviceMatrix<float> input_encoding(batch_size, encoding_input_width, q);
+    input_encoding.fill(input_val).wait();
+
+    DeviceMatrix<float> output_encoding = Net->GenerateEncodingOutputMatrix(batch_size);
+    output_encoding.fill(0.0f).wait();
+    DeviceMatrix<bf16> input_network(batch_size, input_width, q);
+
+    DeviceMatrices<bf16> interm_forw(
+        Net->get_network()->get_n_hidden_layers() + 2, batch_size, Net->get_network()->get_input_width(), batch_size,
+        Net->get_network()->get_network_width(), batch_size, Net->get_network()->get_output_width(), q);
+
+    Net->forward_pass(input_encoding, input_network, output_encoding, interm_forw, {});
+    q.wait();
+    std::vector<bf16> interm_forw_vec = interm_forw.copy_to_host();
+    std::vector<bf16> output_network(interm_forw_vec.end() - (batch_size * output_width), interm_forw_vec.end());
+
+    CHECK(isVectorWithinTolerance(output_network, input_val * std::pow(WIDTH * (double)weight_val, n_hidden_layers + 1),
+                                  1.0e-3));
+}
 // Create a shared pointer of network with encoding using create_network_with_encoding
 template <typename T_enc, typename T_net, int WIDTH = 64>
 std::shared_ptr<NetworkWithEncoding<T_enc, T_net>>
@@ -216,29 +200,29 @@ TEST_CASE("tinydpcppnn::network_with_encoding step-by-step") {
         test_create_network_with_encoding_as_shared_ptr<float, bf16, 64>(q, encoding_input_width, encoding_config);
     }
     SUBCASE("Identity encoding inference") { test_network_with_encoding_identity_inference(q); }
+    SUBCASE("Identity encoding fwd") { test_network_with_encoding_identity_forward_backward(q); }
 
-#ifdef TEST_PATH
+    // #ifdef TEST_PATH
 
-    SUBCASE("Grid encoding inference, loaded data") {
-        std::string filepath =
-            std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/HashGrid/";
-        const int n_hidden_layers = 2;
-        const int batch_size = 128;
-        const int unpadded_output_width = 1;
-        const int encoding_input_width = 2;
-        test_network_with_encoding_loaded<float, bf16, 64>(q, filepath, n_hidden_layers, batch_size,
-                                                           unpadded_output_width, encoding_input_width);
-    }
-    SUBCASE("Identity encoding inference, loaded data") {
-        std::string filepath =
-            std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/Identity/";
-        const int n_hidden_layers = 2;
-        const int batch_size = 128;
-        const int unpadded_output_width = 64;
-        const int encoding_input_width = 64;
-        test_network_with_encoding_loaded<float, bf16, 64>(q, filepath, n_hidden_layers, batch_size,
-                                                           unpadded_output_width, encoding_input_width);
-    }
-// SUBCASE("Identity encoding backward") { test_network_with_encoding_identity<bf16, 64>(q); }
-#endif
+    //     SUBCASE("Grid encoding inference, loaded data") {
+    //         std::string filepath =
+    //             std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/HashGrid/";
+    //         const int n_hidden_layers = 2;
+    //         const int batch_size = 128;
+    //         const int unpadded_output_width = 1;
+    //         const int encoding_input_width = 2;
+    //         test_network_with_encoding_loaded<float, bf16, 64>(q, filepath, n_hidden_layers, batch_size,
+    //                                                            unpadded_output_width, encoding_input_width);
+    //     }
+    //     SUBCASE("Identity encoding inference, loaded data") {
+    //         std::string filepath =
+    //             std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/Identity/";
+    //         const int n_hidden_layers = 2;
+    //         const int batch_size = 128;
+    //         const int unpadded_output_width = 64;
+    //         const int encoding_input_width = 64;
+    //         test_network_with_encoding_loaded<float, bf16, 64>(q, filepath, n_hidden_layers, batch_size,
+    //                                                            unpadded_output_width, encoding_input_width);
+    //     }
+    // #endif
 }

@@ -48,8 +48,9 @@ template <typename T_enc, typename T_net> class NetworkWithEncoding {
         return network_->inference(network_input, network_output, {});
     }
 
-    DeviceMatrixView<T_net> forward_pass(const DeviceMatrix<float> &input, DeviceMatrix<T_enc> &encoding_output,
-                                         DeviceMatrix<T_net> &intermediate_forward,
+    DeviceMatrixView<T_net> forward_pass(const DeviceMatrix<float> &input, DeviceMatrix<T_net> &network_input,
+                                         DeviceMatrix<T_enc> &encoding_output,
+                                         DeviceMatrices<T_net> &intermediate_forward,
                                          const std::vector<sycl::event> &deps) {
         /// TODO: implemente proper usage of deps. Requires proper implementation of forward_impl
         /// in encodings which takes it as input and returns new dependencies.
@@ -57,25 +58,26 @@ template <typename T_enc, typename T_net> class NetworkWithEncoding {
         const int batch_size = input.m();
         const int network_input_width = network_->get_input_width();
 
-        if (intermediate_forward.m() != batch_size || encoding_output.m() != batch_size)
+        if (intermediate_forward.input_m() != batch_size || encoding_output.m() != batch_size)
             throw std::invalid_argument("Wrong dimensions.");
         if (encoding_output.n() != network_input_width) throw std::invalid_argument("Wrong dimensions.");
 
         auto ctxt = encoding_->forward_impl(&network_->get_queue(), input, &encoding_output);
         network_->get_queue().wait();
-        network_->forward_pass(encoding_output, intermediate_forward, {});
+        network_input.copy_from_device(encoding_output.data());
+        network_->forward_pass(network_input, intermediate_forward, {});
         network_->get_queue().wait();
 
-        throw std::logic_error(
-            "Returned view does not make any sense. Storage is in block major but view uses row-major");
-        return intermediate_forward.GetView(batch_size, network_->get_unpadded_output_width(), 0,
-                                            network_->get_input_width() +
-                                                network_->get_network_width() * network_->get_n_hidden_layers());
+        // throw std::logic_error(
+        //     "Returned view does not make any sense. Storage is in block major but view uses row-major");
+        // return intermediate_forward.GetView(batch_size, network_->get_unpadded_output_width(), 0,
+        //                                     network_->get_input_width() +
+        //                                         network_->get_network_width() * network_->get_n_hidden_layers());
     }
 
-    std::vector<sycl::event> backward_pass(const DeviceMatrix<T_net> &input_backward, DeviceMatrix<T_net> &output,
-                                           DeviceMatrix<T_net> &intermediate_backward,
-                                           const DeviceMatrix<T_net> &intermediate_forward, const int batch_size,
+    std::vector<sycl::event> backward_pass(const DeviceMatrix<T_net> &input_backward, DeviceMatrices<T_net> &output,
+                                           DeviceMatrices<T_net> &intermediate_backward,
+                                           const DeviceMatrices<T_net> &intermediate_forward,
                                            const std::vector<sycl::event> &deps) {
         return network_->backward_pass(input_backward, output, intermediate_backward, intermediate_forward, deps);
     }

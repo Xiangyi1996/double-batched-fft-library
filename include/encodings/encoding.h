@@ -80,7 +80,7 @@ enum class ReductionType {
 
 template <typename T> class Encoding {
   public:
-    Encoding() {}
+    Encoding() : m_n_params(0) {}
     virtual ~Encoding() {}
 
     virtual std::unique_ptr<Context> forward_impl(sycl::queue *const q, const DeviceMatrix<float> &input,

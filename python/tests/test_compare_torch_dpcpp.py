@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-import intel_extension_for_pytorch  # required for SwiftNet
+import intel_extension_for_pytorch
 import pytest
 import time
 
@@ -185,7 +185,7 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
     # Generate random input data for testing
     torch.manual_seed(123)
     input_data = (
-        torch.randn(input_size, BATCH_SIZE, dtype=torch.float32).to(DEVICE_NAME) * 0
+        torch.randn(BATCH_SIZE, input_size, dtype=torch.float32).to(DEVICE_NAME) * 0
         + 0.01
         # torch.randn(BATCH_SIZE, input_size, dtype=torch.float32).to(DEVICE_NAME)
     )
@@ -199,13 +199,9 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
     )
     model_torch.to(DEVICE_NAME)
     model_dpcpp.to(DEVICE_NAME)
-    y_torch = model_torch(input_data.T)
+    y_torch = model_torch(input_data)
+
     y_dpcpp = model_dpcpp(input_data)
-    # print("Torch: ", y_torch[0, :])
-    # print("DPCPP: ", y_dpcpp[0, :])
-    # print(
-    #     f"diff: {y_torch[0, :] - y_dpcpp[0, :]}, average: {abs(y_torch[0, :] - y_dpcpp[0, :]).mean()}"
-    # )
 
     print("Torch: ", y_torch)
     print("DPCPP: ", y_dpcpp)
@@ -220,7 +216,6 @@ def test_fwd(input_size, hidden_size, output_size, activation_func, output_func)
     assert (
         abs(y_torch.sum() - y_dpcpp.sum()) / (abs(y_torch).sum()) < 0.01
     ), f"Forward error is too large {y_torch}, {y_dpcpp}"
-    model_dpcpp.free_memory()
 
 
 if __name__ == "__main__":
@@ -232,13 +227,13 @@ if __name__ == "__main__":
     output_func = "linear"
     # output_func = "sigmoid"
 
-    test_fwd(input_width, n_hidden_layers, output_width, activation_func, output_func)
-    print("Passed fwd test")
+    # test_fwd(input_width, n_hidden_layers, output_width, activation_func, output_func)
+    # print("Passed fwd test")
 
-    # test_grad(
-    #     input_width,
-    #     n_hidden_layers,
-    #     output_width,
-    #     activation_func,
-    #     output_func,
-    # )
+    test_grad(
+        input_width,
+        n_hidden_layers,
+        output_width,
+        activation_func,
+        output_func,
+    )

@@ -5,7 +5,7 @@ import numpy as np
 # import intel_extension_for_pytorch  # required for tinyn_nn (SwiftNet inside)
 
 from mlp import MLP
-from modules import NetworkWithInputEncoding
+from modules import NetworkWithInputEncoding, Network
 from tiny_nn import Activation
 
 import os
@@ -41,26 +41,31 @@ def create_models(
         "n_neurons": WIDTH,
         "n_hidden_layers": hidden_size,
     }
-    encoding_config = {
-        "otype": "Identity",
-        "n_dims_to_encode": str(input_size),
-        "scale": "1.0",
-        "offset": "0.0",
-    }
-    model_dpcpp = NetworkWithInputEncoding(
+    model_dpcpp = Network(
         n_input_dims=input_size,
         n_output_dims=output_size,
         network_config=network_config,
-        encoding_config=encoding_config,
         device=device_name,
-        flipped_input=True,
     )
+    # encoding_config = {
+    #     "otype": "Identity",
+    #     "n_dims_to_encode": str(input_size),
+    #     "scale": "1.0",
+    #     "offset": "0.0",
+    # }
+    # model_dpcpp = NetworkWithInputEncoding(
+    #     n_input_dims=input_size,
+    #     n_output_dims=output_size,
+    #     network_config=network_config,
+    #     encoding_config=encoding_config,
+    #     device=device_name,
+    #     flipped_input=True,
+    # )
     # model_dpcpp.eval()
 
     # Set weights of model_torch to the ones of model_dpcpp
 
     weights = model_dpcpp.get_reshaped_params()
-
     model_torch.set_weights(weights)
     return model_dpcpp, model_torch
 

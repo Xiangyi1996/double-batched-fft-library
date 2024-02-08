@@ -61,39 +61,42 @@ class _module_function(torch.autograd.Function):
     @staticmethod
     def backward(ctx, doutput):
         input, output, params = ctx.saved_tensors
-
+        # print(input.dtype)
+        # print(doutput.dtype)
+        # print(params.dtype)
         with torch.no_grad():
-            grad = ctx.native_tcnn_module.bwd(input, doutput, params)
+            grad = ctx.native_tcnn_module.bwd(input, doutput.to("xpu"), params)
         # 3 inputs to forward, so need 3 grads
         return None, None, grad
 
 
-# class Embedding(torch.nn.Module):
-#     def __init__(self, input_dim, output_dim, requires_grad=False):
-#         super(Embedding, self).__init__()
+class Embedding(torch.nn.Module):
+    def __init__(self, input_dim, output_dim, requires_grad=False):
+        super(Embedding, self).__init__()
 
-#         self.embedding = torch.nn.Linear(input_dim, output_dim, bias=False)
-#         if not requires_grad:
-#             # Initialize the parameters with the specified value
-#             torch.nn.init.constant_(self.embedding.weight, 0.1)
+        self.embedding = torch.nn.Linear(input_dim, output_dim, bias=False)
+        if not requires_grad:
+            # Initialize the parameters with the specified value
+            torch.nn.init.constant_(self.embedding.weight, 0.1)
 
-#         for param in self.embedding.parameters():
-#             param.requires_grad = requires_grad
+        for param in self.embedding.parameters():
+            param.requires_grad = requires_grad
 
-#     def forward(self, x):
-#         x = self.embedding(x)
-#         return x
+    def forward(self, x):
+        x = self.embedding(x)
+        return x
 
 
 class Module(torch.nn.Module):
-    def __init__(self, device="xpu", flipped_input=False):
+    def __init__(self, device="xpu"):
         super(Module, self).__init__()
         self.device = device
-        self.flipped_input = flipped_input
 
         self.tnn_module = self.create_module()
         if self.tnn_module.n_params():
-            initial_params = self.tnn_module.initial_params(1)
+            # torch_params = torch.rand(self.tnn_module.n_params(), dtype=torch.bfloat16)
+            torch_params = torch.ones(self.tnn_module.n_params(), dtype=torch.bfloat16)
+            initial_params = self.tnn_module.initial_params(torch_params)
 
             self.params = torch.nn.Parameter(
                 initial_params.to(device), requires_grad=True
@@ -108,6 +111,8 @@ class Module(torch.nn.Module):
         all_weights = []
         if weights is None:
             weights = self.params
+        # for idx, val in enumerate(self.params):
+        #     print(f"{idx}: {val}")
 
         n_input_dims = (
             self.width if self.n_input_dims <= self.width else self.n_input_dims
@@ -152,38 +157,42 @@ class Module(torch.nn.Module):
         all_weights.append(input_matrix)
         all_weights.extend(hidden_matrices)
         all_weights.append(output_matrix)
+
         return all_weights
 
     def forward(self, x):
-        # Input is batch_size, feature_size, but internally we work with feature_size, batch_size
-        if not self.flipped_input:
-            x = x.T
-        batch_size = x.shape[1]
+        # Input is batch_size, feature_size
 
-        # batch_size needs to be % 64 == 0
-        padding_rows = (64 - (batch_size % 64)) % 64
+        batch_size = x.shape[0]
 
-        # Create a tensor of zeros to pad with
-        padding_shape = (
-            x.size(0),
-            padding_rows,
-        )  # Assuming the second dimension (N) remains the same
-        padding_tensor = torch.zeros(padding_shape, dtype=x.dtype, device=x.device)
+        # # batch_size needs to be % 64 == 0
+        # padding_rows = (64 - (batch_size % 64)) % 64
+
+        # # Create a tensor of zeros to pad with
+        # padding_shape = (
+        #     x.size(0),
+        #     padding_rows,
+        # )  # Assuming the second dimension (N) remains the same
+        # padding_tensor = torch.zeros(padding_shape, dtype=x.dtype, device=x.device)
 
         # Concatenate the original tensor and the padding tensor along the batch dimension
-        padded_tensor = torch.cat((x, padding_tensor), dim=1)
+        # padded_tensor = torch.cat((x, padding_tensor), dim=1)
+        # print(self.params.to(torch.float).dtype)
+        padded_tensor = x
+        output = _module_function.apply(
+            # self.tnn_module, padded_tensor, self.params.to(torch.float)
+            self.tnn_module,
+            padded_tensor,
+            self.params,
+        )
 
-        output = _module_function.apply(self.tnn_module, padded_tensor, self.params)
-
-        # if self.flipped_input:
-        #     output = output.reshape(-1, batch_size).to(self.device)
-        # else:
-        output = output.reshape(batch_size + padding_rows, -1).to(self.device)
+        output = output.reshape(batch_size, -1).to(self.device)
         # zero_vals = int((output == 0).sum())
         # if zero_vals > 2:
         #     print(f"{zero_vals} values are exactly zero. Check if intended behaviour.")
 
-        return output[:batch_size, :]
+        # return output[:batch_size, :]
+        return output
 
     def free_memory(self):
         self.tnn_module.free_memory()
@@ -196,7 +205,6 @@ class Network(Module):
         n_output_dims=1,
         network_config=None,
         device="xpu",
-        flipped_input=False,
     ):
         if network_config is None:
             self.network_config = {
@@ -216,12 +224,10 @@ class Network(Module):
         self.output_activation = get_dpcpp_activation(
             self.network_config["output_activation"]
         )
-
-        super().__init__(device=device, flipped_input=flipped_input)
+        super().__init__(device=device)
 
     def create_module(self):
         return tnn.create_network(
-            self.width,
             self.n_input_dims,
             self.n_output_dims,
             self.n_hidden_layers,
@@ -239,7 +245,6 @@ class NetworkWithInputEncoding(Module):
         network_config=None,
         encoding_config=None,
         device="xpu",
-        flipped_input=False,
     ):
         if network_config is None:
             self.network_config = {
@@ -276,7 +281,7 @@ class NetworkWithInputEncoding(Module):
         for value in self.encoding_config.values():
             assert isinstance(value, str), "Not all values are of type str"
 
-        super().__init__(device=device, flipped_input=flipped_input)
+        super().__init__(device=device)
 
     def create_module(self):
         return tnn.create_networkwithencoding(
@@ -298,7 +303,6 @@ class Encoding(Module):
         n_input_dims=1,
         encoding_config=None,
         device="xpu",
-        flipped_input=False,
     ):
         self.n_input_dims = n_input_dims
         self.encoding_config = encoding_config
@@ -317,7 +321,7 @@ class Encoding(Module):
         for value in self.encoding_config.values():
             assert isinstance(value, str), "Not all values are of type str"
 
-        super().__init__(device=device, flipped_input=flipped_input)
+        super().__init__(device=device)
 
         self.n_output_dims = self.tnn_module.n_output_dims()
 

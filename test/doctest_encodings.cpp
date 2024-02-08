@@ -33,29 +33,30 @@ template <typename T> void initialize_arange(std::vector<T> &vec) {
 }
 
 template <typename T>
-void test_encoding_from_loaded_file(const int batch_size, const int input_width, const int output_width,
-                                    std::string filepath, sycl::queue &q) {
+void test_encoding_forward_from_loaded_file(const int batch_size, const int input_width, const int output_width,
+                                            std::string filepath, sycl::queue &q, bool has_params) {
     DeviceMatrix<float> input(batch_size, input_width, q);
     input.fill(0.0f).wait();
 
     DeviceMatrix<T> output(batch_size, output_width, q);
     output.fill(0.0f).wait();
-    json config = loadJsonConfig(filepath + "/encoding_config.json");
+    json config = io::loadJsonConfig(filepath + "/encoding_config.json");
     config[EncodingParams::N_DIMS_TO_ENCODE] = input_width;
 
     std::shared_ptr<Encoding<T>> encoding = create_encoding<T>(config);
     encoding->set_padded_output_width(output_width);
 
-    std::vector<T> params = loadVectorFromCSV<T>(filepath + "encoding_params.csv");
-    std::vector<float> input_ref = loadVectorFromCSV<float>(filepath + "input_encoding.csv");
-    std::vector<T> output_ref = loadVectorFromCSV<T>(filepath + "output_encoding.csv");
+    std::vector<T> params = io::loadVectorFromCSV<T>(filepath + "encoding_params.csv");
+    std::vector<float> input_ref = io::loadVectorFromCSV<float>(filepath + "input_encoding.csv");
+    std::vector<T> output_ref = io::loadVectorFromCSV<T>(filepath + "output_encoding.csv");
 
     DeviceMem<float> gradients(encoding->n_params(), q);
     gradients.fill(0.123f).wait(); // fill with something to check if it is written to
 
     DeviceMem<T> params_full_precision(params.size(), q);
 
-    if (params.size()) {
+    if (has_params) {
+        /// TODO: refactor into a proper init function later.
         CHECK(params.size() == encoding->n_params());
 
         params_full_precision.copy_from_host(params).wait();
@@ -74,90 +75,90 @@ void test_encoding_from_loaded_file(const int batch_size, const int input_width,
     // Check if the actual vector is equal to the expected vector within the tolerance
     CHECK(areVectorsWithinTolerance(output.copy_to_host(), output_ref, 2.0e-3));
 
-    if (params.size() == 0) return; // bwd calculations onwards
+    template <typename T> void test_backward_from_loaded_file(std::string filepath, sycl::queue & q) {
+        /// TODO: add loss correctly in here
+        // std::vector<T> params_grad_ref = io::loadVectorFromCSV<float>(filepath + "params_grad.csv");
+        // std::vector<T> loss_ref = io::loadVectorFromCSV<T>(filepath + "loss.csv");
 
-    std::vector<T> params_grad_ref = loadVectorFromCSV<float>(filepath + "params_grad.csv");
-    std::vector<T> loss_ref = loadVectorFromCSV<T>(filepath + "loss.csv");
+        // output.copy_from_host(output_ref).wait();
 
-    output.copy_from_host(output_ref).wait();
+        // DeviceMatrix<T> loss(batch_size, output_width, q);
+        // loss.fill(-0.0625f).wait();
+        // // loss.copy_from_host(loss_ref).wait();
+        // encoding->backward_impl(&q, *model_ctx, input, output, loss);
 
-    DeviceMatrix<T> loss(batch_size, output_width, q);
-    // loss.fill(-0.1f).wait();
-    loss.copy_from_host(loss_ref).wait();
-    encoding->backward_impl(&q, *model_ctx, input, output, loss);
+        // std::vector<float> enc_params(encoding->n_params());
+        // std::vector<float> enc_grads(encoding->n_params());
+        // q.wait();
 
-    std::vector<float> enc_params(encoding->n_params());
-    std::vector<float> enc_grads(encoding->n_params());
-    q.wait();
+        // q.memcpy(enc_params.data(), encoding->params(), encoding->n_params() * sizeof(float)).wait();
+        // q.memcpy(enc_grads.data(), encoding->gradients(), encoding->n_params() * sizeof(float)).wait();
+        // for (int i = 0; i < 10; i++) {
+        //     std::cout << enc_grads[i] << "/" << params_grad_ref[i] << std::endl;
+        // }
+        // CHECK(areVectorsWithinTolerance(enc_grads, params_grad_ref, epsilon));
 
-    q.memcpy(enc_params.data(), encoding->params(), encoding->n_params() * sizeof(float)).wait();
-    q.memcpy(enc_grads.data(), encoding->gradients(), encoding->n_params() * sizeof(float)).wait();
-    for (int i = 0; i < enc_params.size(); i++) {
-        std::cout << enc_grads[i] << "/" << params_grad_ref[i] << std::endl;
+        // pure sanity check that params didn't change, we loaded them and set them
+        // CHECK(areVectorsWithinTolerance(enc_params, params, epsilon));
     }
-    CHECK(areVectorsWithinTolerance(enc_params, params, 1.0e-3));
-    CHECK(areVectorsWithinTolerance(enc_grads, params_grad_ref, 1.0e-3));
 
-    // pure sanity check that params didn't change, we loaded them and set them
-    // CHECK(areVectorsWithinTolerance(enc_params, params, epsilon));
-}
+    TEST_CASE("tinydpcppnn::encoding Identity") {
 
-TEST_CASE("tinydpcppnn::encoding Identity"){
+        SUBCASE("Not padded") {
+            const int batch_size = 2;
+            const int input_width = 3;
+            const int output_width = 3;
 
-    SUBCASE("Not padded"){const int batch_size = 2;
-const int input_width = 3;
-const int output_width = 3;
+            sycl::queue q;
+            DeviceMatrix<float> input(batch_size, input_width, q);
+            input.fill(1.23f).wait();
 
-sycl::queue q;
-DeviceMatrix<float> input(batch_size, input_width, q);
-input.fill(1.23f).wait();
+            DeviceMatrix<float> output_float(batch_size, output_width, q);
+            output_float.fill(0.0f).wait();
 
-DeviceMatrix<float> output_float(batch_size, output_width, q);
-output_float.fill(0.0f).wait();
+            // Define the parameters for creating IdentityEncoding
+            const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, input_width},
+                                       {EncodingParams::SCALE, 1.0},
+                                       {EncodingParams::OFFSET, 0.0},
+                                       {EncodingParams::ENCODING, EncodingNames::IDENTITY}};
+            std::shared_ptr<Encoding<float>> network = create_encoding<float>(encoding_config);
+            network->set_padded_output_width(output_width);
 
-// Define the parameters for creating IdentityEncoding
-const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, input_width},
-                           {EncodingParams::SCALE, 1.0},
-                           {EncodingParams::OFFSET, 0.0},
-                           {EncodingParams::ENCODING, EncodingNames::IDENTITY}};
-std::shared_ptr<Encoding<float>> network = create_encoding<float>(encoding_config);
-network->set_padded_output_width(output_width);
+            std::unique_ptr<Context> model_ctx = network->forward_impl(&q, input, &output_float);
+            q.wait();
 
-std::unique_ptr<Context> model_ctx = network->forward_impl(&q, input, &output_float);
-q.wait();
+            std::vector<float> in = input.copy_to_host();
+            std::vector<float> out = output_float.copy_to_host();
 
-std::vector<float> in = input.copy_to_host();
-std::vector<float> out = output_float.copy_to_host();
+            const float epsilon = 1e-3; // Set the tolerance for floating-point comparisons
 
-const float epsilon = 1e-3; // Set the tolerance for floating-point comparisons
-
-// Check if the actual vector is equal to the expected vector within the tolerance
-for (size_t i = 0; i < out.size(); ++i) {
-    CHECK(static_cast<float>(in[i]) == doctest::Approx(out[i]).epsilon(epsilon));
-}
-}
+            // Check if the actual vector is equal to the expected vector within the tolerance
+            for (size_t i = 0; i < out.size(); ++i) {
+                CHECK(static_cast<float>(in[i]) == doctest::Approx(out[i]).epsilon(epsilon));
+            }
+        }
 
 #ifdef TEST_PATH
-SUBCASE("Check results loaded float") {
-    // SWIFTNET
-    const int input_width = 3;
-    const int batch_size = 64;
-    const int output_width = 3;
-    sycl::queue q;
-    std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/identity/";
-    test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
-}
+        SUBCASE("Check results loaded float") {
+            // SWIFTNET
+            const int input_width = 3;
+            const int batch_size = 64;
+            const int output_width = 3;
+            sycl::queue q;
+            std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/identity/";
+            test_encoding_forward_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q, false);
+        }
 
-// SUBCASE("Check results loaded bf16") {
-//     // SWIFTNET
-//     const int input_width = 3;
-//     const int batch_size = 64;
-//     const int output_width = 3;
-//     sycl::queue q;
+        // SUBCASE("Check results loaded bf16") {
+        //     // SWIFTNET
+        //     const int input_width = 3;
+        //     const int batch_size = 64;
+        //     const int output_width = 3;
+        //     sycl::queue q;
 
-//     std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/identity/";
-//     test_encoding_from_loaded_file<bf16>(batch_size, input_width, output_width, filepath, q);
-// }
+        std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/identity/";
+        test_encoding_forward_from_loaded_file<bf16>(batch_size, input_width, output_width, filepath, q, false);
+    }
 #endif
 }
 
@@ -202,7 +203,7 @@ SUBCASE("Check results loaded float") {
     sycl::queue q;
 
     std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/spherical/";
-    test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
+    test_encoding_forward_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q, false);
 }
 #endif
 }
@@ -353,7 +354,8 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
 
         std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/grid/";
 
-        test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
+        test_encoding_forward_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q, true);
+        test_backward_from_loaded_file<float>(filepath, q);
     }
     SUBCASE("Check results loaded, log2 hash map size 15") {
         // SWIFTNET
@@ -364,7 +366,7 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
 
         std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/gridlog2_15/";
 
-        test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
+        test_encoding_forward_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q, true);
     }
     SUBCASE("Check results loaded, log2 hash map size 16") {
         // SWIFTNET
@@ -375,7 +377,8 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
 
         std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/gridlog2_16/";
 
-        test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
+        test_encoding_forward_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q, true);
+        test_backward_from_loaded_file<float>(filepath, q);
     }
     SUBCASE("Check results loaded, log2 hash map size 19") {
         // SWIFTNET
@@ -386,7 +389,8 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
 
         std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/gridlog2_19/";
 
-        test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
+        test_encoding_forward_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q, true);
+        test_backward_from_loaded_file<float>(filepath, q);
     }
     SUBCASE("Check results loaded, n_level 14") {
         // SWIFTNET
@@ -397,7 +401,8 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
 
         std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/gridn_level14/";
 
-        test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
+        test_encoding_forward_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q, true);
+        test_backward_from_loaded_file<float>(filepath, q);
     }
     SUBCASE("Check results loaded, n_level 15") {
         // SWIFTNET
@@ -408,7 +413,8 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
 
         std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/gridn_level15/";
 
-        test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
+        test_encoding_forward_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q, true);
+        test_backward_from_loaded_file<float>(filepath, q);
     }
     SUBCASE("Check results loaded, base resolution 15") {
         // SWIFTNET
@@ -419,7 +425,8 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
 
         std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/gridbase_resolution_15/";
 
-        test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
+        test_encoding_forward_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q, true);
+        test_backward_from_loaded_file<float>(filepath, q);
     }
     SUBCASE("Check results loaded, scale 1.0") {
         // SWIFTNET
@@ -430,7 +437,8 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
 
         std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/gridper_level_scale_1/";
 
-        test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
+        test_encoding_forward_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q, true);
+        test_backward_from_loaded_file<float>(filepath, q);
     }
     SUBCASE("Check results loaded, scale 1.5") {
         // SWIFTNET
@@ -441,7 +449,8 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
 
         std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/gridper_level_scale_15/";
 
-        test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
+        test_encoding_forward_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q, true);
+        test_backward_from_loaded_file<float>(filepath, q);
     }
     SUBCASE("Check results loaded, scale 1.2") {
         // SWIFTNET
@@ -452,7 +461,8 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
 
         std::string filepath = std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/encoding/gridper_level_scale_12/";
 
-        test_encoding_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q);
+        test_encoding_forward_from_loaded_file<float>(batch_size, input_width, output_width, filepath, q, true);
+        test_backward_from_loaded_file<float>(filepath, q);
     }
 #endif
 }

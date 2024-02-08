@@ -50,7 +50,6 @@ class CMakeBuild(build_ext):
             f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={extdir}{os.sep}",
             f"-DPYTHON_EXECUTABLE={sys.executable}",
             f"-DCMAKE_BUILD_TYPE={cfg}",  # not used on MSVC, but no harm
-            "-DoneDPL_DIR=/opt/intel/oneapi/dpl/2022.2.0/lib/cmake/oneDPL/",
             f"-DTORCH_CMAKE_PREFIX_PATH={torch.utils.cmake_prefix_path}",
             "-DCMAKE_CXX_FLAGS=-fPIC",
             "-D BUILD_TEST=OFF",
