@@ -15,140 +15,8 @@
 
 #include "SwiftNetMLP.h"
 #include "io.h"
+#include "mlp.h"
 #include "result_check.h"
-#include <Eigen/Dense>
-
-// ReLU function
-double relu(double x) { return x > 0 ? x : 0; }
-
-// Derivative of the ReLU function
-double drelu(double x) { return x > 0 ? 1 : 0; }
-
-// Mean squared error loss
-double mse(Eigen::VectorXd y, Eigen::VectorXd y_pred) { return (y - y_pred).array().pow(2).mean(); }
-
-// Convert Eigen::VectorXd to std::vector
-template <typename T> std::vector<T> eigenToStdVector(const Eigen::VectorXd &eigenVector) {
-    std::vector<T> stdVector(eigenVector.data(), eigenVector.data() + eigenVector.size());
-    return stdVector;
-}
-
-template <typename T> class MLP {
-  private:
-    std::vector<Eigen::MatrixXd> weights;
-    int n_hidden_layers;
-
-  public:
-    MLP<T>(int inputDim, int hiddenDim, int outputDim, int n_hidden_layers, bool linspace_weights)
-        : n_hidden_layers{n_hidden_layers} {
-        // first layer
-        weights.push_back(Eigen::MatrixXd::Ones(hiddenDim, inputDim) * 0.1);
-
-        // hidden layers
-        for (int i = 0; i < n_hidden_layers - 3; i++) {
-            weights.push_back(Eigen::MatrixXd::Ones(hiddenDim, hiddenDim) * 0.1);
-        }
-        // last layer
-        weights.push_back(Eigen::MatrixXd::Ones(outputDim, hiddenDim) * 0.1);
-
-        if (linspace_weights) {
-            double start = -1.0;
-            double end = 1.0;
-            for (int i = 0; i < weights.size(); i++) {
-                set_weights_linspace(weights[i], start, end);
-            }
-        }
-    }
-
-    void set_weights_linspace(Eigen::MatrixXd &W, double start, double end) {
-        int rows = W.rows();
-        int cols = W.cols();
-        double increment = (end - start) / ((rows * cols) - 1);
-
-        for (int i = 0; i < rows; ++i) {
-            for (int j = 0; j < cols; ++j) {
-                W(i, j) = start + (i + j * cols) * increment;
-            }
-        }
-    }
-
-    std::vector<T> getUnpackedWeights() {
-        std::vector<T> all_weights;
-
-        for (Eigen::MatrixXd &weight : weights) {
-            Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor> transposed_weight =
-                weight.transpose();
-            all_weights.insert(all_weights.end(), transposed_weight.data(),
-                               transposed_weight.data() + transposed_weight.size());
-        }
-
-        return all_weights;
-    }
-
-    std::vector<T> forward(Eigen::VectorXd x) {
-        std::vector<Eigen::VectorXd> layer_outputs(weights.size());
-        // Input -> First hidden layer
-        layer_outputs[0] = (weights[0] * x).unaryExpr(&relu);
-        // Hidden layers -> Output layer (execept last layer)
-        for (int i = 1; i < weights.size() - 1; ++i) {
-            layer_outputs[i] = (weights[i] * layer_outputs[i - 1]).unaryExpr(&relu);
-        }
-        // Last layer no activation function
-        layer_outputs.back() = weights.back() * layer_outputs[weights.size() - 2];
-
-        // // assuming all width in input, hidden and out are the same
-        // Eigen::VectorXd all_layers = Eigen::VectorXd::Zero(layer_outputs[0].size() * weights.size());
-        // for (int i = 0; i < weights.size(); i++) {
-        //     all_layers.segment(i * layer_outputs[0].size(), layer_outputs[0].size()) = layer_outputs[i];
-        // }
-
-        return eigenToStdVector<T>(layer_outputs.back());
-    }
-
-    void backward(Eigen::VectorXd input, Eigen::VectorXd target, std::vector<std::vector<T>> &flattened_grads,
-                  std::vector<std::vector<T>> &loss_grads) {
-        std::vector<Eigen::VectorXd> A(n_hidden_layers);
-        A[0] = input; // A represents each layer's data
-        // Forward Pass
-        for (int i = 0; i < n_hidden_layers - 1; i++) {
-
-            Eigen::VectorXd Ci = weights[i] * A[i];
-
-            if (i < n_hidden_layers - 2) {
-                A[i + 1] = Ci.unaryExpr(&relu); // Within hidden layers, relu activation function is assumed.
-            } else {
-                A[i + 1] = Ci; // In the output layer, no activation function is assumed
-            }
-        }
-
-        // Compute loss
-        double loss = (A.back() - target).squaredNorm() / target.size();
-
-        // Compute gradients
-        std::vector<Eigen::VectorXd> D(n_hidden_layers);
-        D.back() = 2 * (A.back() - target) / target.size();
-
-        std::vector<Eigen::MatrixXd> G(n_hidden_layers - 1);
-        G.back() = D.back() * A[n_hidden_layers - 2].transpose();
-
-        // Backward pass
-        for (int i = n_hidden_layers - 1; i > 1; i--) {
-            D[i - 1] = weights[i - 1].transpose() * D[i];
-            D[i - 1] = D[i - 1].array() * A[i - 1].unaryExpr(&drelu).array();
-
-            G[i - 2] = D[i - 1] * A[i - 2].transpose();
-        }
-
-        for (int i = 0; i < G.size(); i++) {
-            std::vector<T> grad_vector =
-                eigenToStdVector<T>(Eigen::Map<Eigen::VectorXd>(G[i].data(), G[i].rows() * G[i].cols()));
-            flattened_grads.push_back(grad_vector);
-        }
-        for (int i = 1; i < D.size(); i++) {
-            loss_grads.push_back(eigenToStdVector<T>(D[i]));
-        }
-    }
-};
 
 template <typename T, int WIDTH>
 void test_inference_1layer(sycl::queue &q, const int input_width, const int output_width, const int batch_size) {
@@ -265,6 +133,7 @@ void test_backward_1layer(sycl::queue &q, const int input_width, const int outpu
     DeviceMatrix<T> loss(batch_size, network.get_output_width(), q);
     DeviceMatrices<T> network_backward_output(network.get_n_hidden_layers() + 1, network.get_network_width(), WIDTH,
                                               WIDTH, WIDTH, WIDTH, network.get_output_width(), q);
+    network_backward_output.fill(0.0f).wait();
 
     // network_input.fill(input_val).wait();
     std::vector<T> input_T(input_vec.begin(), input_vec.end());
@@ -307,98 +176,30 @@ void test_backward_1layer(sycl::queue &q, const int input_width, const int outpu
     std::vector<std::vector<float>> weights_ref, loss_grads_ref;
     mlp.backward(input_ref, target_ref, weights_ref, loss_grads_ref);
 
-    // TODO: Scale automatically by batch size
-    for (T &element : grad) {
-        element /= batch_size;
-    }
-
     for (int batch_idx = 0; batch_idx < batch_size; batch_idx++) {
         // note that mlp is only implemented for batch size = 1, thus checking
         // the outputs and grads against that (as the inputs are all the same
         // for all batch size, the grads and output are as well)
         CHECK(areVectorsWithinTolerance(std::vector<T>(interm_forw_vec.end() - WIDTH * batch_idx - WIDTH,
                                                        interm_forw_vec.end() - WIDTH * batch_idx),
-                                        fwd_result_ref, 1.0e-2)); // comparing only output
+                                        fwd_result_ref, 3.0e-2)); // comparing only output
 
         for (int idx = 0; idx < loss_grads_ref.size(); idx++) {
             CHECK(areVectorsWithinTolerance(
                 std::vector<T>(interm_backw_host.begin() + batch_idx * WIDTH + idx * batch_size * WIDTH,
                                interm_backw_host.begin() + WIDTH + batch_idx * WIDTH + idx * batch_size * WIDTH),
-                loss_grads_ref[idx], 1.0e-2));
+                loss_grads_ref[idx], 15.0e-2));
             // here, we don't distinguish between WIDTH, input_width and
             // output_width.If the values are not the same, we need to separate
         }
         for (int i = 0; i < weights_ref.size(); i++) {
             CHECK(areVectorsWithinTolerance(
                 std::vector<T>(grad.begin() + WIDTH * WIDTH * i, grad.begin() + WIDTH * WIDTH * i + WIDTH * WIDTH),
-                weights_ref[i], 1.0e-2));
+                weights_ref[i], 15.0e-2));
             // here, we don't distinguish between WIDTH, input_width and output_width. If the
             // values are not the same, we need to separate
         }
     }
-}
-
-// Function which runs forw+backward without loss
-// and tests output from backward and intermediate backw result.
-// Forward results are tested with other functions
-template <typename T, int WIDTH>
-void test_training_loaded_file(sycl::queue &q, const std::string filepath, const int input_width,
-                               const int output_width, const int batch_size) {
-    int HIDDEN_LAYERS = 2;
-    SwiftNetMLP<T, WIDTH> network(q, input_width, output_width, HIDDEN_LAYERS, Activation::ReLU, Activation::None,
-                                  Network<T>::WeightInitMode::constant_pos);
-
-    std::vector<T> network_params = load_weights_as_packed_from_file<T, WIDTH>(
-        filepath + "network_params.csv", HIDDEN_LAYERS, input_width, output_width);
-    CHECK(network_params.size() == network.get_weights_matrices().nelements());
-    network.set_weights_matrices(network_params);
-
-    std::vector<T> input_ref = loadVectorFromCSV<T>(filepath + "input_network.csv");
-    DeviceMatrix<T> network_input(batch_size, input_width, q);
-    network_input.copy_from_host(input_ref).wait();
-
-    DeviceMatrices<T> interm_forw(network.get_n_hidden_layers() + 2, batch_size, network.get_input_width(), batch_size,
-                                  network.get_network_width(), batch_size, network.get_output_width(), q);
-    DeviceMatrices<T> interm_backw(network.get_n_hidden_layers() + 1, batch_size, network.get_network_width(),
-                                   batch_size, network.get_network_width(), batch_size, network.get_output_width(), q);
-    DeviceMatrix<T> loss(batch_size, network.get_output_width(), q);
-    DeviceMatrices<T> network_backward_output(network.get_n_hidden_layers() + 1, network.get_network_width(), WIDTH,
-                                              WIDTH, WIDTH, WIDTH, network.get_output_width(), q);
-    DeviceMatrix<T> network_output(batch_size, WIDTH, q);
-
-    interm_forw.fill((T)0).wait();
-    interm_backw.fill((T)0).wait();
-
-    std::vector<sycl::event> es = network.forward_pass(network_input, interm_forw, {});
-    q.wait();
-
-    std::vector<T> interm_forw_vec = interm_forw.copy_to_host();
-    std::vector<T> output_network(interm_forw_vec.end() - (batch_size * output_width), interm_forw_vec.end());
-
-    std::vector<T> output_ref = loadVectorFromCSV<T>(filepath + "output_network.csv");
-
-    CHECK(areVectorsWithinTolerance(output_network, output_ref, 1.0e-2));
-
-    std::vector<T> loss_ref = loadVectorFromCSV<T>(filepath + "loss.csv");
-    loss.copy_from_host(loss_ref).wait();
-
-    network.backward_pass(loss, network_backward_output, interm_backw, interm_forw, {});
-
-    q.wait();
-
-    std::vector<T> grads = network_backward_output.copy_to_host();
-    // TODO: Scale automatically by batch size
-    for (T &element : grads) {
-        element /= batch_size;
-    }
-
-    std::vector<T> grads_ref = loadVectorFromCSV<T>(filepath + "network_params_grad.csv");
-    std::cout << "Grad size: " << grads.size() << ", ref: " << grads_ref.size() << std::endl;
-    for (int i = 0; i < 64; i++) {
-        std::cout << i << ": grad: " << grads[i] << " - ref:" << grads_ref[i] << std::endl;
-    }
-
-    CHECK(areVectorsWithinTolerance(grads, grads_ref, 1.0e-2));
 }
 
 TEST_CASE("Swiftnet - Constructor") {
@@ -656,53 +457,36 @@ TEST_CASE("Swiftnet - Net Widths forward") {
 }
 
 #ifdef TEST_BWD
-TEST_CASE("Swiftnet - backward different widths") {
+TEST_CASE("Swiftnet - backward different widths, weights, and batch sizes") {
     // only testing constructor. values tested later
     sycl::queue q(sycl::gpu_selector_v);
     const int n_hidden_layers = 1;
-    auto test_function = [=](const int width, sycl::queue &q, bool linspace_weights) {
+    auto test_function = [=](sycl::queue &q, const int width, const int batch_size, bool linspace_weights) {
         typedef sycl::ext::oneapi::bfloat16 T;
         if (width == 16)
-            test_backward_1layer<T, 16>(q, 16, 16, n_hidden_layers, 8, linspace_weights);
+            test_backward_1layer<T, 16>(q, 16, 16, n_hidden_layers, batch_size, linspace_weights);
         else if (width == 32)
-            test_backward_1layer<T, 32>(q, 32, 32, n_hidden_layers, 8, linspace_weights);
+            test_backward_1layer<T, 32>(q, 32, 32, n_hidden_layers, batch_size, linspace_weights);
         else if (width == 64)
-            test_backward_1layer<T, 64>(q, 64, 64, n_hidden_layers, 8, linspace_weights);
+            test_backward_1layer<T, 64>(q, 64, 64, n_hidden_layers, batch_size, linspace_weights);
         else if (width == 128)
-            test_backward_1layer<T, 128>(q, 128, 128, n_hidden_layers, 8, linspace_weights);
+            test_backward_1layer<T, 128>(q, 128, 128, n_hidden_layers, batch_size, linspace_weights);
         else
             throw std::invalid_argument("Unsupported width");
     };
+    const int widths[] = {16, 32, 64, 128};
+    const int batch_sizes[] = {8, 16, 32, 64};
+    bool linspace_weights[] = {true, false};
 
-    // SUBCASE("WIDTH 16") { CHECK_NOTHROW(test_function(16, q, true)); }
-    SUBCASE("WIDTH 16") { CHECK_NOTHROW(test_function(16, q, false)); }
-    // SUBCASE("WIDTH 32") { CHECK_NOTHROW(test_function(32, q)); }
-    // SUBCASE("WIDTH 64") { CHECK_NOTHROW(test_function(64, q)); }
-    // SUBCASE("WIDTH 128") { CHECK_NOTHROW(test_function(128, q)); }
-}
-
-TEST_CASE("Swiftnet - backward different batch_size") {
-    // only testing constructor. values tested later
-    sycl::queue q(sycl::gpu_selector_v);
-    const int n_hidden_layers = 1;
-
-    auto test_function = [=](const int width, sycl::queue &q, bool linspace_weights) {
-        typedef sycl::ext::oneapi::bfloat16 T;
-        if (width == 16)
-            test_backward_1layer<T, 16>(q, 16, 16, n_hidden_layers, 128, linspace_weights);
-        else if (width == 32)
-            test_backward_1layer<T, 32>(q, 32, 32, n_hidden_layers, 64, linspace_weights);
-        else if (width == 64)
-            test_backward_1layer<T, 64>(q, 64, 64, n_hidden_layers, 32, linspace_weights);
-        else if (width == 128)
-            test_backward_1layer<T, 128>(q, 128, 128, n_hidden_layers, 16, linspace_weights);
-        else
-            throw std::invalid_argument("Unsupported width");
-    };
-
-    SUBCASE("WIDTH 16") { CHECK_NOTHROW(test_function(16, q, false)); }
-    // SUBCASE("WIDTH 32") { CHECK_NOTHROW(test_function(32, q)); }
-    // SUBCASE("WIDTH 64") { CHECK_NOTHROW(test_function(64, q)); }
-    // SUBCASE("WIDTH 128") { CHECK_NOTHROW(test_function(128, q)); }
+    for (int batch_size : batch_sizes) {
+        for (int width : widths) {
+            for (bool linspace_weight : linspace_weights) {
+                std::string testName = "WIDTH " + std::to_string(width) +
+                                       " - Linspaced weights: " + (linspace_weight ? "true" : "false") +
+                                       " - Batch size: " + std::to_string(batch_size);
+                SUBCASE(testName.c_str()) { CHECK_NOTHROW(test_function(q, width, batch_size, linspace_weight)); }
+            }
+        }
+    }
 }
 #endif

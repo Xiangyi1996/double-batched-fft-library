@@ -68,11 +68,7 @@ template <typename T_enc, typename T_net> class NetworkWithEncoding {
         network_->forward_pass(network_input, intermediate_forward, {});
         network_->get_queue().wait();
 
-        // throw std::logic_error(
-        //     "Returned view does not make any sense. Storage is in block major but view uses row-major");
-        // return intermediate_forward.GetView(batch_size, network_->get_unpadded_output_width(), 0,
-        //                                     network_->get_input_width() +
-        //                                         network_->get_network_width() * network_->get_n_hidden_layers());
+        return intermediate_forward.Back();
     }
 
     std::vector<sycl::event> backward_pass(const DeviceMatrix<T_net> &input_backward, DeviceMatrices<T_net> &output,
