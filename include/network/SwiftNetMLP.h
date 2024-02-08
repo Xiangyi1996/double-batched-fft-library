@@ -102,35 +102,23 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
   private:
     /// Generate the relevant kernel class. Has to be called in constructor
     std::unique_ptr<Kernels<T>> GenerateKernels() {
-        int tn = 16; // check based on m_q
-        // TODO: make this nice. TN value should be part of the
-        if (Network<T>::get_queue().get_device().template get_info<sycl::info::device::vendor>().find("Intel") !=
-                std::string::npos &&
-            Network<T>::get_queue().get_device().is_gpu()) {
-            if (Network<T>::get_queue().get_device().template get_info<sycl::info::device::name>().find(
-                    "Data Center GPU") != std::string::npos)
-                tn = 16;
-            else if (Network<T>::get_queue().get_device().template get_info<sycl::info::device::name>() == "DG2")
-                tn = 8;
-            else
-                throw std::invalid_argument("Only runs on PVC and DG");
-        } else
-            throw std::invalid_argument("Cannot run on anything else but intel gpus");
-
-        // check which createKernels function we should call based on the device.
-        switch (tn) {
-        case 16:
-            return tinydpcppnn::kernels::esimd::createKernels<T, WIDTH, 16>(
-                Network<T>::get_input_width(), Network<T>::get_output_width(), m_activation, m_output_activation);
-            break;
-        case 8:
-            throw std::invalid_argument("Cannot run on devices with TN==8");
-            // return tinydpcppnn::kernels::esimd::createKernels<T, WIDTH, 8>(
-            //     Network<T>::get_input_width(), Network<T>::get_output_width(), m_activation, m_output_activation);
-            break;
-        default:
-            throw std::invalid_argument("TN != {8,16}");
-        }
+#ifndef TARGET_DEVICE
+        static_assert(false && "Need to set TARGET_DEVICE when building.");
+#else
+#if TARGET_DEVICE == 0
+        if (Network<T>::get_queue().get_device().template get_info<sycl::info::device::name>().find(
+                "Data Center GPU") == std::string::npos)
+            throw std::logic_error("Code built for PVC but tried to run on different device.");
+#elif TARGET_DEVICE == 1
+        if (Network<T>::get_queue().get_device().template get_info<sycl::info::device::name>().find("Arc") ==
+            std::string::npos)
+            throw std::logic_error("Code built for ARC GPU but tried to run on different device.");
+#else
+        static_assert(false && "Values for TARGET_DEVICE either \"PVC\" or \"ARC\" ");
+#endif
+#endif
+        return tinydpcppnn::kernels::esimd::createKernels<T, WIDTH, 16>(
+            Network<T>::get_input_width(), Network<T>::get_output_width(), m_activation, m_output_activation);
     }
 
     // TODO: does this have to be virtual?

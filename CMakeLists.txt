@@ -20,6 +20,17 @@ option(BUILD_REF_TEST "Use reference tests from downloaded data for test" ON)
 option(BUILD_BWD_TEST "Comparing the gradients to a reference solution that uses external library eigen" ON)
 option(BUILD_DOCUMENTATION "Build the documentation which is online available" OFF)
 option(BUILD_EXAMPLE "Build the examples" OFF)
+set(TARGET_DEVICE "PVC" CACHE STRING "Valid values {PVC, ARC}")
+
+if (TARGET_DEVICE STREQUAL "PVC")
+    message(STATUS "Building for PVC")    
+    add_definitions(-DTARGET_DEVICE=0)
+elseif (TARGET_DEVICE STREQUAL "ARC")
+    message(STATUS "Building for ARC")
+    add_definitions(-DTARGET_DEVICE=1)
+else()
+    message(ERROR "Please set a valid device by adding -DTARGET_DEVICE=<value>, where <value> is either \"PVC\" or \"ARC\"")
+endif()
 
 message(WARNING "cmake build system is still WIP.")
 
