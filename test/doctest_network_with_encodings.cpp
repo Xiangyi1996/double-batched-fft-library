@@ -197,9 +197,10 @@ void test_network_with_encoding_identity_forward_backward(sycl::queue &q) {
 
     L2Loss<bf16> l2_loss;
     bf16 loss_scale = 1.0;
-    l2_loss.evaluate(q, loss_scale, interm_forw.Back(), targets, loss, dL_doutput);
-    q.wait();
-    Net->get_network()->backward_pass(dL_doutput, network_backward_output, interm_backw, interm_forw, {});
+    sycl::event sycl_event = l2_loss.evaluate(q, loss_scale, interm_forw.Back(), targets, loss, dL_doutput);
+    std::vector<sycl::event> es;
+    es.push_back(sycl_event);
+    Net->get_network()->backward_pass(dL_doutput, network_backward_output, interm_backw, interm_forw, es);
     q.wait();
     std::vector<bf16> interm_backw_host = interm_backw.copy_to_host();
     std::vector<bf16> grad = network_backward_output.copy_to_host();

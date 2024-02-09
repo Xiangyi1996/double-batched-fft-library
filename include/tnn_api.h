@@ -217,25 +217,27 @@ template <typename T_enc, typename T_net, int WIDTH> class NetworkWithEncodingMo
         }
     }
 
-    torch::Tensor backward_pass(torch::Tensor input_tensor, torch::Tensor grad_output, torch::Tensor params) override {
+    torch::Tensor backward_pass(torch::Tensor grad_output, torch::Tensor params) override {
         set_params(params);
 
-        int batch_size = input_tensor.sizes()[1];
-
-        DeviceMatrix<T_net> loss(batch_size, m_output_width, this->sycl_queue);
-        this->sycl_queue.memcpy(loss.data(), reinterpret_cast<T_net *>(grad_output.data_ptr<float>()),
-                                loss.size() * sizeof(T_net));
+        int batch_size = grad_output.sizes()[0];
+        std::cout << "Batch size: " << batch_size << std::endl;
+        DeviceMatrix<T_net> dL_doutput(batch_size, m_output_width, this->sycl_queue);
+        this->sycl_queue.memcpy(dL_doutput.data(), reinterpret_cast<T_net *>(grad_output.data_ptr<float>()),
+                                dL_doutput.size() * sizeof(T_net));
         this->sycl_queue.wait();
 
         DeviceMatrices<T_net> grads(network->get_network()->get_n_hidden_layers() + 1,
                                     network->get_network()->get_network_width(), WIDTH, WIDTH, WIDTH, WIDTH,
                                     network->get_network()->get_output_width(), this->sycl_queue);
+        grads.fill(0.0).wait();
         DeviceMatrices<T_net> interm_backw(network->get_network()->get_n_hidden_layers() + 1, batch_size,
                                            network->get_network()->get_network_width(), batch_size,
                                            network->get_network()->get_network_width(), batch_size,
                                            network->get_network()->get_output_width(), this->sycl_queue);
-        network->backward_pass(loss, grads, interm_backw, *interm_forw, {});
-
+        interm_backw.fill(0.0).wait();
+        network->backward_pass(dL_doutput, grads, interm_backw, *interm_forw, {});
+        std::cout << "Interm backw: " << convertDeviceMatricesToTensor(interm_backw) << std::endll;
         return convertDeviceMatricesToTensor(grads);
     }
 

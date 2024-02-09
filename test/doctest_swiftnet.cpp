@@ -160,9 +160,9 @@ void test_backward_1layer(sycl::queue &q, const int input_width, const int outpu
 
     L2Loss<T> l2_loss;
     T loss_scale = 1.0;
-    l2_loss.evaluate(q, loss_scale, interm_forw.Back(), targets, loss, dL_doutput);
-    q.wait();
-    network.backward_pass(dL_doutput, network_backward_output, interm_backw, interm_forw, {});
+    sycl::event sycl_event = l2_loss.evaluate(q, loss_scale, interm_forw.Back(), targets, loss, dL_doutput);
+    es.push_back(sycl_event);
+    network.backward_pass(dL_doutput, network_backward_output, interm_backw, interm_forw, es);
     q.wait();
 
     std::vector<T> interm_backw_host = interm_backw.copy_to_host();
