@@ -274,7 +274,12 @@ class EsimdKernels {
                     load_iter * TK, 0);
         }
 #elif TARGET_DEVICE == 1
-
+        for (int blockiter = 0; blockiter < WIDTH / TK; blockiter++) {
+            for (int rowiter = 0; rowiter < TM; rowiter++) {
+                dest.template select<TK, 1>(blockiter * TM * TK + rowiter * TK) =
+                    lsc_block_load<T, TK, lsc_data_size::default_size, L1, L3>(src + blockiter * TK + rowiter * WIDTH);
+            }
+        }
 #endif
     }
 
@@ -287,24 +292,32 @@ class EsimdKernels {
         static_assert(TMWIDTH / TM == WIDTH);
         static_assert(WIDTH % TK == 0 && WIDTH % TN == 0);
         static_assert(sizeof(T) <= 4 && sizeof(Tc) <= 4);
-
         constexpr int vnni_factor = std::max<int>(1, 4 / sizeof(T));
+
 #pragma collapse 2 unroll
-        for (int iterA = 0; iterA < TMWIDTH; iterA += TM * TK) {
+        for (int iterA = 0; iterA < WIDTH; iterA += TK) {
             for (int iterB = 0; iterB < WIDTH; iterB += TN) {
                 simd<T, TK * TN> BlockB;
-#if TARGET_DEVICE == 0
                 auto BlockB_float = BlockB.template bit_cast_view<float>();
+#if TARGET_DEVICE == 0
+
                 BlockB_float =
                     lsc_load_2d<float, TN, TK / vnni_factor, 1, false, false, cache_hint::cached, cache_hint::cached>(
                         reinterpret_cast<float const *>(B), vnni_factor * WIDTH * sizeof(T) - 1,
-                        WIDTH / vnni_factor - 1, vnni_factor * WIDTH * sizeof(T) - 1, iterB, iterA / TM / vnni_factor);
-
-                Cs.template select<TM * TN, 1>(iterB * TM) = xmx::dpas<8, TM, Tc>(
-                    Cs.template select<TM * TN, 1>(iterB * TM), BlockB, As.template select<TM * TK, 1>(iterA));
+                        WIDTH / vnni_factor - 1, vnni_factor * WIDTH * sizeof(T) - 1, iterB, iterA / vnni_factor);
 #elif TARGET_DEVICE == 1
-
+                for (int rowiter = 0; rowiter < TK / vnni_factor; rowiter++) {
+                    // BlockB_float[rowiter] = rowiter;
+                    // BlockB.template select<vnni_factor * TN, 1>(rowiter * vnni_factor * TN) =
+                    //     lsc_block_load<T, vnni_factor * TN>(B + vnni_factor *iterB + iterA * WIDTH + rowiter *
+                    //     vnni_factor * WIDTH);
+                    BlockB_float.template select<TN, 1>(rowiter * TN) =
+                        lsc_block_load<float, TN, lsc_data_size::default_size, cache_hint::cached, cache_hint::cached>(
+                            reinterpret_cast<float const *>(B) + iterB + iterA / vnni_factor * WIDTH + rowiter * WIDTH);
+                }
 #endif
+                Cs.template select<TM * TN, 1>(iterB * TM) = xmx::dpas<8, TM, Tc>(
+                    Cs.template select<TM * TN, 1>(iterB * TM), BlockB, As.template select<TM * TK, 1>(iterA * TM));
             }
         }
     }
