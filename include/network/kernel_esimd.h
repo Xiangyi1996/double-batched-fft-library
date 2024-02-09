@@ -198,8 +198,7 @@ class EsimdKernels {
         if constexpr (std::is_same<T, sycl::ext::oneapi::bfloat16>::value) { // need to cast to onemkls bf16 type.
             for (int iter = 0; iter < n_hidden_layers + 1; iter++) {
                 events[iter] = oneapi::mkl::blas::row_major::gemm(
-                    q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M,
-                    (float)(1.0 / M),
+                    q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M, 1.0,
                     reinterpret_cast<const oneapi::mkl::bfloat16 *>(intermediate_forward.GetMatrixPointer(iter)), WIDTH,
                     reinterpret_cast<oneapi::mkl::bfloat16 *>(intermediate_backward.GetMatrixPointer(iter)), WIDTH, 0,
                     reinterpret_cast<oneapi::mkl::bfloat16 *>(output.GetMatrixPointer(iter)), WIDTH, {e});
@@ -207,7 +206,7 @@ class EsimdKernels {
         } else if constexpr (!std::is_same<T, sycl::ext::oneapi::bfloat16>::value) {
             for (int iter = 0; iter < n_hidden_layers + 1; iter++) {
                 events[iter] = oneapi::mkl::blas::row_major::gemm(
-                    q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M, 1.0 / M,
+                    q, oneapi::mkl::transpose::trans, oneapi::mkl::transpose::nontrans, WIDTH, WIDTH, M, 1.0,
                     intermediate_forward.GetMatrixPointer(iter), WIDTH, intermediate_backward.GetMatrixPointer(iter),
                     WIDTH, 0, output.GetMatrixPointer(iter), WIDTH, {e});
             }

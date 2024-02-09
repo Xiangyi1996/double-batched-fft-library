@@ -26,13 +26,16 @@ inline static void l2_loss(const float inv_n_elements, const float loss_scale, c
 
 template <typename T> class L2Loss : public Loss<T> {
   protected:
-    void Kernel(const sycl::queue &q, const size_t n_elements, const float loss_scale,
-                T const *const __restrict__ predictions, float const *const __restrict__ targets,
-                float *const __restrict__ values, T *const __restrict__ gradients) override {
+    sycl::event Kernel(sycl::queue &q, const size_t n_elements, const float loss_scale,
+                       T const *const __restrict__ predictions, float const *const __restrict__ targets,
+                       float *const __restrict__ values, T *const __restrict__ gradients) override {
         const float inv_n_elements = 1.0f / n_elements;
-        q.parallel_for<>(range<1>(n_elements), [=](id<1> idx) {
+
+        sycl::event kernel_event = q.parallel_for<>(sycl::range<1>(n_elements), [=](sycl::id<1> idx) {
             const int i = idx.get(0);
             l2_loss<T>(inv_n_elements, loss_scale, predictions[i], targets[i], values[i], gradients[i]);
         });
+
+        return kernel_event;
     }
 };

@@ -22,3 +22,7 @@ target_include_directories(network INTERFACE "${PROJECT_SOURCE_DIR}/include/netw
 target_link_libraries(network INTERFACE encodings)
 # target_compile_options(network INTERFACE -qmkl)
 # target_link_options(network INTERFACE -qmkl)
+
+add_library(loss INTERFACE)
+target_include_directories(loss INTERFACE "${PROJECT_SOURCE_DIR}/include/losses/")
+# target_link_libraries(loss INTERFACE encodings)

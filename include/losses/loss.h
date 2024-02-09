@@ -12,21 +12,23 @@
 
 #pragma once
 
-#include "DeviceMem.h"
+#include "DeviceMatrix.h"
 
 template <typename T> class Loss {
   public:
-    void evaluate(const sycl::queue &q, const float loss_scale, const DeviceMem<T> &predictions,
-                  const DeviceMem<float> &targets, DeviceMem<float> &values, DeviceMem<T> &gradients) {
+    sycl::event evaluate(sycl::queue &q, const float loss_scale, const DeviceMatrixView<T> &predictions,
+                         const DeviceMatrix<float> &targets, DeviceMatrix<float> &values, DeviceMatrix<T> &gradients) {
         SanityCheck(loss_scale, predictions, targets, values, gradients);
-        Kernel(q, predictions.size(), loss_scale, predictions.data(), targets.data(), values.data(), gradients.data());
+
+        return Kernel(q, predictions.m() * predictions.n(), loss_scale, predictions.GetPointer(), targets.data(),
+                      values.data(), gradients.data());
     }
 
   protected:
-    void SanityCheck(const float loss_scale, const DeviceMem<T> &predictions, const DeviceMem<float> &targets,
-                     DeviceMem<float> &values, DeviceMem<T> &gradients) {
+    void SanityCheck(const float loss_scale, const DeviceMatrixView<T> &predictions, const DeviceMatrix<float> &targets,
+                     DeviceMatrix<float> &values, DeviceMatrix<T> &gradients) {
         // Check if input dimensions match and if loss_scale is not 0
-        const int n_elements = predictions.size();
+        const int n_elements = predictions.m() * predictions.n();
         assert(values.size() == n_elements);
         assert(gradients.size() == n_elements);
         assert(loss_scale != 0.0f);
@@ -34,7 +36,7 @@ template <typename T> class Loss {
     }
 
   protected:
-    virtual void Kernel(const sycl::queue &q, const size_t n_elements, const float loss_scale,
-                        T const *const __restrict__ predictions, float const *const __restrict__ targets,
-                        float *const __restrict__ values, T *const __restrict__ gradients) = 0;
+    virtual sycl::event Kernel(sycl::queue &q, const size_t n_elements, const float loss_scale,
+                               T const *const __restrict__ predictions, float const *const __restrict__ targets,
+                               float *const __restrict__ values, T *const __restrict__ gradients) = 0;
 };

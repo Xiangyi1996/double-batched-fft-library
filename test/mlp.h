@@ -19,10 +19,15 @@ template <typename T> class MLP {
   private:
     std::vector<Eigen::MatrixXd> weights;
     int n_hidden_layers;
+    int batch_size;
 
   public:
-    MLP<T>(int inputDim, int hiddenDim, int outputDim, int n_hidden_layers, bool linspace_weights)
-        : n_hidden_layers{n_hidden_layers} {
+    MLP<T>(int inputDim, int hiddenDim, int outputDim, int n_hidden_layers, int batch_size, bool linspace_weights)
+        : n_hidden_layers{n_hidden_layers}, batch_size{batch_size} {
+        /// TODO: normalisation of batch_size is only necessary because this is the implementation for batches of
+        /// size 1. Later, make input tensor  not just a vector but a matrix (rows being batch_size dim). Then we don't
+        /// need this
+
         // first layer
         weights.push_back(Eigen::MatrixXd::Ones(hiddenDim, inputDim) * 0.1);
 
@@ -117,6 +122,7 @@ template <typename T> class MLP {
         for (int i = n_hidden_layers - 1; i > 1; i--) {
             D[i - 1] = weights[i - 1].transpose() * D[i];
             D[i - 1] = D[i - 1].array() * A[i - 1].unaryExpr(&drelu).array();
+
             G[i - 2] = D[i - 1] * A[i - 2].transpose();
         }
 
@@ -126,7 +132,7 @@ template <typename T> class MLP {
             flattened_grads.push_back(grad_vector);
         }
         for (int i = 1; i < D.size(); i++) {
-            loss_grads.push_back(eigenToStdVector<T>(D[i]));
+            loss_grads.push_back(eigenToStdVector<T>(D[i] / batch_size));
         }
     }
 };

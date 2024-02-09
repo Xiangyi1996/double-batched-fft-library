@@ -17,6 +17,7 @@
 #include "SwiftNetMLP.h"
 #include "doctest/doctest.h"
 #include "io.h"
+#include "l2.h"
 #include "mlp.h"
 #include "network_with_encodings.h"
 #include "result_check.h"
@@ -152,7 +153,7 @@ void test_network_with_encoding_identity_forward_backward(sycl::queue &q) {
     auto Net = create_network_with_encoding<float, bf16, WIDTH>(q, input_width, output_width, n_hidden_layers,
                                                                 Activation::ReLU, Activation::None, encoding_config);
 
-    MLP<float> mlp(input_width, WIDTH, output_width, n_hidden_layers + 2, false);
+    MLP<float> mlp(input_width, WIDTH, output_width, n_hidden_layers + 2, batch_size, false);
     std::vector<float> unpacked_weights_float = mlp.getUnpackedWeights();
 
     std::vector<bf16> unpacked_weights(unpacked_weights_float.size());
@@ -187,20 +188,18 @@ void test_network_with_encoding_identity_forward_backward(sycl::queue &q) {
     std::vector<bf16> interm_forw_vec = interm_forw.copy_to_host();
     std::vector<bf16> output_network(interm_forw_vec.end() - (batch_size * output_width), interm_forw_vec.end());
 
-    DeviceMatrix<bf16> loss(batch_size, Net->get_network()->get_output_width(), q);
+    DeviceMatrix<bf16> dL_doutput(batch_size, Net->get_network()->get_output_width(), q);
+    DeviceMatrix<float> loss(batch_size, Net->get_network()->get_output_width(), q);
+    DeviceMatrix<float> targets(batch_size, Net->get_network()->get_output_width(), q);
+    targets.fill(target_val).wait();
+    loss.fill(0.0).wait();
+    dL_doutput.fill(0.0).wait();
 
-    std::vector<bf16> dL_doutput(loss.size());
-
-    if (dL_doutput.size() != output_network.size()) {
-        throw std::invalid_argument("dL_doutput.size() != output_network.size()");
-    }
-
-    for (size_t i = 0; i < output_network.size(); ++i) {
-        dL_doutput[i] = 2 * ((output_network[i] - target_val) / output_width);
-    }
-    loss.copy_from_host(dL_doutput).wait(); // L2 loss
+    L2Loss<bf16> l2_loss;
+    bf16 loss_scale = 1.0;
+    l2_loss.evaluate(q, loss_scale, interm_forw.Back(), targets, loss, dL_doutput);
     q.wait();
-    Net->get_network()->backward_pass(loss, network_backward_output, interm_backw, interm_forw, {});
+    Net->get_network()->backward_pass(dL_doutput, network_backward_output, interm_backw, interm_forw, {});
     q.wait();
     std::vector<bf16> interm_backw_host = interm_backw.copy_to_host();
     std::vector<bf16> grad = network_backward_output.copy_to_host();
@@ -220,6 +219,7 @@ void test_network_with_encoding_identity_forward_backward(sycl::queue &q) {
                                                           interm_forw_vec.end() - WIDTH * batch_idx),
                                         fwd_result_ref, 3.0e-2)); // comparing only output
         for (int idx = 0; idx < loss_grads_ref.size(); idx++) {
+
             CHECK(areVectorsWithinTolerance(
                 std::vector<bf16>(interm_backw_host.begin() + batch_idx * WIDTH + idx * batch_size * WIDTH,
                                   interm_backw_host.begin() + WIDTH + batch_idx * WIDTH + idx * batch_size * WIDTH),
