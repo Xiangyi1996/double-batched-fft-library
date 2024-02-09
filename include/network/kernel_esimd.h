@@ -60,29 +60,43 @@ using bf16 = sycl::ext::oneapi::bfloat16;
  *
  * @tparam T
  */
-template <typename T> struct XMXParams {
+template <typename T> struct XMXCType {
     typedef T CType;
-#if TARGET_DEVICE == 0
-    static constexpr int TN = 16;
-#elif TARGET_DEVICE == 1
-    static constexpr int TN = 8;
-#endif
 };
-template <> struct XMXParams<bf16> {
+template <> struct XMXCType<bf16> {
     typedef float CType;
-#if TARGET_DEVICE == 0
-    static constexpr int TN = 16;
-#elif TARGET_DEVICE == 1
-    static constexpr int TN = 8;
-#endif
 };
-template <> struct XMXParams<sycl::half> {
+template <> struct XMXCType<sycl::half> {
 #if TARGET_DEVICE == 0
     typedef sycl::half CType;
-    static constexpr int TN = 16;
 #elif TARGET_DEVICE == 1
     typedef float CType;
+#endif
+};
+
+/**
+ * @brief Struct which gives us the value to use for TN in the dpas instruction
+ * Depending on the device.
+ *
+ */
+struct XMXTn {
+#if TARGET_DEVICE == 0
+    static constexpr int TN = 16;
+#elif TARGET_DEVICE == 1
     static constexpr int TN = 8;
+#endif
+};
+
+/**
+ * @brief Struct to give us the maximum number of bytes in a send instruction,
+ * depending on the device
+ *
+ */
+struct XMXMaxSendBytes {
+#if TARGET_DEVICE == 0
+    static constexpr int MaxBytes = 512;
+#elif TARGET_DEVICE == 1
+    static constexpr int MaxBytes = 256;
 #endif
 };
 
@@ -102,8 +116,8 @@ template <> struct XMXParams<sycl::half> {
 template <typename T, int INPUT_WIDTH, int WIDTH, int OUTPUT_WIDTH, Activation activation, Activation output_activation>
 class EsimdKernels {
 
-    using Tc = typename XMXParams<T>::CType;
-    static constexpr int TN = XMXParams<T>::TN;
+    using Tc = typename XMXCType<T>::CType;
+    static constexpr int TN = XMXTn::TN;
 
   public:
     static std::vector<sycl::event> forward_impl(sycl::queue &q, const DeviceMatricesView<T> &weights,
@@ -214,12 +228,13 @@ class EsimdKernels {
     template <int TM, int TK, cache_hint L1, cache_hint L3, int TMWIDTH>
     SYCL_ESIMD_FUNCTION static void storeRow(simd<T, TMWIDTH> &src, T *const dest) {
 
-        static_assert(TM >= 1 && TM <= 8);
+        static_assert(TM == 1 || TM == 2 || TM == 4 || TM == 8);
         static_assert(WIDTH % TK == 0);
         static_assert(TMWIDTH == TM * WIDTH);
         static_assert(sizeof(T) <= 4);
 
-        constexpr int rows_per_load = std::min<int>(512 / (WIDTH * sizeof(T)), TM);
+        constexpr int rows_per_load = std::min<int>(XMXMaxSendBytes::MaxBytes / (WIDTH * sizeof(T)), TM);
+        static_assert(rows_per_load > 0);
         auto src_2d = src.template bit_cast_view<T, TMWIDTH / TK, TK>(); // block major
 
 #pragma unroll
@@ -247,6 +262,8 @@ class EsimdKernels {
         constexpr int nloads = WIDTH / (TK * blocks_per_load);
         static_assert(nloads > 0);
 
+// DG2 does not have 2d send instructions
+#if TARGET_DEVICE == 0
         auto dest_int = dest.template bit_cast_view<int32_t>();
 #pragma unroll
         for (int load_iter = 0; load_iter < nloads; load_iter++) {
@@ -256,6 +273,9 @@ class EsimdKernels {
                     reinterpret_cast<int32_t const *>(src), WIDTH * sizeof(T) - 1, TM - 1, WIDTH * sizeof(T) - 1,
                     load_iter * TK, 0);
         }
+#elif TARGET_DEVICE == 1
+
+#endif
     }
 
     // we are assuming a block major layout and vnni'd B
@@ -273,6 +293,7 @@ class EsimdKernels {
         for (int iterA = 0; iterA < TMWIDTH; iterA += TM * TK) {
             for (int iterB = 0; iterB < WIDTH; iterB += TN) {
                 simd<T, TK * TN> BlockB;
+#if TARGET_DEVICE == 0
                 auto BlockB_float = BlockB.template bit_cast_view<float>();
                 BlockB_float =
                     lsc_load_2d<float, TN, TK / vnni_factor, 1, false, false, cache_hint::cached, cache_hint::cached>(
@@ -281,6 +302,9 @@ class EsimdKernels {
 
                 Cs.template select<TM * TN, 1>(iterB * TM) = xmx::dpas<8, TM, Tc>(
                     Cs.template select<TM * TN, 1>(iterB * TM), BlockB, As.template select<TM * TK, 1>(iterA));
+#elif TARGET_DEVICE == 1
+
+#endif
             }
         }
     }
@@ -318,7 +342,7 @@ class EsimdKernels {
     // TK == 8, 16, 32, 64; TN == 8 (DG2), 16 (PVC)
     // Src contains of blocks sized TM*TN
     // Dest of blocks sized TM*TK
-    template <int TM, int TK, int N> SYCL_ESIMD_FUNCTION static void reBlock(const simd<T, N> &Src, simd<T, N> &Dest) {
+    template <int TM, int TK, int N> SYCL_ESIMD_FUNCTION static void reBlock(simd<T, N> Src, simd<T, N> &Dest) {
         static_assert(TK == TN || TK == 2 * TN || TK == 4 * TN || TK == 8 * TN || TK == TN / 2);
 
         if constexpr (TK == TN) {
