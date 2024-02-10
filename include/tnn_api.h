@@ -102,8 +102,7 @@ class Module {
 
     virtual torch::Tensor forward_pass(torch::Tensor input_list, torch::Tensor params, bool use_inference) = 0;
 
-    virtual torch::Tensor backward_pass(torch::Tensor input_tensor, torch::Tensor grad_output,
-                                        torch::Tensor params) = 0;
+    virtual torch::Tensor backward_pass(torch::Tensor grad_output, torch::Tensor params) = 0;
     virtual torch::Tensor initialize_params() = 0;
 
     virtual torch::Tensor initialize_params(const torch::Tensor &tensor) = 0;
@@ -144,7 +143,7 @@ template <typename T> class EncodingModule : public Module {
         // return output_tensor;};
     }
 
-    torch::Tensor backward_pass(torch::Tensor input_tensor, torch::Tensor grad_output, torch::Tensor params) override {}
+    torch::Tensor backward_pass(torch::Tensor grad_output, torch::Tensor params) override {}
 
     torch::Tensor initialize_params() override { throw std::invalid_argument("Not implemented yet."); }
 
@@ -172,7 +171,7 @@ template <typename T_enc, typename T_net, int WIDTH> class NetworkWithEncodingMo
         : Module(device_name), m_input_width(input_width), m_output_width(output_width), m_width(WIDTH),
           m_n_hidden_layers(n_hidden_layers) {
 
-        json encoding_config = loadJsonConfig(filename);
+        json encoding_config = io::loadJsonConfig(filename);
         encoding_config[EncodingParams::N_DIMS_TO_ENCODE] = input_width;
         network = create_network_with_encoding<T_enc, T_net, WIDTH>(
             this->sycl_queue, m_width, output_width, n_hidden_layers, activation, output_activation, encoding_config);
@@ -221,11 +220,8 @@ template <typename T_enc, typename T_net, int WIDTH> class NetworkWithEncodingMo
         set_params(params);
 
         int batch_size = grad_output.sizes()[0];
-        std::cout << "Batch size: " << batch_size << std::endl;
         DeviceMatrix<T_net> dL_doutput(batch_size, m_output_width, this->sycl_queue);
-        this->sycl_queue.memcpy(dL_doutput.data(), reinterpret_cast<T_net *>(grad_output.data_ptr<float>()),
-                                dL_doutput.size() * sizeof(T_net));
-        this->sycl_queue.wait();
+        dL_doutput.copy_from_device(grad_output.data_ptr<float>());
 
         DeviceMatrices<T_net> grads(network->get_network()->get_n_hidden_layers() + 1,
                                     network->get_network()->get_network_width(), WIDTH, WIDTH, WIDTH, WIDTH,
@@ -237,7 +233,6 @@ template <typename T_enc, typename T_net, int WIDTH> class NetworkWithEncodingMo
                                            network->get_network()->get_output_width(), this->sycl_queue);
         interm_backw.fill(0.0).wait();
         network->backward_pass(dL_doutput, grads, interm_backw, *interm_forw, {});
-        std::cout << "Interm backw: " << convertDeviceMatricesToTensor(interm_backw) << std::endll;
         return convertDeviceMatricesToTensor(grads);
     }
 

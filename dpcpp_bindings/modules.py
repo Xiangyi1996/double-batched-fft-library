@@ -53,21 +53,24 @@ def free_temporary_memory():
 class _module_function(torch.autograd.Function):
     @staticmethod
     def forward(ctx, native_tcnn_module, input, params):
+        batch_size = input.shape[0]
         output = native_tcnn_module.fwd(input, params)
+        output = output.reshape(batch_size, -1).to(input.device)
         ctx.save_for_backward(input, output, params)
         ctx.native_tcnn_module = native_tcnn_module
         return output
 
     @staticmethod
     def backward(ctx, doutput):
-        input, output, params = ctx.saved_tensors
-        # print(input.dtype)
-        # print(doutput.dtype)
-        # print(params.dtype)
+        _, _, params = ctx.saved_tensors
+
+        doutput = doutput.to(dtype=torch.float)
+
         with torch.no_grad():
-            grad = ctx.native_tcnn_module.bwd(input, doutput.to("xpu"), params)
+            grad = ctx.native_tcnn_module.bwd(doutput, params)
+        grad = grad.to("xpu")
         # 3 inputs to forward, so need 3 grads
-        return None, None, grad
+        return (None, None, grad)
 
 
 class Embedding(torch.nn.Module):
@@ -185,8 +188,6 @@ class Module(torch.nn.Module):
             padded_tensor,
             self.params,
         )
-
-        output = output.reshape(batch_size, -1).to(self.device)
         # zero_vals = int((output == 0).sum())
         # if zero_vals > 2:
         #     print(f"{zero_vals} values are exactly zero. Check if intended behaviour.")

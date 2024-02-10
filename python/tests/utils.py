@@ -67,6 +67,8 @@ def create_models(
 
     weights = model_dpcpp.get_reshaped_params()
     model_torch.set_weights(weights)
+    model_torch.to(device_name)
+
     return model_dpcpp, model_torch
 
 
