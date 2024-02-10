@@ -42,14 +42,7 @@ def train_model(model, x_train, y_train, n_steps, save_grads=0):
         all_loss = []
         for idx in range(x_train.shape[0] // batch_size):
             y_pred = model(x_train[idx * batch_size : (idx + 1) * batch_size, ...])
-            # try:
-            # y_pred = model(
-            #     x_train[idx * batch_size : (idx + 1) * batch_size, ...].flatten()
-            # )
-            # except:
-            #     y_pred = model(
-            #         x_train[idx * batch_size : (idx + 1) * batch_size, ...]
-            #     ).flatten()
+
             loss = loss_fn(
                 y_pred,
                 y_train[idx * batch_size : (idx + 1) * batch_size],
@@ -139,7 +132,7 @@ def test_grad(
             DEVICE_NAME,
         )
 
-        n_steps = 1  # if this is too large, there will be accumulated error (weights aren't the same, thus the loss is not the same etc)
+        n_steps = 10  # if this is too large, there will be accumulated error (weights aren't the same, thus the loss is not the same etc)
         loss_dpcpp, y_dpcpp, grads_dpcpp = train_model(
             model_dpcpp, x_train, y_train, n_steps, save_grads=0
         )
