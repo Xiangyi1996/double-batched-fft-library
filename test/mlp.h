@@ -20,6 +20,23 @@ template <typename T> std::vector<T> repeat_inner_vectors(const std::vector<std:
 
     return result;
 }
+// Sigmoid function
+double sigmoid(double x) { return 1.0 / (1.0 + exp(-x)); }
+
+// Derivative of the sigmoid function
+double dsigmoid(double x) {
+    double sig = sigmoid(x);
+    return sig * (1 - sig);
+}
+
+// Mean squared error loss
+double mse(Eigen::VectorXd y, Eigen::VectorXd y_pred) { return (y - y_pred).array().pow(2).mean(); }
+
+// Convert Eigen::VectorXd to std::vector
+template <typename T> std::vector<T> eigenToStdVector(const Eigen::VectorXd &eigenVector) {
+    std::vector<T> stdVector(eigenVector.data(), eigenVector.data() + eigenVector.size());
+    return stdVector;
+}
 
 template <typename T> void printVector(std::string name, const std::vector<T> &vec) {
     std::cout << name << std::endl;
@@ -150,8 +167,8 @@ template <typename T> class MLP {
         : n_hidden_layers(n_hidden_layers_), activation(activation_), output_activation(output_activation_),
           inputDim(inputDim_), outputDim(outputDim_), batch_size(batch_size_) {
         /// TODO: normalisation of batch_size is only necessary because this is the implementation for batches of
-        /// size 1. Later, make input tensor  not just a vector but a matrix (rows being batch_size dim). Then we don't
-        /// need this
+        /// size 1. Later, make input tensor  not just a vector but a matrix (rows being batch_size dim). Then we
+        /// don't need this
 
         // Initialize first layer weights
         weights.push_back(Matrix<T>(hiddenDim, inputDim));

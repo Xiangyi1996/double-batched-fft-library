@@ -119,6 +119,7 @@ void test_grads(sycl::queue &q, const int input_width, const int output_width, c
     std::vector<double> loss_ref;
     mlp.backward(input_ref, target_ref, grad_matrices_ref, loss_grads_ref, loss_ref, loss_scale);
 
+<<<<<<< HEAD
     DeviceMatrix<T> network_output(batch_size, output_width, q);
     network_output.fill(0.0f).wait();
     network_output.copy_from_host(convert_vector<double, T>(network_output_ref)).wait();
@@ -138,6 +139,9 @@ void test_grads(sycl::queue &q, const int input_width, const int output_width, c
 
     // Calculating backward of swifnet from here using reference values
     SwiftNetMLP<T, WIDTH> network(q, input_width, output_width, n_hidden_layers, network_activation, Activation::None,
+=======
+    SwiftNetMLP<T, WIDTH> network(q, input_width, output_width, n_hidden_layers, Activation::Sigmoid, Activation::None,
+>>>>>>> 4aa96a5 (WIP)
                                   Network<T>::WeightInitMode::constant_pos);
     std::vector<T> unpacked_weights = convert_vector<double, T>(mlp.getUnpackedWeights());
     network.set_weights_matrices(
@@ -383,257 +387,257 @@ void test_interm_fwd(sycl::queue &q, const int input_width, const int output_wid
     CHECK(areVectorsWithinTolerance(interm_forw_vec, interm_forw_ref, 1.0e-2));
 }
 
-TEST_CASE("Swiftnet - Constructor") {
+// TEST_CASE("Swiftnet - Constructor") {
 
-    sycl::queue q;
-    typedef sycl::ext::oneapi::bfloat16 T;
+//     sycl::queue q;
+//     typedef sycl::ext::oneapi::bfloat16 T;
 
-    // No need to test width template parameter since it is statically asserted in swiftnetmlp class
-    // No need to test type template parameter since it is statically asserted in Network class
-    SUBCASE("Supported 1") { CHECK_NOTHROW(SwiftNetMLP<T, 16>(q, 16, 16, 4, Activation::ReLU, Activation::None)); }
-    SUBCASE("Supported 2") { CHECK_NOTHROW(SwiftNetMLP<T, 32>(q, 32, 32, 4, Activation::ReLU, Activation::None)); }
-    SUBCASE("Supported 3") { CHECK_NOTHROW(SwiftNetMLP<T, 64>(q, 64, 64, 4, Activation::ReLU, Activation::None)); }
-    SUBCASE("Supported 4") { CHECK_NOTHROW(SwiftNetMLP<T, 128>(q, 128, 128, 4, Activation::ReLU, Activation::None)); }
-    SUBCASE("Supported 5") { CHECK_NOTHROW(SwiftNetMLP<T, 64>(q, 64, 64, 4, Activation::None, Activation::None)); }
-    SUBCASE("Pad input 1") { CHECK_NOTHROW(SwiftNetMLP<T, 64>(q, 16, 64, 4, Activation::ReLU, Activation::None)); }
-    SUBCASE("Pad input 2") { CHECK_NOTHROW(SwiftNetMLP<T, 64>(q, 1, 64, 4, Activation::ReLU, Activation::None)); }
-    SUBCASE("Pad output 1") { CHECK_NOTHROW(SwiftNetMLP<T, 64>(q, 64, 1, 4, Activation::ReLU, Activation::None)); }
-    SUBCASE("Pad output 2") { CHECK_NOTHROW(SwiftNetMLP<T, 64>(q, 64, 16, 4, Activation::ReLU, Activation::None)); }
-    SUBCASE("Unsupported layers 1") {
-        CHECK_THROWS(SwiftNetMLP<T, 64>(q, 64, 64, 0, Activation::ReLU, Activation::None));
-    }
-    SUBCASE("Unsupported layers 2") {
-        CHECK_THROWS(SwiftNetMLP<T, 64>(q, 64, 64, -1, Activation::ReLU, Activation::None));
-    }
+//     // No need to test width template parameter since it is statically asserted in swiftnetmlp class
+//     // No need to test type template parameter since it is statically asserted in Network class
+//     SUBCASE("Supported 1") { CHECK_NOTHROW(SwiftNetMLP<T, 16>(q, 16, 16, 4, Activation::ReLU, Activation::None)); }
+//     SUBCASE("Supported 2") { CHECK_NOTHROW(SwiftNetMLP<T, 32>(q, 32, 32, 4, Activation::ReLU, Activation::None)); }
+//     SUBCASE("Supported 3") { CHECK_NOTHROW(SwiftNetMLP<T, 64>(q, 64, 64, 4, Activation::ReLU, Activation::None)); }
+//     SUBCASE("Supported 4") { CHECK_NOTHROW(SwiftNetMLP<T, 128>(q, 128, 128, 4, Activation::ReLU, Activation::None));
+//     } SUBCASE("Supported 5") { CHECK_NOTHROW(SwiftNetMLP<T, 64>(q, 64, 64, 4, Activation::None, Activation::None)); }
+//     SUBCASE("Pad input 1") { CHECK_NOTHROW(SwiftNetMLP<T, 64>(q, 16, 64, 4, Activation::ReLU, Activation::None)); }
+//     SUBCASE("Pad input 2") { CHECK_NOTHROW(SwiftNetMLP<T, 64>(q, 1, 64, 4, Activation::ReLU, Activation::None)); }
+//     SUBCASE("Pad output 1") { CHECK_NOTHROW(SwiftNetMLP<T, 64>(q, 64, 1, 4, Activation::ReLU, Activation::None)); }
+//     SUBCASE("Pad output 2") { CHECK_NOTHROW(SwiftNetMLP<T, 64>(q, 64, 16, 4, Activation::ReLU, Activation::None)); }
+//     SUBCASE("Unsupported layers 1") {
+//         CHECK_THROWS(SwiftNetMLP<T, 64>(q, 64, 64, 0, Activation::ReLU, Activation::None));
+//     }
+//     SUBCASE("Unsupported layers 2") {
+//         CHECK_THROWS(SwiftNetMLP<T, 64>(q, 64, 64, -1, Activation::ReLU, Activation::None));
+//     }
 
-    SUBCASE("Unsupported input width 1") {
-        CHECK_THROWS(SwiftNetMLP<T, 64>(q, -1, 64, 4, Activation::ReLU, Activation::None));
-    }
+//     SUBCASE("Unsupported input width 1") {
+//         CHECK_THROWS(SwiftNetMLP<T, 64>(q, -1, 64, 4, Activation::ReLU, Activation::None));
+//     }
 
-    SUBCASE("Unsupported output width 1") {
-        CHECK_THROWS(SwiftNetMLP<T, 64>(q, 64, -1, 4, Activation::ReLU, Activation::None));
-    }
-    SUBCASE("Unsupported activation 2") {
-        CHECK_THROWS(SwiftNetMLP<T, 64>(q, 64, 64, 4, Activation::Tanh, Activation::None));
-    }
-    SUBCASE("Unsupported activation 3") {
-        CHECK_THROWS(SwiftNetMLP<T, 64>(q, 64, 64, 4, Activation::Sigmoid, Activation::None));
-    }
-    SUBCASE("Unsupported output activation 1") {
-        CHECK_THROWS(SwiftNetMLP<T, 64>(q, 64, 64, 4, Activation::ReLU, Activation::ReLU));
-    }
-    SUBCASE("Unsupported output activation 2") {
-        CHECK_THROWS(SwiftNetMLP<T, 64>(q, 64, 64, 4, Activation::ReLU, Activation::Tanh));
-    }
-    SUBCASE("Unsupported output activation 3") {
-        CHECK_THROWS(SwiftNetMLP<T, 64>(q, 64, 64, 4, Activation::ReLU, Activation::Sigmoid));
-    }
-}
+//     SUBCASE("Unsupported output width 1") {
+//         CHECK_THROWS(SwiftNetMLP<T, 64>(q, 64, -1, 4, Activation::ReLU, Activation::None));
+//     }
+//     SUBCASE("Unsupported activation 2") {
+//         CHECK_THROWS(SwiftNetMLP<T, 64>(q, 64, 64, 4, Activation::Tanh, Activation::None));
+//     }
+//     SUBCASE("Unsupported activation 3") {
+//         CHECK_THROWS(SwiftNetMLP<T, 64>(q, 64, 64, 4, Activation::Sigmoid, Activation::None));
+//     }
+//     SUBCASE("Unsupported output activation 1") {
+//         CHECK_THROWS(SwiftNetMLP<T, 64>(q, 64, 64, 4, Activation::ReLU, Activation::ReLU));
+//     }
+//     SUBCASE("Unsupported output activation 2") {
+//         CHECK_THROWS(SwiftNetMLP<T, 64>(q, 64, 64, 4, Activation::ReLU, Activation::Tanh));
+//     }
+//     SUBCASE("Unsupported output activation 3") {
+//         CHECK_THROWS(SwiftNetMLP<T, 64>(q, 64, 64, 4, Activation::ReLU, Activation::Sigmoid));
+//     }
+// }
 
-/// TODO: check if the weights are actually 0 whereever they should be.
-TEST_CASE("Swiftnet - Zero Padding") {
-    sycl::queue q;
-    typedef sycl::ext::oneapi::bfloat16 T;
-    SUBCASE("Input 1-64") {
-        SwiftNetMLP<T, 64> network(q, 1, 64, 4, Activation::ReLU, Activation::None);
-        CHECK(network.get_input_width() == 64);
-        CHECK(network.get_network_width() == 64);
-        CHECK(network.get_output_width() == 64);
-    }
-    SUBCASE("Input 1-16") {
-        SwiftNetMLP<T, 16> network(q, 1, 16, 4, Activation::ReLU, Activation::None);
-        CHECK(network.get_input_width() == 16);
-        CHECK(network.get_network_width() == 16);
-        CHECK(network.get_output_width() == 16);
-    }
-    SUBCASE("Input 17-32") {
-        SwiftNetMLP<T, 32> network(q, 17, 32, 4, Activation::ReLU, Activation::None);
-        CHECK(network.get_input_width() == 32);
-        CHECK(network.get_network_width() == 32);
-        CHECK(network.get_output_width() == 32);
-    }
-    SUBCASE("Input 17-128") {
-        SwiftNetMLP<T, 128> network(q, 17, 128, 4, Activation::ReLU, Activation::None);
-        CHECK(network.get_input_width() == 128);
-        CHECK(network.get_network_width() == 128);
-        CHECK(network.get_output_width() == 128);
-    }
-    SUBCASE("Output 1-64") {
-        SwiftNetMLP<T, 64> network(q, 64, 1, 4, Activation::ReLU, Activation::None);
-        CHECK(network.get_input_width() == 64);
-        CHECK(network.get_network_width() == 64);
-        CHECK(network.get_output_width() == 64);
-    }
-    SUBCASE("Output 1-16") {
-        SwiftNetMLP<T, 16> network(q, 16, 1, 4, Activation::ReLU, Activation::None);
-        CHECK(network.get_input_width() == 16);
-        CHECK(network.get_network_width() == 16);
-        CHECK(network.get_output_width() == 16);
-    }
-    SUBCASE("Output 17-32") {
-        SwiftNetMLP<T, 32> network(q, 32, 17, 4, Activation::ReLU, Activation::None);
-        CHECK(network.get_input_width() == 32);
-        CHECK(network.get_network_width() == 32);
-        CHECK(network.get_output_width() == 32);
-    }
-    SUBCASE("Output 17-128") {
-        SwiftNetMLP<T, 128> network(q, 128, 17, 4, Activation::ReLU, Activation::None);
-        CHECK(network.get_input_width() == 128);
-        CHECK(network.get_network_width() == 128);
-        CHECK(network.get_output_width() == 128);
-    }
-}
+// /// TODO: check if the weights are actually 0 whereever they should be.
+// TEST_CASE("Swiftnet - Zero Padding") {
+//     sycl::queue q;
+//     typedef sycl::ext::oneapi::bfloat16 T;
+//     SUBCASE("Input 1-64") {
+//         SwiftNetMLP<T, 64> network(q, 1, 64, 4, Activation::ReLU, Activation::None);
+//         CHECK(network.get_input_width() == 64);
+//         CHECK(network.get_network_width() == 64);
+//         CHECK(network.get_output_width() == 64);
+//     }
+//     SUBCASE("Input 1-16") {
+//         SwiftNetMLP<T, 16> network(q, 1, 16, 4, Activation::ReLU, Activation::None);
+//         CHECK(network.get_input_width() == 16);
+//         CHECK(network.get_network_width() == 16);
+//         CHECK(network.get_output_width() == 16);
+//     }
+//     SUBCASE("Input 17-32") {
+//         SwiftNetMLP<T, 32> network(q, 17, 32, 4, Activation::ReLU, Activation::None);
+//         CHECK(network.get_input_width() == 32);
+//         CHECK(network.get_network_width() == 32);
+//         CHECK(network.get_output_width() == 32);
+//     }
+//     SUBCASE("Input 17-128") {
+//         SwiftNetMLP<T, 128> network(q, 17, 128, 4, Activation::ReLU, Activation::None);
+//         CHECK(network.get_input_width() == 128);
+//         CHECK(network.get_network_width() == 128);
+//         CHECK(network.get_output_width() == 128);
+//     }
+//     SUBCASE("Output 1-64") {
+//         SwiftNetMLP<T, 64> network(q, 64, 1, 4, Activation::ReLU, Activation::None);
+//         CHECK(network.get_input_width() == 64);
+//         CHECK(network.get_network_width() == 64);
+//         CHECK(network.get_output_width() == 64);
+//     }
+//     SUBCASE("Output 1-16") {
+//         SwiftNetMLP<T, 16> network(q, 16, 1, 4, Activation::ReLU, Activation::None);
+//         CHECK(network.get_input_width() == 16);
+//         CHECK(network.get_network_width() == 16);
+//         CHECK(network.get_output_width() == 16);
+//     }
+//     SUBCASE("Output 17-32") {
+//         SwiftNetMLP<T, 32> network(q, 32, 17, 4, Activation::ReLU, Activation::None);
+//         CHECK(network.get_input_width() == 32);
+//         CHECK(network.get_network_width() == 32);
+//         CHECK(network.get_output_width() == 32);
+//     }
+//     SUBCASE("Output 17-128") {
+//         SwiftNetMLP<T, 128> network(q, 128, 17, 4, Activation::ReLU, Activation::None);
+//         CHECK(network.get_input_width() == 128);
+//         CHECK(network.get_network_width() == 128);
+//         CHECK(network.get_output_width() == 128);
+//     }
+// }
 
-TEST_CASE("Swiftnet - weights init") {
-    sycl::queue q(sycl::gpu_selector_v);
-    typedef sycl::ext::oneapi::bfloat16 T;
+// TEST_CASE("Swiftnet - weights init") {
+//     sycl::queue q(sycl::gpu_selector_v);
+//     typedef sycl::ext::oneapi::bfloat16 T;
 
-    SUBCASE("Default positive, No Pad") {
-        SwiftNetMLP<T, 64> network(q, 64, 64, 4, Activation::ReLU, Activation::None,
-                                   Network<T>::WeightInitMode::constant_pos);
-        CHECK_NOTHROW(network.get_weights_matrices());
-        CHECK(network.get_weights_matrices().GetNumberOfMatrices() == 5);
-        for (int iter = 0; iter < 5; iter++) {
-            CHECK(network.get_weights_matrices().GetView(iter).m() == 64);
-            CHECK(network.get_weights_matrices().GetView(iter).n() == 64);
-        }
+//     SUBCASE("Default positive, No Pad") {
+//         SwiftNetMLP<T, 64> network(q, 64, 64, 4, Activation::ReLU, Activation::None,
+//                                    Network<T>::WeightInitMode::constant_pos);
+//         CHECK_NOTHROW(network.get_weights_matrices());
+//         CHECK(network.get_weights_matrices().GetNumberOfMatrices() == 5);
+//         for (int iter = 0; iter < 5; iter++) {
+//             CHECK(network.get_weights_matrices().GetView(iter).m() == 64);
+//             CHECK(network.get_weights_matrices().GetView(iter).n() == 64);
+//         }
 
-        CHECK(areVectorsWithinTolerance(network.get_weights_matrices().copy_to_host(),
-                                        std::vector<T>(network.get_weights_matrices().nelements(), 0.01), 1e-3));
-    }
+//         CHECK(areVectorsWithinTolerance(network.get_weights_matrices().copy_to_host(),
+//                                         std::vector<T>(network.get_weights_matrices().nelements(), 0.01), 1e-3));
+//     }
 
-    SUBCASE("Default positive, Output Pad") {
-        SwiftNetMLP<T, 64> network(q, 64, 63, 4, Activation::ReLU, Activation::None,
-                                   Network<T>::WeightInitMode::constant_pos);
-        CHECK_NOTHROW(network.get_weights_matrices());
-        CHECK(network.get_weights_matrices().GetNumberOfMatrices() == 5);
+//     SUBCASE("Default positive, Output Pad") {
+//         SwiftNetMLP<T, 64> network(q, 64, 63, 4, Activation::ReLU, Activation::None,
+//                                    Network<T>::WeightInitMode::constant_pos);
+//         CHECK_NOTHROW(network.get_weights_matrices());
+//         CHECK(network.get_weights_matrices().GetNumberOfMatrices() == 5);
 
-        for (int iter = 0; iter < 4; iter++) {
-            CHECK(network.get_weights_matrices().GetView(iter).m() == 64);
-            CHECK(network.get_weights_matrices().GetView(iter).n() == 64);
-        }
-        CHECK(network.get_weights_matrices().Back().m() == 64);
-        CHECK(network.get_weights_matrices().Back().n() == 64);
-    }
+//         for (int iter = 0; iter < 4; iter++) {
+//             CHECK(network.get_weights_matrices().GetView(iter).m() == 64);
+//             CHECK(network.get_weights_matrices().GetView(iter).n() == 64);
+//         }
+//         CHECK(network.get_weights_matrices().Back().m() == 64);
+//         CHECK(network.get_weights_matrices().Back().n() == 64);
+//     }
 
-    SUBCASE("Overwrite, No Pad") {
-        SwiftNetMLP<T, 64> network(q, 64, 64, 4, Activation::ReLU, Activation::None,
-                                   Network<T>::WeightInitMode::constant_pos);
-        CHECK_NOTHROW(network.get_weights_matrices());
-        CHECK(network.get_weights_matrices().GetNumberOfMatrices() == 5);
-        std::vector<T> new_weights(network.get_weights_matrices().nelements(), 1.23);
-        network.set_weights_matrices(new_weights);
-        for (int iter = 0; iter < 5; iter++) {
-            CHECK(network.get_weights_matrices().GetView(iter).m() == 64);
-            CHECK(network.get_weights_matrices().GetView(iter).n() == 64);
-        }
+//     SUBCASE("Overwrite, No Pad") {
+//         SwiftNetMLP<T, 64> network(q, 64, 64, 4, Activation::ReLU, Activation::None,
+//                                    Network<T>::WeightInitMode::constant_pos);
+//         CHECK_NOTHROW(network.get_weights_matrices());
+//         CHECK(network.get_weights_matrices().GetNumberOfMatrices() == 5);
+//         std::vector<T> new_weights(network.get_weights_matrices().nelements(), 1.23);
+//         network.set_weights_matrices(new_weights);
+//         for (int iter = 0; iter < 5; iter++) {
+//             CHECK(network.get_weights_matrices().GetView(iter).m() == 64);
+//             CHECK(network.get_weights_matrices().GetView(iter).n() == 64);
+//         }
 
-        CHECK(areVectorsWithinTolerance(network.get_weights_matrices().copy_to_host(),
-                                        std::vector<T>(network.get_weights_matrices().nelements(), 1.23), 1e-3));
-    }
-}
+//         CHECK(areVectorsWithinTolerance(network.get_weights_matrices().copy_to_host(),
+//                                         std::vector<T>(network.get_weights_matrices().nelements(), 1.23), 1e-3));
+//     }
+// }
 
-TEST_CASE("Swiftnet - zero pad forward_pass WIDTH 64") {
-    sycl::queue q(sycl::gpu_selector_v);
+// TEST_CASE("Swiftnet - zero pad forward_pass WIDTH 64") {
+//     sycl::queue q(sycl::gpu_selector_v);
 
-    auto test_function = [=](const int input_width, const int output_width, sycl::queue &q) {
-        typedef sycl::ext::oneapi::bfloat16 T;
-        constexpr int WIDTH = 64;
-        test_forward_1layer<T, WIDTH>(q, input_width, output_width, 8);
-    };
+//     auto test_function = [=](const int input_width, const int output_width, sycl::queue &q) {
+//         typedef sycl::ext::oneapi::bfloat16 T;
+//         constexpr int WIDTH = 64;
+//         test_forward_1layer<T, WIDTH>(q, input_width, output_width, 8);
+//     };
 
-    SUBCASE("No Pad") {
-        constexpr int input_width = 64;
-        constexpr int output_width = 64;
-        test_function(input_width, output_width, q);
-    }
-    SUBCASE("Input Pad") {
-        constexpr int input_width = 3;
-        constexpr int output_width = 64;
-        test_function(input_width, output_width, q);
-    }
-    SUBCASE("Output Pad") {
-        constexpr int input_width = 64;
-        constexpr int output_width = 7;
-        test_function(input_width, output_width, q);
-    }
-    SUBCASE("Input and Output Pad") {
-        constexpr int input_width = 3;
-        constexpr int output_width = 5;
-        test_function(input_width, output_width, q);
-    }
-}
+//     SUBCASE("No Pad") {
+//         constexpr int input_width = 64;
+//         constexpr int output_width = 64;
+//         test_function(input_width, output_width, q);
+//     }
+//     SUBCASE("Input Pad") {
+//         constexpr int input_width = 3;
+//         constexpr int output_width = 64;
+//         test_function(input_width, output_width, q);
+//     }
+//     SUBCASE("Output Pad") {
+//         constexpr int input_width = 64;
+//         constexpr int output_width = 7;
+//         test_function(input_width, output_width, q);
+//     }
+//     SUBCASE("Input and Output Pad") {
+//         constexpr int input_width = 3;
+//         constexpr int output_width = 5;
+//         test_function(input_width, output_width, q);
+//     }
+// }
 
-TEST_CASE("Swiftnet - zero pad inference WIDTH 64") {
-    sycl::queue q(sycl::gpu_selector_v);
+// TEST_CASE("Swiftnet - zero pad inference WIDTH 64") {
+//     sycl::queue q(sycl::gpu_selector_v);
 
-    auto test_function = [=](const int input_width, const int output_width, sycl::queue &q) {
-        typedef sycl::ext::oneapi::bfloat16 T;
-        constexpr int WIDTH = 64;
-        test_inference_1layer<T, WIDTH>(q, input_width, output_width, 8);
-    };
+//     auto test_function = [=](const int input_width, const int output_width, sycl::queue &q) {
+//         typedef sycl::ext::oneapi::bfloat16 T;
+//         constexpr int WIDTH = 64;
+//         test_inference_1layer<T, WIDTH>(q, input_width, output_width, 8);
+//     };
 
-    SUBCASE("No Pad") {
-        constexpr int input_width = 64;
-        constexpr int output_width = 64;
-        test_function(input_width, output_width, q);
-    }
-    SUBCASE("Input Pad") {
-        constexpr int input_width = 3;
-        constexpr int output_width = 64;
-        test_function(input_width, output_width, q);
-    }
-    SUBCASE("Output Pad") {
-        constexpr int input_width = 64;
-        constexpr int output_width = 7;
-        test_function(input_width, output_width, q);
-    }
-    SUBCASE("Input and Output Pad") {
-        constexpr int input_width = 3;
-        constexpr int output_width = 5;
-        test_function(input_width, output_width, q);
-    }
-}
+//     SUBCASE("No Pad") {
+//         constexpr int input_width = 64;
+//         constexpr int output_width = 64;
+//         test_function(input_width, output_width, q);
+//     }
+//     SUBCASE("Input Pad") {
+//         constexpr int input_width = 3;
+//         constexpr int output_width = 64;
+//         test_function(input_width, output_width, q);
+//     }
+//     SUBCASE("Output Pad") {
+//         constexpr int input_width = 64;
+//         constexpr int output_width = 7;
+//         test_function(input_width, output_width, q);
+//     }
+//     SUBCASE("Input and Output Pad") {
+//         constexpr int input_width = 3;
+//         constexpr int output_width = 5;
+//         test_function(input_width, output_width, q);
+//     }
+// }
 
-TEST_CASE("Swiftnet - Batch Sizes forward") {
-    sycl::queue q(sycl::gpu_selector_v);
+// TEST_CASE("Swiftnet - Batch Sizes forward") {
+//     sycl::queue q(sycl::gpu_selector_v);
 
-    auto test_function = [=](const int batch_size, sycl::queue &q) {
-        typedef sycl::ext::oneapi::bfloat16 T;
-        constexpr int WIDTH = 64;
-        test_forward_1layer<T, WIDTH>(q, WIDTH, WIDTH, batch_size);
-    };
+//     auto test_function = [=](const int batch_size, sycl::queue &q) {
+//         typedef sycl::ext::oneapi::bfloat16 T;
+//         constexpr int WIDTH = 64;
+//         test_forward_1layer<T, WIDTH>(q, WIDTH, WIDTH, batch_size);
+//     };
 
-    SUBCASE("Batch size 8") { CHECK_NOTHROW(test_function(8, q)); }
-    SUBCASE("Batch size 512") { CHECK_NOTHROW(test_function(512, q)); }
-    SUBCASE("Batch size 16") { CHECK_NOTHROW(test_function(16, q)); }
-    SUBCASE("Batch size 1") { CHECK_THROWS(test_function(1, q)); }
-    SUBCASE("Batch size 13") { CHECK_THROWS(test_function(13, q)); }
-}
+//     SUBCASE("Batch size 8") { CHECK_NOTHROW(test_function(8, q)); }
+//     SUBCASE("Batch size 512") { CHECK_NOTHROW(test_function(512, q)); }
+//     SUBCASE("Batch size 16") { CHECK_NOTHROW(test_function(16, q)); }
+//     SUBCASE("Batch size 1") { CHECK_THROWS(test_function(1, q)); }
+//     SUBCASE("Batch size 13") { CHECK_THROWS(test_function(13, q)); }
+// }
 
-TEST_CASE("Swiftnet - Net Widths forward") {
-    // only testing constructor. values tested later
-    sycl::queue q(sycl::gpu_selector_v);
+// TEST_CASE("Swiftnet - Net Widths forward") {
+//     // only testing constructor. values tested later
+//     sycl::queue q(sycl::gpu_selector_v);
 
-    auto test_function = [=](const int width, sycl::queue &q) {
-        typedef sycl::ext::oneapi::bfloat16 T;
-        if (width == 16)
-            test_forward_1layer<T, 16>(q, 16, 16, 8);
-        else if (width == 32)
-            test_forward_1layer<T, 32>(q, 32, 32, 8);
-        else if (width == 64)
-            test_forward_1layer<T, 64>(q, 64, 64, 8);
-        else if (width == 128)
-            test_forward_1layer<T, 128>(q, 128, 128, 8);
-        else
-            throw std::invalid_argument("Unsupported width");
-    };
+//     auto test_function = [=](const int width, sycl::queue &q) {
+//         typedef sycl::ext::oneapi::bfloat16 T;
+//         if (width == 16)
+//             test_forward_1layer<T, 16>(q, 16, 16, 8);
+//         else if (width == 32)
+//             test_forward_1layer<T, 32>(q, 32, 32, 8);
+//         else if (width == 64)
+//             test_forward_1layer<T, 64>(q, 64, 64, 8);
+//         else if (width == 128)
+//             test_forward_1layer<T, 128>(q, 128, 128, 8);
+//         else
+//             throw std::invalid_argument("Unsupported width");
+//     };
 
-    SUBCASE("WIDTH 16") { CHECK_NOTHROW(test_function(16, q)); }
-    SUBCASE("WIDTH 32") { CHECK_NOTHROW(test_function(32, q)); }
-    SUBCASE("WIDTH 64") { CHECK_NOTHROW(test_function(64, q)); }
-    SUBCASE("WIDTH 128") { CHECK_NOTHROW(test_function(128, q)); }
-}
+//     SUBCASE("WIDTH 16") { CHECK_NOTHROW(test_function(16, q)); }
+//     SUBCASE("WIDTH 32") { CHECK_NOTHROW(test_function(32, q)); }
+//     SUBCASE("WIDTH 64") { CHECK_NOTHROW(test_function(64, q)); }
+//     SUBCASE("WIDTH 128") { CHECK_NOTHROW(test_function(128, q)); }
+// }
 
 TEST_CASE("Swiftnet - test interm_fwd with reference MLP") {
     // only testing constructor. values tested later

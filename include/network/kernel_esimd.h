@@ -380,6 +380,17 @@ class EsimdKernels {
 #endif
     }
 
+    // Sigmoid function: f(x) = 1 / (1 + exp(-x))
+    template <typename T, int N> SYCL_ESIMD_FUNCTION simd<T, N> sigmoid(simd<T, N> x) {
+        simd<T, N> one(1.0f);
+        return one / (one + exp(-x));
+    }
+
+    // Derivative of sigmoid function: f'(x) = f(x) * (1 - f(x))
+    template <typename T, int N> SYCL_ESIMD_FUNCTION simd<T, N> sigmoid_derivative(simd<T, N> sigmoid_x) {
+        return sigmoid_x * (1.0f - sigmoid_x);
+    }
+
     template <Activation act, int TM, int TK, int N, typename Tsrc, typename Tdest>
     SYCL_ESIMD_FUNCTION static void applyActivation(simd<Tsrc, N> &Src, simd<Tdest, N> &Dest) {
         static_assert(TM >= 1 && TM <= 8);
@@ -390,6 +401,8 @@ class EsimdKernels {
             reBlock<TM, TK>(convert<Tdest, Tsrc>(Src), Dest);
         else if constexpr (act == Activation::ReLU)
             reBlock<TM, TK>(max<Tdest>(convert<Tdest, Tsrc>(Src), simd<Tdest, N>(static_cast<Tdest>(0))), Dest);
+        else if constexpr (act == Activation::Sigmoid)
+            reBlock<TM, TK>(sigmoid<Tdest, N>(convert<Tdest, Tsrc>(Src)), Dest);
     }
 
     template <Activation act, int TM, int TK, int N, typename Tdec, typename Tsrc, typename Tdest>
@@ -408,6 +421,12 @@ class EsimdKernels {
             simd_mask<N> m = loc_dec <= simd<Tdec, N>(0);
             Src.merge(simd<Tsrc, N>(0), m); // ATTENTION: this changes Src.
             reBlock<TM, TK>(convert<Tdest, Tsrc>(Src), Dest);
+        } else if constexpr (act == Activation::Sigmoid) {
+            simd<Tdec, N> loc_dec;
+            loadRow<TM, TN, cache_hint::uncached, cache_hint::uncached>(Dec, loc_dec);
+            simd<Tdest, N> sigmoid_x = sigmoid<Tdest, N>(convert<Tdest, Tsrc>(loc_dec));
+            simd<Tdest, N> dsigmoid_x = sigmoid_derivative<Tdest, N>(sigmoid_x);
+            reBlock<TM, TK>(dsigmoid_x * convert<Tdest, Tsrc>(Src), Dest);
         }
     }
 

@@ -15,7 +15,7 @@
 #include <CL/sycl.hpp>
 #include <functional>
 #include <iostream>
-#include <json/json.hpp>
+#include <json.hpp>
 #include <unordered_map>
 #include <vector>
 
@@ -166,8 +166,9 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
         static_assert(WIDTH == 16 || WIDTH == 32 || WIDTH == 64 || WIDTH == 128);
         static_assert(std::is_same<T, sycl::ext::oneapi::bfloat16>::value || std::is_same<T, sycl::half>::value);
 
-        if (m_activation != Activation::ReLU && m_activation != Activation::None) {
-            throw std::runtime_error("m_activation must be ReLU or None for now.");
+        if (m_activation != Activation::ReLU && m_activation != Activation::None &&
+            m_activation != Activation::Sigmoid) {
+            throw std::runtime_error("m_activation must be ReLU or None or Sigmoid for now.");
         }
         if (m_output_activation != Activation::None) {
             throw std::runtime_error("m_output_activation must be None for now.");

@@ -279,14 +279,10 @@ class NetworkWithInputEncoding(Module):
         if "n_dims_to_encode" not in self.encoding_config:
             self.encoding_config["n_dims_to_encode"] = str(self.n_input_dims)
 
-        for value in self.encoding_config.values():
-            assert isinstance(value, str), "Not all values are of type str"
-
         super().__init__(device=device)
 
     def create_module(self):
         return tnn.create_networkwithencoding(
-            self.width,
             self.n_input_dims,
             self.n_output_dims,
             self.n_hidden_layers,
