@@ -1,7 +1,7 @@
 #pragma once
 
 #include "encoding.h"
-#include "json/json.hpp"
+#include "json.hpp"
 #include <string>
 #include <unordered_map>
 
