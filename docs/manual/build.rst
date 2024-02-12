@@ -15,7 +15,7 @@ is sufficent to compile the library.
 In particular, the project depends on:
 
 - CMake >= 3.23
-- Intel C++ compiler, icpx
+- Intel C++ compiler, icpx. Tested with version 2024.0
 - Intel MPI
 - Intel oneMKL
 - Intel DPCT
@@ -27,7 +27,7 @@ Clone the repository.
 
 .. code:: console
 
-    git clone ...
+    git clone PATH
 
 
 Initialize the oneAPI environment.
@@ -58,5 +58,15 @@ BUILD_BENCHMARK        Build benchmark executables                        ON
 BUILD_EXAMPLE          Build examples                                     OFF
 BUILD_TEST             Build unit tests                                   ON
 BUILD_REF_TEST         Download reference data and build tests using it   OFF
+BUILD_BWD_TEST         Compare our backward pass to an Eigen based code   OFF
 BUILD_PYBIND           Build Python bindings for, e.g., PyTorch           OFF
 ====================== ================================================== ========
+
+The following options enable further customization. To set them, 
+use -D<option>=<value>
+
+=============== ================================================== ============= 
+Option          Description                                        Values
+=============== ================================================== =============
+TARGET_DEVICE   Build code either for "ARC" or "PVC"               "PVC", "ARC"
+=============== ================================================== =============
