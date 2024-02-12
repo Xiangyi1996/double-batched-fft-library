@@ -23,11 +23,15 @@ using namespace sycl::ext::intel::esimd;
 
 template <int M, int N, int TK, typename T> void TestLoadRow(sycl::queue &q) {
     constexpr int nElems = M * N;
-    T *in = sycl::malloc_shared<T>(nElems, q);
-    T *out = sycl::malloc_shared<T>(nElems, q);
+    T *in = sycl::malloc_device<T>(nElems, q);
+    T *out = sycl::malloc_device<T>(nElems, q);
+    std::vector<T> in_host(nElems);
+    std::vector<T> out_host(nElems);
     for (int iter = 0; iter < nElems; iter++) {
-        in[iter] = static_cast<T>(iter);
+        in_host[iter] = static_cast<T>(iter);
     }
+
+    q.memcpy(in, in_host.data(), sizeof(T) * nElems).wait();
 
     q.parallel_for(sycl::nd_range<1>(1, 1), [=](sycl::nd_item<1> item) SYCL_ESIMD_KERNEL {
          simd<T, nElems> tmp;
@@ -36,11 +40,13 @@ template <int M, int N, int TK, typename T> void TestLoadRow(sycl::queue &q) {
          tmp.copy_to(out);
      }).wait();
 
+    q.memcpy(out_host.data(), out, sizeof(T) * nElems).wait();
+
     for (int iter = 0; iter < nElems; iter++) {
         const int block = iter / (M * TK);
         const int row = (iter % (M * TK)) / TK;
         const int elem = iter % TK;
-        CHECK(out[iter] == static_cast<T>(in[elem + block * TK + row * N]));
+        CHECK(out_host[iter] == in_host[elem + block * TK + row * N]);
     }
 
     sycl::free(in, q);
@@ -49,11 +55,15 @@ template <int M, int N, int TK, typename T> void TestLoadRow(sycl::queue &q) {
 
 template <int M, int N, int TK, typename T> void TestLoadStoreRow(sycl::queue &q) {
     constexpr int nElems = M * N;
-    T *in = sycl::malloc_shared<T>(nElems, q);
-    T *out = sycl::malloc_shared<T>(nElems, q);
+    T *in = sycl::malloc_device<T>(nElems, q);
+    T *out = sycl::malloc_device<T>(nElems, q);
+    std::vector<T> in_host(nElems);
+    std::vector<T> out_host(nElems);
     for (int iter = 0; iter < nElems; iter++) {
-        in[iter] = static_cast<T>(iter);
+        in_host[iter] = static_cast<T>(iter);
     }
+
+    q.memcpy(in, in_host.data(), sizeof(T) * nElems).wait();
 
     q.parallel_for(sycl::nd_range<1>(1, 1), [=](sycl::nd_item<1> item) SYCL_ESIMD_KERNEL {
          simd<T, nElems> tmp;
@@ -63,11 +73,13 @@ template <int M, int N, int TK, typename T> void TestLoadStoreRow(sycl::queue &q
                                                                                          cache_hint::none>(tmp, out);
      }).wait();
 
+    q.memcpy(out_host.data(), out, sizeof(T) * nElems).wait();
+
     for (int iter = 0; iter < nElems; iter++) {
         const int block = iter / (M * TK);
         const int row = (iter % (M * TK)) / TK;
         const int elem = iter % TK;
-        CHECK(out[iter] == in[iter]);
+        CHECK(out_host[iter] == in_host[iter]);
     }
 
     sycl::free(in, q);
@@ -76,7 +88,8 @@ template <int M, int N, int TK, typename T> void TestLoadStoreRow(sycl::queue &q
 
 template <int TM, int TK, int N, typename T> void TestReBlock(sycl::queue &q) {
     constexpr int nElems = TM * N;
-    T *out = sycl::malloc_shared<T>(nElems, q);
+    T *out = sycl::malloc_device<T>(nElems, q);
+    std::vector<T> out_host(nElems);
     constexpr int TN = XMXTn::TN;
 
     q.parallel_for(sycl::nd_range<1>(1, 1), [=](sycl::nd_item<1> item) SYCL_ESIMD_KERNEL {
@@ -86,9 +99,11 @@ template <int TM, int TK, int N, typename T> void TestReBlock(sycl::queue &q) {
          dst.copy_to(out); // block-major with TMxTK blocks
      }).wait();
 
+    q.memcpy(out_host.data(), out, sizeof(T) * nElems).wait();
+
     if constexpr (TN == TK) {
         for (int iter = 0; iter < nElems; iter++) {
-            CHECK((int)out[iter] == static_cast<int>(iter));
+            CHECK((int)out_host[iter] == static_cast<int>(iter));
         }
     } else if constexpr (TK == TN / 2) { // TK == 8 and TN == 16
         constexpr int ratio = TN / TK;   // in how many matrices are we splitting
@@ -100,7 +115,7 @@ template <int TM, int TK, int N, typename T> void TestReBlock(sycl::queue &q) {
             const int val = block_old * (TM * TN) + new_sub_block * TK + new_row * TN + new_col;
 
             // std::cout << (int)out[iter] << ", " << iter << ", " << val << std::endl;
-            CHECK(out[iter] == static_cast<T>(val));
+            CHECK((int)out_host[iter] == static_cast<int>(val));
         }
     } else if constexpr (TN < TK) {
         constexpr int ratio = TK / TN; // how many matrices are we merging.
@@ -113,7 +128,7 @@ template <int TM, int TK, int N, typename T> void TestReBlock(sycl::queue &q) {
 
             // std::cout << (int)out[iter] << ", " << iter << ", " << val << "; " << block_new << ", " << old_sub_block
             //           << ", " << old_row << ", " << old_col << std::endl;
-            CHECK(out[iter] == static_cast<T>(val));
+            CHECK((int)out_host[iter] == static_cast<int>(val));
         }
 
     } else

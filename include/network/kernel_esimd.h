@@ -140,22 +140,11 @@ class EsimdKernels {
         static_assert(OUTPUT_WIDTH == WIDTH);
         const size_t M = input.m();
 
-        constexpr int SG_SIZE = TN;
-        // this may be adjusted in the future in dpendence of M
-        constexpr size_t TM = 8;
-        assert(M % TM == 0);
-        int ITEMS_IN_WG = std::min<int>(M / TM, 64);
-        /// TODO: say we use M/TM = 65. Then this results in WG=1 SG and too many slm load of B.
-        /// Better: Use max size WGs and return those which are larger than M/TM. But
-        /// requires special care for the loading of B
-        while (M / TM % ITEMS_IN_WG != 0) {
-            ITEMS_IN_WG--;
-        }
-        if (ITEMS_IN_WG <= 0) throw std::logic_error("Number of SGS per WG cannot be less than 1");
+        constexpr int TM = ComputeTM();
 
         assert(M % TM == 0);
-        // TK depends on the datatype T
-        constexpr size_t TK = 8 * std::min<size_t>(8, 32 / (8 * sizeof(T)));
+        const int ITEMS_IN_WG = ComputeItemsInWG(M, TM);
+        constexpr int TK = ComputeTK();
 
         auto e = q.submit([&](sycl::handler &cgh) {
             cgh.depends_on(deps);
@@ -257,13 +246,13 @@ class EsimdKernels {
         static_assert(WIDTH % TK == 0);
         static_assert(TMWIDTH == TM * WIDTH);
         static_assert(sizeof(T) <= 4);
+
+// DG2 does not have 2d send instructions
+#if TARGET_DEVICE == 0
         constexpr int elems_per_pos = 4 / sizeof(T);
         constexpr int blocks_per_load = TK * elems_per_pos > WIDTH ? 1 : elems_per_pos;
         constexpr int nloads = WIDTH / (TK * blocks_per_load);
         static_assert(nloads > 0);
-
-// DG2 does not have 2d send instructions
-#if TARGET_DEVICE == 0
         auto dest_int = dest.template bit_cast_view<int32_t>();
 #pragma unroll
         for (int load_iter = 0; load_iter < nloads; load_iter++) {
@@ -274,10 +263,22 @@ class EsimdKernels {
                     load_iter * TK, 0);
         }
 #elif TARGET_DEVICE == 1
-        for (int blockiter = 0; blockiter < WIDTH / TK; blockiter++) {
-            for (int rowiter = 0; rowiter < TM; rowiter++) {
-                dest.template select<TK, 1>(blockiter * TM * TK + rowiter * TK) =
-                    lsc_block_load<T, TK, lsc_data_size::default_size, L1, L3>(src + blockiter * TK + rowiter * WIDTH);
+        constexpr int elems_per_load = std::min<int>(TMWIDTH, XMXMaxSendBytes::MaxBytes / sizeof(T));
+        constexpr int rows_per_load = elems_per_load / WIDTH;
+        static_assert(rows_per_load > 0 && TM % rows_per_load == 0);
+        static_assert(elems_per_load % WIDTH == 0);
+        static_assert(TMWIDTH % elems_per_load == 0);
+
+        for (int loaditer = 0; loaditer < TM; loaditer += rows_per_load) {
+
+            simd<T, elems_per_load> tmp =
+                lsc_block_load<T, elems_per_load, lsc_data_size::default_size, L1, L3>(src + loaditer * WIDTH);
+#pragma collapse(2) unroll
+            for (int blockcoliter = 0; blockcoliter < WIDTH; blockcoliter += TK) {
+                for (int rowiter = 0; rowiter < rows_per_load; rowiter++) {
+                    dest.template select<TK, 1>(loaditer * TK + blockcoliter * TM + rowiter * TK) =
+                        tmp.template select<TK, 1>(blockcoliter + rowiter * WIDTH);
+                }
             }
         }
 #endif
@@ -377,6 +378,39 @@ class EsimdKernels {
     }
 
   private:
+    static constexpr int ComputeTM() {
+#if TARGET_DEVICE == 0
+        return 8;
+#elif TARGET_DEVICE == 1
+        if constexpr (WIDTH < 64)
+            return 8;
+        else if constexpr (WIDTH >= 64) {
+            constexpr int factor = std::max(1, WIDTH / 64); // shut up div by 0 warning
+            return std::max<int>(1, 4 / factor);
+        }
+        constexpr int TM = WIDTH < 64 ? 8 : std::max<int>(1, 8 / (WIDTH / 64));
+#endif
+    }
+
+    static constexpr int ComputeTK() { return 8 * std::min<int>(8, 32 / (8 * sizeof(T))); }
+
+    static int ComputeItemsInWG(const size_t M, const int TM) {
+
+// TODO: 64 depends on the device. It is different for non-PVC hardware
+#if TARGET_DEVICE == 0
+        constexpr int max_items_per_wg = 64;
+#elif TARGET_DEVICE == 1
+        constexpr int max_items_per_wg = 64;
+#endif
+        int items_in_wg = std::min<int>(M / TM, max_items_per_wg);
+        while (M / TM % items_in_wg != 0) {
+            items_in_wg--;
+        }
+        if (items_in_wg <= 0) throw std::logic_error("Number of SGS per WG cannot be less than 1");
+
+        return items_in_wg;
+    }
+
     template <bool INFERENCE>
     static std::vector<sycl::event>
     forward_impl_general(sycl::queue &q, const DeviceMatricesView<T> &weights, const DeviceMatrixView<T> &input,
@@ -389,19 +423,14 @@ class EsimdKernels {
         static_assert(OUTPUT_WIDTH == WIDTH);
         static_assert(WIDTH % TN == 0);
 
-        constexpr int TM = 8;
+        constexpr int TM = ComputeTM();
         // make sure there is no remainder and no out of bounds accesses
         // this may be adjusted in the future
         assert(M % TM == 0);
-        // TK depends on the datatype T
-        constexpr int TK = 8 * std::min<int>(8, 32 / (8 * sizeof(T)));
 
-        // TODO: 64 depends on the device. It is different for non-PVC hardware
-        int ITEMS_IN_WG = std::min<int>(M / TM, 64);
-        while (M / TM % ITEMS_IN_WG != 0) {
-            ITEMS_IN_WG--;
-        }
-        if (ITEMS_IN_WG <= 0) throw std::logic_error("Number of SGS per WG cannot be less than 1");
+        // TK depends on the datatype T
+        constexpr int TK = ComputeTK();
+        const int ITEMS_IN_WG = ComputeItemsInWG(M, TM);
 
         // One Block Row has TM rows an N columns.
         auto e = q.submit([&](sycl::handler &cgh) {

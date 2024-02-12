@@ -23,11 +23,18 @@ int main() {
         MPI_Init(NULL, NULL);
         sycl::queue q(sycl::gpu_selector_v);
 
-        const int batch_size = 1 << 22;
-        benchmark_training<bf16, 64>(batch_size, 4, 100, q);
+        benchmark_training<bf16, 64>(1 << 22, 4, 100, q);
         q.wait();
-        benchmark_training<sycl::half, 64>(batch_size, 4, 100, q);
+        benchmark_training<sycl::half, 64>(1 << 22, 4, 100, q);
         q.wait();
+        benchmark_training<bf16, 32>(1 << 22, 4, 100, q);
+        q.wait();
+        benchmark_training<bf16, 16>(1 << 22, 4, 100, q);
+        q.wait();
+        for (int iter = 10; iter < 24; iter++) {
+            benchmark_training<bf16, 64>(1 << iter, 4, 100, q);
+            q.wait();
+        }
         MPI_Finalize();
 
     } catch (const std::exception &e) {
