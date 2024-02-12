@@ -53,6 +53,7 @@ template <typename T> class DeviceMem {
         /// TODO: make sure this works with arbitrary sizes and that we only take the device memory as limit
         // if ((size() * sizeof(T)) > ((size_t)4 * (1 << 30)))
         //     throw std::invalid_argument("Trying to allocate too large DeviceMem (> 4GB).");
+        if (size <= 0) throw std::invalid_argument("0 size if not allowed.");
         m_data = sycl::malloc_device<T>(m_size, m_q);
     }
 
