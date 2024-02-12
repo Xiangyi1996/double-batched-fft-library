@@ -42,18 +42,11 @@ def train_model(model, x_train, y_train, n_steps, save_grads=0):
         all_loss = []
         for idx in range(x_train.shape[0] // batch_size):
             y_pred = model(x_train[idx * batch_size : (idx + 1) * batch_size, ...])
-            # try:
-            # y_pred = model(
-            #     x_train[idx * batch_size : (idx + 1) * batch_size, ...].flatten()
-            # )
-            # except:
-            #     y_pred = model(
-            #         x_train[idx * batch_size : (idx + 1) * batch_size, ...]
-            #     ).flatten()
+
             loss = loss_fn(
                 y_pred,
                 y_train[idx * batch_size : (idx + 1) * batch_size],
-            )
+            ).to(DEVICE_NAME)
             y_predicted_all.append(y_pred.detach().cpu().numpy())
             optimizer.zero_grad()
             loss.backward()
@@ -89,7 +82,7 @@ def train_model(model, x_train, y_train, n_steps, save_grads=0):
 
             grads.append(grads_all)
             optimizer.step()
-            all_loss.append(loss.detach().numpy())
+            all_loss.append(loss.detach().cpu().numpy())
         loss_mean = np.mean(np.array(all_loss))
         losses.append(loss_mean)
         # print(f"{n} - Loss: {loss_mean}")
@@ -139,7 +132,7 @@ def test_grad(
             DEVICE_NAME,
         )
 
-        n_steps = 1  # if this is too large, there will be accumulated error (weights aren't the same, thus the loss is not the same etc)
+        n_steps = 10  # if this is too large, there will be accumulated error (weights aren't the same, thus the loss is not the same etc)
         loss_dpcpp, y_dpcpp, grads_dpcpp = train_model(
             model_dpcpp, x_train, y_train, n_steps, save_grads=0
         )
@@ -149,12 +142,11 @@ def test_grad(
         grads_dpcpp = grads_dpcpp[0][0]
         grads_torch = grads_torch[0]
         total_diff = []
-        time.sleep(1)
         for layer in range(len(grads_dpcpp)):
             rel_diff_in_layer = abs(
                 abs(grads_torch[layer]).sum() - abs(grads_dpcpp[layer]).sum()
             ) / (abs(grads_torch[layer]).sum())
-            total_diff.append(rel_diff_in_layer)
+            total_diff.append(rel_diff_in_layer.cpu().numpy())
             print(
                 f"Layer {layer+1}: {rel_diff_in_layer*100:.2f}% (sum: ",
                 f"{abs(grads_torch[layer]).sum():.4f}, and {abs(grads_dpcpp[layer]).sum():.4f})",
@@ -227,8 +219,8 @@ if __name__ == "__main__":
     output_func = "linear"
     # output_func = "sigmoid"
 
-    # test_fwd(input_width, n_hidden_layers, output_width, activation_func, output_func)
-    # print("Passed fwd test")
+    test_fwd(input_width, n_hidden_layers, output_width, activation_func, output_func)
+    print("Passed fwd test")
 
     test_grad(
         input_width,

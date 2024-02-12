@@ -17,53 +17,115 @@
 #include "l1.h"
 #include "l2.h"
 
-TEST_CASE("Testing Loss Functionality") {
+template <typename T> std::vector<T> create_vector(size_t size, T value) { return std::vector<T>(size, value); }
 
-    // Initialize a sycl::queue object for running kernels
+void test_l2_loss_with_parameters(sycl::queue &q, size_t output_dim, size_t batch_size, float loss_scale,
+                                  float prediction_value, float target_value) {
+
+    const size_t n_elements = batch_size * output_dim;
+
+    // Initialize matrices with test values
+    DeviceMatrix<float> predictions(batch_size, output_dim, q);
+    DeviceMatrix<float> targets(batch_size, output_dim, q);
+    DeviceMatrix<float> values(batch_size, output_dim, q);
+    DeviceMatrix<float> gradients(batch_size, output_dim, q);
+    predictions.fill(prediction_value).wait();
+    targets.fill(target_value).wait();
+    values.fill(0.0).wait();
+    gradients.fill(0.0).wait();
+
+    // Create L2Loss instance and run evaluate
+    L2Loss<float> loss;
+    sycl::event loss_event = loss.evaluate(q, loss_scale, predictions.GetView(), targets, values, gradients);
+    loss_event.wait();
+
+    // Verify the results are as expected
+    auto host_values = values.copy_to_host();
+    auto host_gradients = gradients.copy_to_host();
+
+    float expected_value = (prediction_value - target_value) * (prediction_value - target_value) / n_elements;
+    float expected_gradient = loss_scale * 2.0f * (prediction_value - target_value) / n_elements;
+    for (size_t i = 0; i < n_elements; ++i) {
+        CHECK(host_values[i] == doctest::Approx(expected_value));
+        CHECK(host_gradients[i] == doctest::Approx(expected_gradient));
+    }
+}
+void test_l1_loss_with_parameters(sycl::queue &q, size_t output_dim, size_t batch_size, float loss_scale,
+                                  float prediction_value, float target_value) {
+
+    const size_t n_elements = batch_size * output_dim;
+
+    // Initialize matrices with test values
+    DeviceMatrix<float> predictions(batch_size, output_dim, q);
+    DeviceMatrix<float> targets(batch_size, output_dim, q);
+    DeviceMatrix<float> values(batch_size, output_dim, q);
+    DeviceMatrix<float> gradients(batch_size, output_dim, q);
+    predictions.fill(prediction_value).wait();
+    targets.fill(target_value).wait();
+    values.fill(0.0).wait();
+    gradients.fill(0.0).wait();
+
+    // Create L1Loss instance and run evaluate
+    L1Loss<float> loss;
+    sycl::event loss_event = loss.evaluate(q, loss_scale, predictions.GetView(), targets, values, gradients);
+    loss_event.wait();
+
+    // Verify the results are as expected
+    auto host_values = values.copy_to_host();
+    auto host_gradients = gradients.copy_to_host();
+
+    float expected_value = std::abs(prediction_value - target_value) / n_elements;
+    float expected_gradient =
+        loss_scale * (prediction_value > target_value ? 1.0f : (prediction_value < target_value ? -1.0f : 0.0f)) /
+        n_elements;
+
+    for (size_t i = 0; i < n_elements; ++i) {
+        CHECK(host_values[i] == doctest::Approx(expected_value));
+        CHECK(host_gradients[i] == doctest::Approx(expected_gradient));
+    }
+}
+TEST_CASE("L2Loss Computes Correctly for Multiple Dimensions and Prediction Values") {
     sycl::queue q;
 
-    // Define initial values for loss testing
-    const float loss_scale = 1.0f;
-    const int n_elements = 100;
+    SUBCASE("Batch size 8, dimension 16, positive predictions") {
+        test_l2_loss_with_parameters(q, 16, 8, 1.0f, 2.56f, 0.1f);
+    } // this is the loss for swiftnet bwd unittest
 
-    // Generate some mock data for testing
-    std::vector<float> predictions(n_elements, 5.0), targets(n_elements, 10.0);
-    std::vector<float> values(n_elements), gradients(n_elements);
-
-    // Initialize DeviceMem for inputs and outputs
-    DeviceMem<float> dev_predictions(predictions.data(), n_elements);
-    DeviceMem<float> dev_targets(targets.data(), n_elements);
-    DeviceMem<float> dev_values(values.data(), n_elements);
-    DeviceMem<float> dev_gradients(gradients.data(), n_elements);
-
-    // Create an instance of L2Loss
-    L2Loss<float> l2;
-
-    SUBCASE("Testing Evaluate function") {
-        // Expected values and gradients calculations
-        float expected_value = std::pow(5.0 - 10.0, 2) / n_elements;
-        float expected_gradient = 2 * (5.0 - 10.0) / n_elements;
-
-        // Evaluate the loss
-        l2.evaluate(q, loss_scale, dev_predictions, dev_targets, dev_values, dev_gradients);
-
-        // Read back data from DeviceMem
-        dev_values.readData(q, values.data());
-        dev_gradients.readData(q, gradients.data());
-
-        for (int i = 0; i < n_elements; i++) {
-            CHECK(values[i] == doctest::Approx(expected_value));
-            CHECK(gradients[i] == doctest::Approx(expected_gradient));
-        }
+    SUBCASE("Batch size 1, dimension 100, positive predictions") {
+        test_l2_loss_with_parameters(q, 100, 1, 101.0f, 2.0f, 1.0f);
     }
 
-    SUBCASE("Testing SanityCheck function") {
-        // Create a mismatch in sizes to test asserts
-        std::vector<float> incorrect_sizes(n_elements + 1);
-        DeviceMem<float> incorrect_values(incorrect_sizes.data(), n_elements + 1);
+    SUBCASE("Batch size 1, dimension 300, positive predictions") {
+        test_l2_loss_with_parameters(q, 300, 1, 101.0f, 2.0f, 1.0f);
+    }
 
-        // Now, evaluate function must terminate the program due to failed assertion
-        CHECK_THROWS_WITH(l2.evaluate(q, loss_scale, dev_predictions, dev_targets, incorrect_values, dev_gradients),
-                          "Assert condition failed: values.size() == n_elements");
+    SUBCASE("Batch size 2, dimension 100, negative predictions") {
+        test_l2_loss_with_parameters(q, 100, 2, 101.0f, -2.0f, -1.0f);
+    }
+
+    SUBCASE("Batch size 3, dimension 50, mixed predictions") {
+        test_l2_loss_with_parameters(q, 50, 3, 101.0f, -1.5f, 2.5f);
+    }
+}
+TEST_CASE("L1Loss Computes Correctly for Multiple Dimensions and Prediction Values") {
+    sycl::queue q;
+    SUBCASE("Batch size 8, dimension 16, positive predictions") {
+        test_l1_loss_with_parameters(q, 16, 8, 1.0f, 2.56f, 0.1f);
+    } // this is the loss for swiftnet bwd unittest
+
+    SUBCASE("Batch size 1, dimension 100, positive predictions") {
+        test_l1_loss_with_parameters(q, 100, 1, 111.0f, 2.0f, 1.0f);
+    }
+
+    SUBCASE("Batch size 1, dimension 300, positive predictions") {
+        test_l1_loss_with_parameters(q, 300, 1, 123.0f, 3.0f, 2.0f);
+    }
+
+    SUBCASE("Batch size 2, dimension 100, negative predictions") {
+        test_l1_loss_with_parameters(q, 100, 2, 234.0f, -2.0f, -1.0f);
+    }
+
+    SUBCASE("Batch size 3, dimension 50, mixed predictions") {
+        test_l1_loss_with_parameters(q, 50, 3, 323.0f, -1.5f, 0.5f);
     }
 }

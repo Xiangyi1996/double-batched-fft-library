@@ -106,31 +106,9 @@ class MLP(torch.nn.Module):
             raise ValueError("Invalid activation function")
 
     def set_weights(self, parameters):
-        # if parameters["input_weights"] is not None:
-        #     assert (
-        #         self.layers[0].weight.shape
-        #         == torch.nn.Parameter(parameters["input_weights"]).shape
-        #     )
-        #     self.layers[0].weight = copy.deepcopy(
-        #         torch.nn.Parameter(parameters["input_weights"])
-        #     )
-        #     if self.input_width < 16:
-        #         # the encoding in the current implementaiton doesn't have grad.
-        #         # Set requires_grad to False for the parameters of the first layer (layers[0])
-        #         self.layers[0].weight.requires_grad = False
-
-        #     offset = 1
-        # else:
         offset = 0
 
         # if "middle_weights" in parameters:
         for i, weight in enumerate(parameters):
             assert self.layers[i + offset].weight.shape == weight.shape
             self.layers[i + offset].weight = copy.deepcopy(torch.nn.Parameter(weight))
-
-    # def set_weights(self, parameters):
-    #     # Convert incoming parameters to bfloat16 before setting weights
-    #     for i, weight in enumerate(parameters):
-    #         bfloat16_weight = torch.tensor(weight, dtype=torch.bfloat16)
-    #         assert self.layers[i].weight.shape == bfloat16_weight.shape
-    #         self.layers[i].weight = torch.nn.Parameter(bfloat16_weight)

@@ -43,11 +43,10 @@ class PybindingModule {
         return m_module->forward_pass(input, params, 1);
     }
 
-    torch::Tensor bwd(torch::Tensor input_tensor, torch::Tensor grad_output, torch::Tensor params) {
-        CHECK_INPUT(input_tensor);
+    torch::Tensor bwd(torch::Tensor grad_output, torch::Tensor params) {
         CHECK_INPUT(grad_output);
         CHECK_INPUT(params);
-        return m_module->backward_pass(input_tensor, grad_output, params);
+        return m_module->backward_pass(grad_output, params);
     }
 
     torch::Tensor initial_params() { return m_module->initialize_params(); }
