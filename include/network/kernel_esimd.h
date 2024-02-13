@@ -294,30 +294,46 @@ class EsimdKernels {
         static_assert(sizeof(T) <= 4 && sizeof(Tc) <= 4);
         constexpr int vnni_factor = std::max<int>(1, 4 / sizeof(T));
 
-#pragma collapse 2 unroll
+#if TARGET_DEVICE == 0
+#pragma collapse(2) unroll
         for (int iterA = 0; iterA < WIDTH; iterA += TK) {
             for (int iterB = 0; iterB < WIDTH; iterB += TN) {
                 simd<T, TK * TN> BlockB;
                 auto BlockB_float = BlockB.template bit_cast_view<float>();
-#if TARGET_DEVICE == 0
-
                 BlockB_float =
                     lsc_load_2d<float, TN, TK / vnni_factor, 1, false, false, cache_hint::cached, cache_hint::cached>(
                         reinterpret_cast<float const *>(B), vnni_factor * WIDTH * sizeof(T) - 1,
                         WIDTH / vnni_factor - 1, vnni_factor * WIDTH * sizeof(T) - 1, iterB, iterA / vnni_factor);
-#elif TARGET_DEVICE == 1
-                for (int rowiter = 0; rowiter < TK / vnni_factor; rowiter++) {
-                    // BlockB_float[rowiter] = rowiter;
-                    // BlockB.template select<vnni_factor * TN, 1>(rowiter * vnni_factor * TN) =
-                    //     lsc_block_load<T, vnni_factor * TN>(B + vnni_factor *iterB + iterA * WIDTH + rowiter *
-                    //     vnni_factor * WIDTH);
-                    BlockB_float.template select<TN, 1>(rowiter * TN) =
-                        lsc_block_load<float, TN, lsc_data_size::default_size, cache_hint::cached, cache_hint::cached>(
-                            reinterpret_cast<float const *>(B) + iterB + iterA / vnni_factor * WIDTH + rowiter * WIDTH);
-                }
-#endif
+
                 Cs.template select<TM * TN, 1>(iterB * TM) = xmx::dpas<8, TM, Tc>(
                     Cs.template select<TM * TN, 1>(iterB * TM), BlockB, As.template select<TM * TK, 1>(iterA * TM));
+#elif TARGET_DEVICE == 1
+        static_assert(TN == 8);
+        static_assert(WIDTH >= 16); // TODO: generalize
+        static_assert(WIDTH % (2 * TN) == 0);
+        // As TN == 8, even vnni'ed we would only use half the cache line using a single block.
+        // Thus, we load 2 blocks at the same time.
+        for (int iterA = 0; iterA < WIDTH; iterA += TK) {
+            for (int iterB = 0; iterB < WIDTH; iterB += 2 * TN) {
+                simd<T, TK * TN> BlockB0;
+                simd<T, TK * TN> BlockB1;
+                auto BlockB0_float = BlockB0.template bit_cast_view<float>();
+                auto BlockB1_float = BlockB1.template bit_cast_view<float>();
+
+                for (int rowiter = 0; rowiter < TK / vnni_factor; rowiter++) {
+                    auto tmp_reg = lsc_block_load<float, 2 * TN, lsc_data_size::default_size, cache_hint::cached,
+                                                  cache_hint::cached>(reinterpret_cast<float const *>(B) + iterB +
+                                                                      iterA / vnni_factor * WIDTH + rowiter * WIDTH);
+                    BlockB0_float.template select<TN, 1>(rowiter * TN) = tmp_reg.template select<TN, 1>(0);
+                    BlockB1_float.template select<TN, 1>(rowiter * TN) = tmp_reg.template select<TN, 1>(TN);
+                }
+
+                Cs.template select<TM * TN, 1>(iterB * TM) = xmx::dpas<8, TM, Tc>(
+                    Cs.template select<TM * TN, 1>(iterB * TM), BlockB0, As.template select<TM * TK, 1>(iterA * TM));
+                Cs.template select<TM * TN, 1>((iterB + TN) * TM) =
+                    xmx::dpas<8, TM, Tc>(Cs.template select<TM * TN, 1>((iterB + TN) * TM), BlockB1,
+                                         As.template select<TM * TK, 1>(iterA * TM));
+#endif
             }
         }
     }
@@ -394,12 +410,11 @@ class EsimdKernels {
     static constexpr int ComputeTK() { return 8 * std::min<int>(8, 32 / (8 * sizeof(T))); }
 
     static int ComputeItemsInWG(const size_t M, const int TM) {
-
 // TODO: 64 depends on the device. It is different for non-PVC hardware
 #if TARGET_DEVICE == 0
         constexpr int max_items_per_wg = 64;
 #elif TARGET_DEVICE == 1
-        constexpr int max_items_per_wg = 64;
+        constexpr int max_items_per_wg = 1;
 #endif
         int items_in_wg = std::min<int>(M / TM, max_items_per_wg);
         while (M / TM % items_in_wg != 0) {
