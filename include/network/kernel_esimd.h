@@ -307,35 +307,76 @@ class EsimdKernels {
 
                 Cs.template select<TM * TN, 1>(iterB * TM) = xmx::dpas<8, TM, Tc>(
                     Cs.template select<TM * TN, 1>(iterB * TM), BlockB, As.template select<TM * TK, 1>(iterA * TM));
+            }
+        }
 #elif TARGET_DEVICE == 1
         static_assert(TN == 8);
         static_assert(WIDTH >= 16); // TODO: generalize
         static_assert(WIDTH % (2 * TN) == 0);
         // As TN == 8, even vnni'ed we would only use half the cache line using a single block.
         // Thus, we load 2 blocks at the same time.
-        for (int iterA = 0; iterA < WIDTH; iterA += TK) {
-            for (int iterB = 0; iterB < WIDTH; iterB += 2 * TN) {
-                simd<T, TK * TN> BlockB0;
-                simd<T, TK * TN> BlockB1;
-                auto BlockB0_float = BlockB0.template bit_cast_view<float>();
-                auto BlockB1_float = BlockB1.template bit_cast_view<float>();
+        if constexpr (WIDTH >= 4 * TN) {
+            for (int iterA = 0; iterA < WIDTH; iterA += TK) {
+                for (int iterB = 0; iterB < WIDTH; iterB += 4 * TN) {
+                    simd<T, TK * TN> BlockB0;
+                    simd<T, TK * TN> BlockB1;
+                    simd<T, TK * TN> BlockB2;
+                    simd<T, TK * TN> BlockB3;
+                    auto BlockB0_float = BlockB0.template bit_cast_view<float>();
+                    auto BlockB1_float = BlockB1.template bit_cast_view<float>();
+                    auto BlockB2_float = BlockB2.template bit_cast_view<float>();
+                    auto BlockB3_float = BlockB3.template bit_cast_view<float>();
 
-                for (int rowiter = 0; rowiter < TK / vnni_factor; rowiter++) {
-                    auto tmp_reg = lsc_block_load<float, 2 * TN, lsc_data_size::default_size, cache_hint::cached,
-                                                  cache_hint::cached>(reinterpret_cast<float const *>(B) + iterB +
-                                                                      iterA / vnni_factor * WIDTH + rowiter * WIDTH);
-                    BlockB0_float.template select<TN, 1>(rowiter * TN) = tmp_reg.template select<TN, 1>(0);
-                    BlockB1_float.template select<TN, 1>(rowiter * TN) = tmp_reg.template select<TN, 1>(TN);
+                    for (int rowiter = 0; rowiter < TK / vnni_factor; rowiter++) {
+                        auto tmp_reg = lsc_block_load<float, 4 * TN, lsc_data_size::default_size, cache_hint::cached,
+                                                      cache_hint::cached>(
+                            reinterpret_cast<float const *>(B) + iterB + iterA / vnni_factor * WIDTH + rowiter * WIDTH);
+                        BlockB0_float.template select<TN, 1>(rowiter * TN) = tmp_reg.template select<TN, 1>(0);
+                        BlockB1_float.template select<TN, 1>(rowiter * TN) = tmp_reg.template select<TN, 1>(TN);
+                        BlockB2_float.template select<TN, 1>(rowiter * TN) = tmp_reg.template select<TN, 1>(2 * TN);
+                        BlockB3_float.template select<TN, 1>(rowiter * TN) = tmp_reg.template select<TN, 1>(3 * TN);
+                    }
+
+                    Cs.template select<TM * TN, 1>(iterB * TM) =
+                        xmx::dpas<8, TM, Tc>(Cs.template select<TM * TN, 1>(iterB * TM), BlockB0,
+                                             As.template select<TM * TK, 1>(iterA * TM));
+                    Cs.template select<TM * TN, 1>((iterB + TN) * TM) =
+                        xmx::dpas<8, TM, Tc>(Cs.template select<TM * TN, 1>((iterB + TN) * TM), BlockB1,
+                                             As.template select<TM * TK, 1>(iterA * TM));
+                    Cs.template select<TM * TN, 1>((iterB + 2 * TN) * TM) =
+                        xmx::dpas<8, TM, Tc>(Cs.template select<TM * TN, 1>((iterB + 2 * TN) * TM), BlockB2,
+                                             As.template select<TM * TK, 1>(iterA * TM));
+                    Cs.template select<TM * TN, 1>((iterB + 3 * TN) * TM) =
+                        xmx::dpas<8, TM, Tc>(Cs.template select<TM * TN, 1>((iterB + 3 * TN) * TM), BlockB3,
+                                             As.template select<TM * TK, 1>(iterA * TM));
                 }
+            }
+        } else if constexpr (WIDTH == 2 * TN) {
+            for (int iterA = 0; iterA < WIDTH; iterA += TK) {
+                for (int iterB = 0; iterB < WIDTH; iterB += 2 * TN) {
+                    simd<T, TK * TN> BlockB0;
+                    simd<T, TK * TN> BlockB1;
+                    auto BlockB0_float = BlockB0.template bit_cast_view<float>();
+                    auto BlockB1_float = BlockB1.template bit_cast_view<float>();
 
-                Cs.template select<TM * TN, 1>(iterB * TM) = xmx::dpas<8, TM, Tc>(
-                    Cs.template select<TM * TN, 1>(iterB * TM), BlockB0, As.template select<TM * TK, 1>(iterA * TM));
-                Cs.template select<TM * TN, 1>((iterB + TN) * TM) =
-                    xmx::dpas<8, TM, Tc>(Cs.template select<TM * TN, 1>((iterB + TN) * TM), BlockB1,
-                                         As.template select<TM * TK, 1>(iterA * TM));
-#endif
+                    for (int rowiter = 0; rowiter < TK / vnni_factor; rowiter++) {
+                        auto tmp_reg = lsc_block_load<float, 2 * TN, lsc_data_size::default_size, cache_hint::cached,
+                                                      cache_hint::cached>(
+                            reinterpret_cast<float const *>(B) + iterB + iterA / vnni_factor * WIDTH + rowiter * WIDTH);
+                        BlockB0_float.template select<TN, 1>(rowiter * TN) = tmp_reg.template select<TN, 1>(0);
+                        BlockB1_float.template select<TN, 1>(rowiter * TN) = tmp_reg.template select<TN, 1>(TN);
+                    }
+
+                    Cs.template select<TM * TN, 1>(iterB * TM) =
+                        xmx::dpas<8, TM, Tc>(Cs.template select<TM * TN, 1>(iterB * TM), BlockB0,
+                                             As.template select<TM * TK, 1>(iterA * TM));
+                    Cs.template select<TM * TN, 1>((iterB + TN) * TM) =
+                        xmx::dpas<8, TM, Tc>(Cs.template select<TM * TN, 1>((iterB + TN) * TM), BlockB1,
+                                             As.template select<TM * TK, 1>(iterA * TM));
+                }
             }
         }
+#endif
     }
 
     template <Activation act, int TM, int TK, int N, typename Tsrc, typename Tdest>
