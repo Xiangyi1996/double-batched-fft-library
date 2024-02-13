@@ -317,6 +317,7 @@ class EsimdKernels {
         // Thus, we load 2 blocks at the same time.
         if constexpr (WIDTH >= 4 * TN) {
             for (int iterA = 0; iterA < WIDTH; iterA += TK) {
+#pragma unroll
                 for (int iterB = 0; iterB < WIDTH; iterB += 4 * TN) {
                     simd<T, TK * TN> BlockB0;
                     simd<T, TK * TN> BlockB1;
@@ -353,6 +354,7 @@ class EsimdKernels {
             }
         } else if constexpr (WIDTH == 2 * TN) {
             for (int iterA = 0; iterA < WIDTH; iterA += TK) {
+#pragma unroll
                 for (int iterB = 0; iterB < WIDTH; iterB += 2 * TN) {
                     simd<T, TK * TN> BlockB0;
                     simd<T, TK * TN> BlockB1;
