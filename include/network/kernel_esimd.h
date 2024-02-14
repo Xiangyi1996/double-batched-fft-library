@@ -140,7 +140,7 @@ class EsimdKernels {
         static_assert(OUTPUT_WIDTH == WIDTH);
         const size_t M = input.m();
 
-        constexpr int TM = ComputeTM<false>();
+        constexpr int TM = ComputeTM();
 
         assert(M % TM == 0);
         const int ITEMS_IN_WG = ComputeItemsInWG(M, TM);
@@ -319,7 +319,7 @@ class EsimdKernels {
             static_assert(WIDTH % (4 * TN) == 0);
             for (int iterA = 0; iterA < WIDTH; iterA += TK) {
                 auto current_A = As.template select<TM * TK, 1>(iterA * TM);
-#pragma unroll
+                // #pragma unroll(2)
                 for (int iterB = 0; iterB < WIDTH; iterB += 4 * TN) {
                     simd<T, TK * TN> BlockB0;
                     simd<T, TK * TN> BlockB1;
@@ -436,20 +436,15 @@ class EsimdKernels {
     }
 
   private:
-    template <bool FORWARD> static constexpr int ComputeTM() {
+    static constexpr int ComputeTM() {
 #if TARGET_DEVICE == 0
         return 8;
 #elif TARGET_DEVICE == 1
         if constexpr (WIDTH < 64)
             return 8;
         else if constexpr (WIDTH >= 64) {
-            if constexpr (FORWARD) {
-                constexpr int factor = std::max(1, WIDTH / 64); // shut up div by 0 warning
-                return std::max<int>(1, 4 / factor);
-            } else if constexpr (!FORWARD) {
-                constexpr int factor = std::max(1, WIDTH / 64); // shut up div by 0 warning
-                return std::max<int>(1, 2 / factor);
-            }
+            constexpr int factor = std::max(1, WIDTH / 64); // shut up div by 0 warning
+            return std::max<int>(1, 4 / factor);
         }
 #endif
     }
@@ -484,7 +479,7 @@ class EsimdKernels {
         static_assert(OUTPUT_WIDTH == WIDTH);
         static_assert(WIDTH % TN == 0);
 
-        constexpr int TM = ComputeTM<true>();
+        constexpr int TM = ComputeTM();
         // make sure there is no remainder and no out of bounds accesses
         // this may be adjusted in the future
         assert(M % TM == 0);

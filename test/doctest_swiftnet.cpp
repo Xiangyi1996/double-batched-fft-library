@@ -161,8 +161,7 @@ void test_backward_1layer(sycl::queue &q, const int input_width, const int outpu
     L2Loss<T> l2_loss;
     T loss_scale = 1.0;
     sycl::event sycl_event = l2_loss.evaluate(q, loss_scale, interm_forw.Back(), targets, loss, dL_doutput);
-    es.push_back(sycl_event);
-    network.backward_pass(dL_doutput, network_backward_output, interm_backw, interm_forw, es);
+    network.backward_pass(dL_doutput, network_backward_output, interm_backw, interm_forw, {sycl_event});
     q.wait();
 
     std::vector<T> interm_backw_host = interm_backw.copy_to_host();
@@ -193,14 +192,14 @@ void test_backward_1layer(sycl::queue &q, const int input_width, const int outpu
             CHECK(areVectorsWithinTolerance(
                 std::vector<T>(interm_backw_host.begin() + batch_idx * WIDTH + idx * batch_size * WIDTH,
                                interm_backw_host.begin() + WIDTH + batch_idx * WIDTH + idx * batch_size * WIDTH),
-                loss_grads_ref[idx], 15.0e-2));
+                loss_grads_ref[idx], 1.0e-2));
             // here, we don't distinguish between WIDTH, input_width and
             // output_width.If the values are not the same, we need to separate
         }
         for (int i = 0; i < weights_ref.size(); i++) {
             CHECK(areVectorsWithinTolerance(
                 std::vector<T>(grad.begin() + WIDTH * WIDTH * i, grad.begin() + WIDTH * WIDTH * i + WIDTH * WIDTH),
-                weights_ref[i], 15.0e-2));
+                weights_ref[i], 1.0e-2));
             // here, we don't distinguish between WIDTH, input_width and output_width. If the
             // values are not the same, we need to separate
         }
