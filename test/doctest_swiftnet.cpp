@@ -94,116 +94,295 @@ void test_forward_1layer(sycl::queue &q, const int input_width, const int output
     }
 }
 
-// Function which runs forw+backward without loss
-// and tests output from backward and intermediate backw result.
-// Forward results are tested with other functions
 template <typename T, int WIDTH>
-void test_backward_1layer(sycl::queue &q, const int input_width, const int output_width, const int n_hidden_layers,
-                          const int batch_size, bool linspace_weights) {
-    const T input_val = 1.0f;
-    Eigen::VectorXd input_ref = Eigen::VectorXd::Ones(input_width) * static_cast<float>(input_val);
-    // Eigen::VectorXd input_ref = Eigen::VectorXd::LinSpaced(input_width, -0.5f, 1.0f); // go from 0 till N
-    const float target_val = 0.1;
+void test_grads(sycl::queue &q, const int input_width, const int output_width, const int n_hidden_layers,
+                const int batch_size, std::string activation, std::string weight_init_mode) {
+    T loss_scale = 1.0;
+    Activation network_activation;
+    if (activation == "relu") {
+        network_activation = Activation::ReLU;
+    } else if (activation == "linear") {
+        network_activation = Activation::None;
+    }
+    const double input_val = 1.0f;
+    std::vector<double> input_ref(input_width, input_val);
+    const double target_val = 0.1f;
+    std::vector<double> target_ref(output_width, target_val);
 
-    Eigen::VectorXd target_ref = Eigen::VectorXd::Ones(output_width) * target_val;
-    std::vector<float> input_vec = eigenToStdVector<float>(input_ref);
+    MLP<double> mlp(input_width, WIDTH, output_width, n_hidden_layers + 1, batch_size, activation, "linear",
+                    weight_init_mode);
+    mlp.getUnpackedWeights();
+    std::vector<std::vector<double>> fwd_result_ref = mlp.forward(input_ref, false);
+    std::vector<double> network_output_ref = repeat_inner_vectors<double>(fwd_result_ref, batch_size);
 
-    CHECK(input_width == output_width); // this is not a hard requirement, but currently the loop over the
-                                        // mlp reference (batch size = 1) assumes this. if this is changed, ensure the
-                                        // checks are still correct
-    CHECK(input_width == WIDTH);
+    std::vector<Matrix<double>> grad_matrices_ref(n_hidden_layers + 1, Matrix<double>(1, 1));
+    std::vector<std::vector<double>> loss_grads_ref;
+    std::vector<double> loss_ref;
+    mlp.backward(input_ref, target_ref, grad_matrices_ref, loss_grads_ref, loss_ref, loss_scale);
 
-    SwiftNetMLP<T, WIDTH> network(q, input_width, output_width, n_hidden_layers, Activation::ReLU, Activation::None,
+    DeviceMatrix<T> network_output(batch_size, output_width, q);
+    network_output.fill(0.0f).wait();
+    network_output.copy_from_host(convert_vector<double, T>(network_output_ref)).wait();
+
+    DeviceMatrix<T> dL_doutput(batch_size, output_width, q);
+    dL_doutput.fill(0.0f).wait();
+
+    DeviceMatrix<float> loss(batch_size, output_width, q);
+    loss.fill(0.0f).wait();
+
+    DeviceMatrix<float> targets(batch_size, output_width, q);
+    targets.fill(target_val).wait();
+
+    L2Loss<T> l2_loss;
+    sycl::event sycl_event = l2_loss.evaluate(q, loss_scale, network_output.GetView(), targets, loss, dL_doutput);
+    q.wait();
+
+    // Calculating backward of swifnet from here using reference values
+    SwiftNetMLP<T, WIDTH> network(q, input_width, output_width, n_hidden_layers, network_activation, Activation::None,
                                   Network<T>::WeightInitMode::constant_pos);
-    MLP<float> mlp(input_width, WIDTH, output_width, n_hidden_layers + 2, batch_size, linspace_weights);
-    std::vector<float> unpacked_weights_float = mlp.getUnpackedWeights();
+    std::vector<T> unpacked_weights = convert_vector<double, T>(mlp.getUnpackedWeights());
+    network.set_weights_matrices(
+        io::get_packed_weights<T, WIDTH>(unpacked_weights, n_hidden_layers, input_width, output_width));
 
-    std::vector<T> unpacked_weights(unpacked_weights_float.size());
+    DeviceMatrices<T> interm_forw(network.get_n_hidden_layers() + 2, batch_size, network.get_input_width(), batch_size,
+                                  network.get_network_width(), batch_size, network.get_output_width(), q);
+    DeviceMatrices<T> interm_backw(network.get_n_hidden_layers() + 1, batch_size, network.get_network_width(),
+                                   batch_size, network.get_network_width(), batch_size, network.get_output_width(), q);
+    DeviceMatrices<T> grads(network.get_n_hidden_layers() + 1, network.get_network_width(), WIDTH, WIDTH, WIDTH, WIDTH,
+                            network.get_output_width(), q);
+    grads.fill(0.0f).wait();
+    interm_forw.fill((T)0).wait();
+    interm_backw.fill((T)0).wait();
 
-    std::transform(unpacked_weights_float.begin(), unpacked_weights_float.end(), unpacked_weights.begin(),
-                   [](float val) { return static_cast<T>(val); });
+    fwd_result_ref = mlp.forward(input_ref, true);
 
+    // in test_loss, test_fwd, we checked that interm_forw and dLdoutput are the same for swiftnet and reference
+    std::vector<double> interm_forw_ref = repeat_inner_vectors<double>(fwd_result_ref, batch_size);
+    interm_forw.copy_from_host(convert_vector<double, T>(interm_forw_ref)).wait();
+
+    std::vector<double> stacked_loss_grads_back_ref = stack_vector(loss_grads_ref.back(), batch_size);
+    dL_doutput.copy_from_host(convert_vector<double, T>(stacked_loss_grads_back_ref)).wait();
+
+    // up until here, we load only reference values to test only grads (and interm_backw)
+    network.backward_pass(dL_doutput, grads, interm_backw, interm_forw, {});
+    q.wait();
+
+    std::vector<T> interm_backw_vec = interm_backw.copy_to_host();
+    std::vector<T> grad_vec = grads.copy_to_host();
+    q.wait();
+
+    // flatten reference grad matrices
+    std::vector<double> grads_ref;
+    for (const auto &matrix : grad_matrices_ref) {
+        for (size_t row = 0; row < matrix.rows(); ++row) {
+            for (size_t col = 0; col < matrix.cols(); ++col) {
+                grads_ref.push_back(matrix.data[row][col]);
+            }
+        }
+    }
+
+    std::vector<double> interm_backw_ref;
+    for (const auto &inner_vector : loss_grads_ref) {
+        auto inner_stacked = stack_vector(inner_vector, batch_size);
+        for (T value : inner_stacked) {
+            interm_backw_ref.push_back(value); // Add each element to the flattened vector
+        }
+    }
+    CHECK(areVectorsWithinTolerance(interm_backw_vec, interm_backw_ref,
+                                    1.0e-2)); // sanity check, being tested in test_interm_backw
+
+    bool grads_within_tolerance = areVectorsWithinTolerance(grad_vec, grads_ref, 1.0e-2);
+    if (!grads_within_tolerance) {
+        printVector("grads_ref", grads_ref);
+        printVector("grad_vec", grad_vec);
+    }
+    CHECK(grads_within_tolerance);
+}
+template <typename T, int WIDTH>
+void test_interm_backw(sycl::queue &q, const int input_width, const int output_width, const int n_hidden_layers,
+                       const int batch_size, std::string activation, std::string weight_init_mode) {
+    T loss_scale = 1.0;
+    Activation network_activation;
+    if (activation == "relu") {
+        network_activation = Activation::ReLU;
+    } else if (activation == "linear") {
+        network_activation = Activation::None;
+    }
+    const double input_val = 1.0f;
+    std::vector<double> input_ref(input_width, input_val);
+    const double target_val = 0.1f;
+    std::vector<double> target_ref(output_width, target_val);
+
+    MLP<double> mlp(input_width, WIDTH, output_width, n_hidden_layers + 1, batch_size, activation, "linear",
+                    weight_init_mode);
+    mlp.getUnpackedWeights();
+    std::vector<std::vector<double>> fwd_result_ref = mlp.forward(input_ref, false);
+    std::vector<double> network_output_ref = repeat_inner_vectors<double>(fwd_result_ref, batch_size);
+
+    std::vector<Matrix<double>> grad_matrices_ref(n_hidden_layers + 1, Matrix<double>(1, 1));
+    std::vector<std::vector<double>> loss_grads_ref;
+    std::vector<double> loss_ref;
+    mlp.backward(input_ref, target_ref, grad_matrices_ref, loss_grads_ref, loss_ref, loss_scale);
+
+    DeviceMatrix<T> network_output(batch_size, output_width, q);
+    network_output.fill(0.0f).wait();
+    network_output.copy_from_host(convert_vector<double, T>(network_output_ref)).wait();
+
+    DeviceMatrix<T> dL_doutput(batch_size, output_width, q);
+    dL_doutput.fill(0.0f).wait();
+
+    DeviceMatrix<float> loss(batch_size, output_width, q);
+    loss.fill(0.0f).wait();
+
+    DeviceMatrix<float> targets(batch_size, output_width, q);
+    targets.fill(target_val).wait();
+
+    L2Loss<T> l2_loss;
+    sycl::event sycl_event = l2_loss.evaluate(q, loss_scale, network_output.GetView(), targets, loss, dL_doutput);
+    q.wait();
+
+    // Calculating backward of swifnet from here using reference values
+    SwiftNetMLP<T, WIDTH> network(q, input_width, output_width, n_hidden_layers, network_activation, Activation::None,
+                                  Network<T>::WeightInitMode::constant_pos);
+    std::vector<T> unpacked_weights = convert_vector<double, T>(mlp.getUnpackedWeights());
+    network.set_weights_matrices(
+        io::get_packed_weights<T, WIDTH>(unpacked_weights, n_hidden_layers, input_width, output_width));
+
+    DeviceMatrices<T> interm_forw(network.get_n_hidden_layers() + 2, batch_size, network.get_input_width(), batch_size,
+                                  network.get_network_width(), batch_size, network.get_output_width(), q);
+    DeviceMatrices<T> interm_backw(network.get_n_hidden_layers() + 1, batch_size, network.get_network_width(),
+                                   batch_size, network.get_network_width(), batch_size, network.get_output_width(), q);
+    DeviceMatrices<T> grads(network.get_n_hidden_layers() + 1, network.get_network_width(), WIDTH, WIDTH, WIDTH, WIDTH,
+                            network.get_output_width(), q);
+    grads.fill(0.0f).wait();
+    interm_forw.fill((T)0).wait();
+    interm_backw.fill((T)0).wait();
+
+    fwd_result_ref = mlp.forward(input_ref, true);
+
+    // in test_loss, test_fwd, we checked that interm_forw and dLdoutput are the same for swiftnet and reference
+    std::vector<double> interm_forw_ref = repeat_inner_vectors<double>(fwd_result_ref, batch_size);
+    interm_forw.copy_from_host(convert_vector<double, T>(interm_forw_ref)).wait();
+
+    std::vector<double> stacked_loss_grads_back_ref = stack_vector(loss_grads_ref.back(), batch_size);
+    dL_doutput.copy_from_host(convert_vector<double, T>(stacked_loss_grads_back_ref)).wait();
+
+    // up until here, we load only reference values to test only interm_backw (and grads)
+    network.backward_pass(dL_doutput, grads, interm_backw, interm_forw, {});
+    q.wait();
+
+    std::vector<T> interm_backw_vec = interm_backw.copy_to_host();
+    q.wait();
+
+    for (int i = 0; i < loss_grads_ref.size(); i++) {
+        std::vector<double> interm_backw_ref;
+        std::vector<T> interm_backw_sliced_actual(interm_backw_vec.begin() + i * batch_size * WIDTH,
+                                                  interm_backw_vec.begin() + i * batch_size * WIDTH +
+                                                      batch_size * WIDTH);
+        auto inner_stacked = stack_vector(loss_grads_ref[i], batch_size);
+        for (T value : inner_stacked) {
+            interm_backw_ref.push_back(value); // Add each element to the flattened vector
+        }
+
+        bool interm_backw_within_tolerance =
+            areVectorsWithinTolerance(interm_backw_sliced_actual, interm_backw_ref, 1.0e-2);
+        if (!interm_backw_within_tolerance) {
+            printVector("interm_backw_ref: ", interm_backw_ref);
+            printVector("interm_backw_vec: ", interm_backw_sliced_actual);
+        }
+        CHECK(interm_backw_within_tolerance);
+    }
+}
+
+template <typename T, int WIDTH>
+void test_loss(sycl::queue &q, const int input_width, const int output_width, const int n_hidden_layers,
+               const int batch_size, std::string activation, std::string weight_init_mode) {
+    T loss_scale = 10.0; // randomly picking one to ensure it works
+
+    const double input_val = 1.0f;
+    std::vector<double> input_ref(input_width, input_val);
+    const double target_val = 0.1f;
+    std::vector<double> target_ref(output_width, target_val);
+
+    MLP<double> mlp(input_width, WIDTH, output_width, n_hidden_layers + 1, batch_size, activation, "linear",
+                    weight_init_mode);
+
+    std::vector<std::vector<double>> fwd_result_ref = mlp.forward(input_ref, false);
+    std::vector<double> network_output_ref = repeat_inner_vectors<double>(fwd_result_ref, batch_size);
+
+    std::vector<Matrix<double>> weights_ref(n_hidden_layers + 1, Matrix<double>(1, 1));
+    std::vector<std::vector<double>> loss_grads_ref;
+    std::vector<double> loss_ref;
+    mlp.backward(input_ref, target_ref, weights_ref, loss_grads_ref, loss_ref, loss_scale);
+
+    DeviceMatrix<T> network_output(batch_size, output_width, q);
+    network_output.fill(0.0f).wait();
+    network_output.copy_from_host(convert_vector<double, T>(network_output_ref)).wait();
+
+    DeviceMatrix<T> dL_doutput(batch_size, output_width, q);
+    dL_doutput.fill(0.0f).wait();
+
+    DeviceMatrix<float> loss(batch_size, output_width, q);
+    loss.fill(0.0f).wait();
+
+    DeviceMatrix<float> targets(batch_size, output_width, q);
+    targets.fill(target_val).wait();
+
+    L2Loss<T> l2_loss;
+    sycl::event sycl_event = l2_loss.evaluate(q, loss_scale, network_output.GetView(), targets, loss, dL_doutput);
+    q.wait();
+    std::vector<T> dL_doutput_vec = dL_doutput.copy_to_host();
+    std::vector<double> stacked_loss_grads_ref = stack_vector(loss_grads_ref.back(), batch_size);
+    std::vector<double> stacked_loss_ref = stack_vector(loss_ref, batch_size);
+    CHECK(areVectorsWithinTolerance(stacked_loss_grads_ref, dL_doutput_vec, 1.0e-2));
+
+    auto loss_vec = loss.copy_to_host();
+    CHECK(areVectorsWithinTolerance(stacked_loss_ref, loss_vec, 1.0e-2));
+}
+
+template <typename T, int WIDTH>
+void test_interm_fwd(sycl::queue &q, const int input_width, const int output_width, const int n_hidden_layers,
+                     const int batch_size, std::string activation, std::string weight_init_mode) {
+
+    Activation network_activation;
+    if (activation == "relu") {
+        network_activation = Activation::ReLU;
+    } else if (activation == "linear") {
+        network_activation = Activation::None;
+    }
+    const double input_val = 1.0f;
+    std::vector<double> input_ref(input_width, input_val);
+    SwiftNetMLP<T, WIDTH> network(q, input_width, output_width, n_hidden_layers, network_activation, Activation::None,
+                                  Network<T>::WeightInitMode::constant_pos);
+
+    MLP<double> mlp(input_width, WIDTH, output_width, n_hidden_layers + 1, batch_size, activation, "linear",
+                    weight_init_mode);
+
+    std::vector<double> unpacked_weights_double = mlp.getUnpackedWeights();
+
+    std::vector<T> unpacked_weights = convert_vector<double, T>(unpacked_weights_double);
     network.set_weights_matrices(
         io::get_packed_weights<T, WIDTH>(unpacked_weights, n_hidden_layers, input_width, output_width));
 
     DeviceMatrix<T> network_input(batch_size, input_width, q);
     DeviceMatrices<T> interm_forw(network.get_n_hidden_layers() + 2, batch_size, network.get_input_width(), batch_size,
                                   network.get_network_width(), batch_size, network.get_output_width(), q);
-    DeviceMatrices<T> interm_backw(network.get_n_hidden_layers() + 1, batch_size, network.get_network_width(),
-                                   batch_size, network.get_network_width(), batch_size, network.get_output_width(), q);
-    DeviceMatrix<T> dL_doutput(batch_size, network.get_output_width(), q);
-    DeviceMatrix<float> loss(batch_size, network.get_output_width(), q);
-    DeviceMatrix<float> targets(batch_size, network.get_output_width(), q);
-    DeviceMatrices<T> network_backward_output(network.get_n_hidden_layers() + 1, network.get_network_width(), WIDTH,
-                                              WIDTH, WIDTH, WIDTH, network.get_output_width(), q);
-    network_backward_output.fill(0.0f).wait();
-    targets.fill(target_val).wait();
 
-    // network_input.fill(input_val).wait();
-    std::vector<T> input_T(input_vec.begin(), input_vec.end());
     // Repeat source vector N times
-    std::vector<T> input_full(batch_size * input_T.size());
-    auto it = input_full.begin();
-    for (int i = 0; i < batch_size; ++i) {
-        it = std::copy(input_T.begin(), input_T.end(), it);
-    }
+    std::vector<T> input_full = stack_vector(convert_vector<double, T>(input_ref), batch_size);
 
     network_input.copy_from_host(input_full).wait();
 
     interm_forw.fill((T)0).wait();
-    interm_backw.fill((T)0).wait();
 
-    std::vector<sycl::event> es = network.forward_pass(network_input, interm_forw, {});
+    network.forward_pass(network_input, interm_forw, {});
     q.wait();
-    std::vector<T> interm_forw_vec = interm_forw.copy_to_host();
-    std::vector<T> output_network(interm_forw_vec.end() - (batch_size * output_width), interm_forw_vec.end());
+    std::vector<std::vector<double>> fwd_result_ref = mlp.forward(input_ref, true);
+    auto interm_forw_ref = repeat_inner_vectors<double>(fwd_result_ref, batch_size);
+    auto interm_forw_vec = interm_forw.copy_to_host();
 
-    L2Loss<T> l2_loss;
-    T loss_scale = 1.0;
-    sycl::event sycl_event = l2_loss.evaluate(q, loss_scale, interm_forw.Back(), targets, loss, dL_doutput);
-    network.backward_pass(dL_doutput, network_backward_output, interm_backw, interm_forw, {sycl_event});
-    q.wait();
-
-    std::vector<T> interm_backw_host = interm_backw.copy_to_host();
-    std::vector<T> grad = network_backward_output.copy_to_host();
-    q.wait();
-
-    std::vector<float> fwd_result_ref = mlp.forward(input_ref);
-
-    std::vector<std::vector<float>> weights_ref, loss_grads_ref;
-    mlp.backward(input_ref, target_ref, weights_ref, loss_grads_ref);
-
-    for (int batch_idx = 0; batch_idx < batch_size; batch_idx++) {
-        // note that mlp is only implemented for batch size = 1, thus checking
-        // the outputs and grads against that (as the inputs are all the same
-        // for all batch size, the grads and output are as well)
-        CHECK(areVectorsWithinTolerance(std::vector<T>(interm_forw_vec.end() - WIDTH * batch_idx - WIDTH,
-                                                       interm_forw_vec.end() - WIDTH * batch_idx),
-                                        fwd_result_ref, 3.0e-2)); // comparing only output
-
-        for (int idx = 0; idx < loss_grads_ref.size(); idx++) {
-            // for (int idx2 = 0; idx2 < WIDTH; idx2++) {
-            //     std::cout << batch_idx * WIDTH + idx * batch_size * WIDTH + idx2
-            //               << ": interm back: " << interm_backw_host[batch_idx * WIDTH + idx * batch_size * WIDTH +
-            //               idx2]
-            //               << std::endl;
-            //     std::cout << idx << " - Loss grad ref: " << loss_grads_ref[idx][idx2] << std::endl;
-            // }
-            CHECK(areVectorsWithinTolerance(
-                std::vector<T>(interm_backw_host.begin() + batch_idx * WIDTH + idx * batch_size * WIDTH,
-                               interm_backw_host.begin() + WIDTH + batch_idx * WIDTH + idx * batch_size * WIDTH),
-                loss_grads_ref[idx], 1.0e-2));
-            // here, we don't distinguish between WIDTH, input_width and
-            // output_width.If the values are not the same, we need to separate
-        }
-        for (int i = 0; i < weights_ref.size(); i++) {
-            CHECK(areVectorsWithinTolerance(
-                std::vector<T>(grad.begin() + WIDTH * WIDTH * i, grad.begin() + WIDTH * WIDTH * i + WIDTH * WIDTH),
-                weights_ref[i], 1.0e-2));
-            // here, we don't distinguish between WIDTH, input_width and output_width. If the
-            // values are not the same, we need to separate
-        }
-    }
+    CHECK(interm_forw_vec.size() == interm_forw_ref.size());
+    CHECK(areVectorsWithinTolerance(interm_forw_vec, interm_forw_ref, 1.0e-2));
 }
 
 TEST_CASE("Swiftnet - Constructor") {
@@ -458,37 +637,158 @@ TEST_CASE("Swiftnet - Net Widths forward") {
     SUBCASE("WIDTH 128") { CHECK_NOTHROW(test_function(128, q)); }
 }
 
-#ifdef TEST_BWD
-TEST_CASE("Swiftnet - backward different widths, weights, and batch sizes") {
+TEST_CASE("Swiftnet - test interm_fwd with reference MLP") {
     // only testing constructor. values tested later
     sycl::queue q(sycl::gpu_selector_v);
     const int n_hidden_layers = 1;
-    auto test_function = [=](sycl::queue &q, const int width, const int batch_size, bool linspace_weights) {
+    auto test_function = [=](sycl::queue &q, const int width, const int batch_size, std::string activation,
+                             std::string weight_init_mode) {
         typedef sycl::ext::oneapi::bfloat16 T;
         if (width == 16)
-            test_backward_1layer<T, 16>(q, 16, 16, n_hidden_layers, batch_size, linspace_weights);
+            test_interm_fwd<T, 16>(q, 16, 16, n_hidden_layers, batch_size, activation, weight_init_mode);
         else if (width == 32)
-            test_backward_1layer<T, 32>(q, 32, 32, n_hidden_layers, batch_size, linspace_weights);
+            test_interm_fwd<T, 32>(q, 32, 32, n_hidden_layers, batch_size, activation, weight_init_mode);
         else if (width == 64)
-            test_backward_1layer<T, 64>(q, 64, 64, n_hidden_layers, batch_size, linspace_weights);
+            test_interm_fwd<T, 64>(q, 64, 64, n_hidden_layers, batch_size, activation, weight_init_mode);
         else if (width == 128)
-            test_backward_1layer<T, 128>(q, 128, 128, n_hidden_layers, batch_size, linspace_weights);
+            test_interm_fwd<T, 128>(q, 128, 128, n_hidden_layers, batch_size, activation, weight_init_mode);
         else
             throw std::invalid_argument("Unsupported width");
     };
     const int widths[] = {16, 32, 64, 128};
     const int batch_sizes[] = {8, 16, 32, 64};
-    bool linspace_weights[] = {true, false};
+    std::string activations[] = {"linear", "relu"};
+    std::string weight_init_modes[] = {"constant", "random"};
 
     for (int batch_size : batch_sizes) {
         for (int width : widths) {
-            for (bool linspace_weight : linspace_weights) {
-                std::string testName = "WIDTH " + std::to_string(width) +
-                                       " - Linspaced weights: " + (linspace_weight ? "true" : "false") +
-                                       " - Batch size: " + std::to_string(batch_size);
-                SUBCASE(testName.c_str()) { CHECK_NOTHROW(test_function(q, width, batch_size, linspace_weight)); }
+            for (std::string activation : activations) {
+                for (std::string weight_init_mode : weight_init_modes) {
+                    std::string testName = "Testing interm_fwd WIDTH " + std::to_string(width) +
+                                           " - activation: " + activation + " - weight_init_mode: " + weight_init_mode +
+                                           " - Batch size: " + std::to_string(batch_size);
+                    SUBCASE(testName.c_str()) {
+                        CHECK_NOTHROW(test_function(q, width, batch_size, activation, weight_init_mode));
+                    }
+                }
             }
         }
     }
 }
-#endif
+
+TEST_CASE("Swiftnet - test loss") {
+    // only testing constructor. values tested later
+    sycl::queue q(sycl::gpu_selector_v);
+    const int n_hidden_layers = 1;
+    // test_loss<double, 16>(q, 16, 16, n_hidden_layers, 8, "linear", "linspace");
+
+    auto test_function = [=](sycl::queue &q, const int width, const int batch_size, std::string activation,
+                             std::string weight_init_mode) {
+        typedef double T;
+        if (width == 16)
+            test_loss<T, 16>(q, 16, 16, n_hidden_layers, batch_size, activation, weight_init_mode);
+        else if (width == 32)
+            test_loss<T, 32>(q, 32, 32, n_hidden_layers, batch_size, activation, weight_init_mode);
+        else if (width == 64)
+            test_loss<T, 64>(q, 64, 64, n_hidden_layers, batch_size, activation, weight_init_mode);
+        else if (width == 128)
+            test_loss<T, 128>(q, 128, 128, n_hidden_layers, batch_size, activation, weight_init_mode);
+        else
+            throw std::invalid_argument("Unsupported width");
+    };
+    const int widths[] = {16, 32, 64, 128};
+    const int batch_sizes[] = {8, 16, 32, 64};
+    std::string activations[] = {"linear", "relu"};
+    std::string weight_init_modes[] = {"constant", "random"};
+
+    for (int batch_size : batch_sizes) {
+        for (int width : widths) {
+            for (std::string activation : activations) {
+                for (std::string weight_init_mode : weight_init_modes) {
+                    std::string testName = "Testing loss WIDTH " + std::to_string(width) +
+                                           " - activation: " + activation + " - weight_init_mode: " + weight_init_mode +
+                                           " - Batch size: " + std::to_string(batch_size);
+                    SUBCASE(testName.c_str()) {
+                        CHECK_NOTHROW(test_function(q, width, batch_size, activation, weight_init_mode));
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("Swiftnet - test interm bwd") {
+    sycl::queue q(sycl::gpu_selector_v);
+    const int n_hidden_layers = 1;
+    auto test_function = [=](sycl::queue &q, const int width, const int batch_size, std::string activation,
+                             std::string weight_init_mode) {
+        typedef sycl::ext::oneapi::bfloat16 T;
+        if (width == 16)
+            test_interm_backw<T, 16>(q, 16, 16, n_hidden_layers, batch_size, activation, weight_init_mode);
+        else if (width == 32)
+            test_interm_backw<T, 32>(q, 32, 32, n_hidden_layers, batch_size, activation, weight_init_mode);
+        else if (width == 64)
+            test_interm_backw<T, 64>(q, 64, 64, n_hidden_layers, batch_size, activation, weight_init_mode);
+        else if (width == 128)
+            test_interm_backw<T, 128>(q, 128, 128, n_hidden_layers, batch_size, activation, weight_init_mode);
+        else
+            throw std::invalid_argument("Unsupported width");
+    };
+    const int widths[] = {16, 32, 64, 128};
+    const int batch_sizes[] = {8, 16, 32, 64};
+    std::string activations[] = {"linear", "relu"};
+    std::string weight_init_modes[] = {"constant", "random"};
+
+    for (int batch_size : batch_sizes) {
+        for (int width : widths) {
+            for (std::string activation : activations) {
+                for (std::string weight_init_mode : weight_init_modes) {
+                    std::string testName = "Testing interm bwd WIDTH " + std::to_string(width) +
+                                           " - activation: " + activation + " - weight_init_mode: " + weight_init_mode +
+                                           " - Batch size: " + std::to_string(batch_size);
+                    SUBCASE(testName.c_str()) {
+                        CHECK_NOTHROW(test_function(q, width, batch_size, activation, weight_init_mode));
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("Swiftnet - test grad") {
+    sycl::queue q(sycl::gpu_selector_v);
+    const int n_hidden_layers = 1;
+    auto test_function = [=](sycl::queue &q, const int width, const int batch_size, std::string activation,
+                             std::string weight_init_mode) {
+        typedef sycl::ext::oneapi::bfloat16 T;
+        if (width == 16)
+            test_grads<T, 16>(q, 16, 16, n_hidden_layers, batch_size, activation, weight_init_mode);
+        else if (width == 32)
+            test_grads<T, 32>(q, 32, 32, n_hidden_layers, batch_size, activation, weight_init_mode);
+        else if (width == 64)
+            test_grads<T, 64>(q, 64, 64, n_hidden_layers, batch_size, activation, weight_init_mode);
+        else if (width == 128)
+            test_grads<T, 128>(q, 128, 128, n_hidden_layers, batch_size, activation, weight_init_mode);
+        else
+            throw std::invalid_argument("Unsupported width");
+    };
+    const int widths[] = {16, 32, 64, 128};
+    const int batch_sizes[] = {8, 16, 32, 64};
+    std::string activations[] = {"linear", "relu"};
+    std::string weight_init_modes[] = {"constant", "random"};
+
+    for (int batch_size : batch_sizes) {
+        for (int width : widths) {
+            for (std::string activation : activations) {
+                for (std::string weight_init_mode : weight_init_modes) {
+                    std::string testName = "Testing grad WIDTH " + std::to_string(width) +
+                                           " - activation: " + activation + " - weight_init_mode: " + weight_init_mode +
+                                           " - Batch size: " + std::to_string(batch_size);
+                    SUBCASE(testName.c_str()) {
+                        CHECK_NOTHROW(test_function(q, width, batch_size, activation, weight_init_mode));
+                    }
+                }
+            }
+        }
+    }
+}

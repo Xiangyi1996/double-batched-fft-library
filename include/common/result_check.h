@@ -99,3 +99,25 @@ bool areVectorsWithinTolerance(const std::vector<Tval> &value, const std::vector
     }
     return is_same;
 }
+
+template <typename Tval, typename Ttarget>
+bool areScalarsWithinTolerance(const Tval &value, const Ttarget &target, const double tolerance) {
+
+    bool is_same = true;
+    double max_diff = 0.0;
+    const double inf_diff = std::abs(value - target);
+    const double inf_val = std::abs(value);
+    const double inf_tar = std::abs(target);
+    if ((double)inf_tar == 0.0)
+        max_diff = inf_diff;
+    else
+        max_diff = inf_diff / std::max(inf_tar, inf_val);
+
+    if (max_diff > tolerance) is_same = false;
+
+    if (!is_same) {
+        std::cout << "Values are within tolerance = " << std::boolalpha << is_same << std::noboolalpha
+                  << ". Max diff = " << max_diff << std::endl;
+    }
+    return is_same;
+}
