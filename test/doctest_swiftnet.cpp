@@ -178,9 +178,9 @@ void test_backward_1layer(sycl::queue &q, const int input_width, const int outpu
         // note that mlp is only implemented for batch size = 1, thus checking
         // the outputs and grads against that (as the inputs are all the same
         // for all batch size, the grads and output are as well)
-         CHECK(areVectorsWithinTolerance(std::vector<T>(interm_forw_vec.end() - WIDTH * batch_idx - WIDTH,
-                                                        interm_forw_vec.end() - WIDTH * batch_idx),
-                                         fwd_result_ref, 3.0e-2)); // comparing only output
+        CHECK(areVectorsWithinTolerance(std::vector<T>(interm_forw_vec.end() - WIDTH * batch_idx - WIDTH,
+                                                       interm_forw_vec.end() - WIDTH * batch_idx),
+                                        fwd_result_ref, 3.0e-2)); // comparing only output
 
         for (int idx = 0; idx < loss_grads_ref.size(); idx++) {
             // for (int idx2 = 0; idx2 < WIDTH; idx2++) {
@@ -198,12 +198,12 @@ void test_backward_1layer(sycl::queue &q, const int input_width, const int outpu
             // output_width.If the values are not the same, we need to separate
         }
         for (int i = 0; i < weights_ref.size(); i++) {
-             CHECK(areVectorsWithinTolerance(
-                 std::vector<T>(grad.begin() + WIDTH * WIDTH * i, grad.begin() + WIDTH * WIDTH * i + WIDTH * WIDTH),
-                 weights_ref[i], 15.0e-2));
-        //     // here, we don't distinguish between WIDTH, input_width and output_width. If the
-        //     // values are not the same, we need to separate
-        // }
+            CHECK(areVectorsWithinTolerance(
+                std::vector<T>(grad.begin() + WIDTH * WIDTH * i, grad.begin() + WIDTH * WIDTH * i + WIDTH * WIDTH),
+                weights_ref[i], 15.0e-2));
+            // here, we don't distinguish between WIDTH, input_width and output_width. If the
+            // values are not the same, we need to separate
+        }
     }
 }
 
@@ -481,12 +481,12 @@ TEST_CASE("Swiftnet - backward different widths, weights, and batch sizes") {
     const int batch_sizes[] = {8, 16, 32, 64};
     bool linspace_weights[] = {true, false};
 
-    for (int batch_size : batch_sizes) {
         for (int width : widths) {
             for (bool linspace_weight : linspace_weights) {
                 std::string testName = "WIDTH " + std::to_string(width) +
                                        " - Linspaced weights: " + (linspace_weight ? "true" : "false") +
                                        " - Batch size: " + std::to_string(batch_size);
+                std::cout << testName << std::endl;
                 SUBCASE(testName.c_str()) { CHECK_NOTHROW(test_function(q, width, batch_size, linspace_weight)); }
             }
         }
