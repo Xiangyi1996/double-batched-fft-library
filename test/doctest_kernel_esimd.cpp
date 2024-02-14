@@ -168,8 +168,14 @@ TEST_CASE("LoadStoreRow") {
 TEST_CASE("reBlock") {
     sycl::queue q(sycl::gpu_selector_v);
 
-    SUBCASE("Equal dims") { TestReBlock<8, XMXTn::TN, 64, int16_t>(q); }
-    SUBCASE("2x dims") { TestReBlock<8, XMXTn::TN * 2, 64, int16_t>(q); }
+    SUBCASE("Equal dims 8") { TestReBlock<8, XMXTn::TN, 64, int16_t>(q); }
+    SUBCASE("Equal dims 4") { TestReBlock<4, XMXTn::TN, 64, int16_t>(q); }
+    SUBCASE("Equal dims 2") { TestReBlock<2, XMXTn::TN, 64, int16_t>(q); }
+    SUBCASE("Equal dims 1") { TestReBlock<1, XMXTn::TN, 64, int16_t>(q); }
+    SUBCASE("2x dims 8") { TestReBlock<8, XMXTn::TN * 2, 64, int16_t>(q); }
+    SUBCASE("2x dims 4") { TestReBlock<4, XMXTn::TN * 2, 64, int16_t>(q); }
+    SUBCASE("2x dims 2") { TestReBlock<2, XMXTn::TN * 2, 64, int16_t>(q); }
+    SUBCASE("2x dims 1") { TestReBlock<1, XMXTn::TN * 2, 64, int16_t>(q); }
     SUBCASE("4x dims") { TestReBlock<8, XMXTn::TN * 4, 64, int16_t>(q); }
     if constexpr (XMXTn::TN == 16) {
         SUBCASE(".5x dims") { TestReBlock<8, XMXTn::TN / 2, 64, int16_t>(q); }

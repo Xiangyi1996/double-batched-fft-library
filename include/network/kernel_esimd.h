@@ -140,7 +140,7 @@ class EsimdKernels {
         static_assert(OUTPUT_WIDTH == WIDTH);
         const size_t M = input.m();
 
-        constexpr int TM = ComputeTM();
+        constexpr int TM = ComputeTM<false>();
 
         assert(M % TM == 0);
         const int ITEMS_IN_WG = ComputeItemsInWG(M, TM);
@@ -316,7 +316,9 @@ class EsimdKernels {
         // As TN == 8, even vnni'ed we would only use half the cache line using a single block.
         // Thus, we load 2 blocks at the same time.
         if constexpr (WIDTH >= 4 * TN) {
+            static_assert(WIDTH % (4 * TN) == 0);
             for (int iterA = 0; iterA < WIDTH; iterA += TK) {
+                auto current_A = As.template select<TM * TK, 1>(iterA * TM);
 #pragma unroll
                 for (int iterB = 0; iterB < WIDTH; iterB += 4 * TN) {
                     simd<T, TK * TN> BlockB0;
@@ -339,43 +341,40 @@ class EsimdKernels {
                     }
 
                     Cs.template select<TM * TN, 1>(iterB * TM) =
-                        xmx::dpas<8, TM, Tc>(Cs.template select<TM * TN, 1>(iterB * TM), BlockB0,
-                                             As.template select<TM * TK, 1>(iterA * TM));
+                        xmx::dpas<8, TM, Tc>(Cs.template select<TM * TN, 1>(iterB * TM), BlockB0, current_A);
                     Cs.template select<TM * TN, 1>((iterB + TN) * TM) =
-                        xmx::dpas<8, TM, Tc>(Cs.template select<TM * TN, 1>((iterB + TN) * TM), BlockB1,
-                                             As.template select<TM * TK, 1>(iterA * TM));
+                        xmx::dpas<8, TM, Tc>(Cs.template select<TM * TN, 1>((iterB + TN) * TM), BlockB1, current_A);
                     Cs.template select<TM * TN, 1>((iterB + 2 * TN) * TM) =
-                        xmx::dpas<8, TM, Tc>(Cs.template select<TM * TN, 1>((iterB + 2 * TN) * TM), BlockB2,
-                                             As.template select<TM * TK, 1>(iterA * TM));
+                        xmx::dpas<8, TM, Tc>(Cs.template select<TM * TN, 1>((iterB + 2 * TN) * TM), BlockB2, current_A);
                     Cs.template select<TM * TN, 1>((iterB + 3 * TN) * TM) =
-                        xmx::dpas<8, TM, Tc>(Cs.template select<TM * TN, 1>((iterB + 3 * TN) * TM), BlockB3,
-                                             As.template select<TM * TK, 1>(iterA * TM));
+                        xmx::dpas<8, TM, Tc>(Cs.template select<TM * TN, 1>((iterB + 3 * TN) * TM), BlockB3, current_A);
                 }
             }
         } else if constexpr (WIDTH == 2 * TN) {
             for (int iterA = 0; iterA < WIDTH; iterA += TK) {
+                // #pragma unroll
+                //                 for (int iterB = 0; iterB < WIDTH; iterB += 2 * TN) {
+                simd<T, TK * TN> BlockB0;
+                simd<T, TK * TN> BlockB1;
+                auto BlockB0_float = BlockB0.template bit_cast_view<float>();
+                auto BlockB1_float = BlockB1.template bit_cast_view<float>();
+
 #pragma unroll
-                for (int iterB = 0; iterB < WIDTH; iterB += 2 * TN) {
-                    simd<T, TK * TN> BlockB0;
-                    simd<T, TK * TN> BlockB1;
-                    auto BlockB0_float = BlockB0.template bit_cast_view<float>();
-                    auto BlockB1_float = BlockB1.template bit_cast_view<float>();
-
-                    for (int rowiter = 0; rowiter < TK / vnni_factor; rowiter++) {
-                        auto tmp_reg = lsc_block_load<float, 2 * TN, lsc_data_size::default_size, cache_hint::cached,
-                                                      cache_hint::cached>(
-                            reinterpret_cast<float const *>(B) + iterB + iterA / vnni_factor * WIDTH + rowiter * WIDTH);
-                        BlockB0_float.template select<TN, 1>(rowiter * TN) = tmp_reg.template select<TN, 1>(0);
-                        BlockB1_float.template select<TN, 1>(rowiter * TN) = tmp_reg.template select<TN, 1>(TN);
-                    }
-
-                    Cs.template select<TM * TN, 1>(iterB * TM) =
-                        xmx::dpas<8, TM, Tc>(Cs.template select<TM * TN, 1>(iterB * TM), BlockB0,
-                                             As.template select<TM * TK, 1>(iterA * TM));
-                    Cs.template select<TM * TN, 1>((iterB + TN) * TM) =
-                        xmx::dpas<8, TM, Tc>(Cs.template select<TM * TN, 1>((iterB + TN) * TM), BlockB1,
-                                             As.template select<TM * TK, 1>(iterA * TM));
+                for (int rowiter = 0; rowiter < TK / vnni_factor; rowiter++) {
+                    auto tmp_reg = lsc_block_load<float, 2 * TN, lsc_data_size::default_size, cache_hint::cached,
+                                                  cache_hint::cached>(reinterpret_cast<float const *>(B) + /*iterB +*/
+                                                                      iterA / vnni_factor * WIDTH + rowiter * WIDTH);
+                    BlockB0_float.template select<TN, 1>(rowiter * TN) = tmp_reg.template select<TN, 1>(0);
+                    BlockB1_float.template select<TN, 1>(rowiter * TN) = tmp_reg.template select<TN, 1>(TN);
                 }
+
+                Cs.template select<TM * TN, 1>(/*iterB * TM*/ 0) =
+                    xmx::dpas<8, TM, Tc>(Cs.template select<TM * TN, 1>(/*iterB * TM*/ 0), BlockB0,
+                                         As.template select<TM * TK, 1>(iterA * TM));
+                Cs.template select<TM * TN, 1>((/*iterB + */ TN) * TM) =
+                    xmx::dpas<8, TM, Tc>(Cs.template select<TM * TN, 1>((/*iterB + */ TN) * TM), BlockB1,
+                                         As.template select<TM * TK, 1>(iterA * TM));
+                //}
             }
         }
 #endif
@@ -399,6 +398,7 @@ class EsimdKernels {
         static_assert(TM >= 1 && TM <= 8);
         static_assert(TN == 16 || TN == 8);
         static_assert(TK == 8 || TK == 16 || TK == 32 || TK == 64);
+        static_assert(N == TM * WIDTH);
 
         if constexpr (act == Activation::None)
             reBlock<TM, TK>(convert<Tdest, Tsrc>(Src), Dest);
@@ -436,17 +436,21 @@ class EsimdKernels {
     }
 
   private:
-    static constexpr int ComputeTM() {
+    template <bool FORWARD> static constexpr int ComputeTM() {
 #if TARGET_DEVICE == 0
         return 8;
 #elif TARGET_DEVICE == 1
         if constexpr (WIDTH < 64)
             return 8;
         else if constexpr (WIDTH >= 64) {
-            constexpr int factor = std::max(1, WIDTH / 64); // shut up div by 0 warning
-            return std::max<int>(1, 4 / factor);
+            if constexpr (FORWARD) {
+                constexpr int factor = std::max(1, WIDTH / 64); // shut up div by 0 warning
+                return std::max<int>(1, 4 / factor);
+            } else if constexpr (!FORWARD) {
+                constexpr int factor = std::max(1, WIDTH / 64); // shut up div by 0 warning
+                return std::max<int>(1, 2 / factor);
+            }
         }
-        constexpr int TM = WIDTH < 64 ? 8 : std::max<int>(1, 8 / (WIDTH / 64));
 #endif
     }
 
@@ -480,7 +484,7 @@ class EsimdKernels {
         static_assert(OUTPUT_WIDTH == WIDTH);
         static_assert(WIDTH % TN == 0);
 
-        constexpr int TM = ComputeTM();
+        constexpr int TM = ComputeTM<true>();
         // make sure there is no remainder and no out of bounds accesses
         // this may be adjusted in the future
         assert(M % TM == 0);
