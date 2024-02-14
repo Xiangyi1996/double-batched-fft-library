@@ -481,14 +481,15 @@ TEST_CASE("Swiftnet - backward different widths, weights, and batch sizes") {
     const int batch_sizes[] = {8, 16, 32, 64};
     bool linspace_weights[] = {true, false};
 
-    for (int width : widths) {
-        for (bool linspace_weight : linspace_weights) {
-            std::string testName = "WIDTH " + std::to_string(width) +
-                                   " - Linspaced weights: " + (linspace_weight ? "true" : "false") +
-                                   " - Batch size: " + std::to_string(batch_size);
-            SUBCASE(testName.c_str()) { CHECK_NOTHROW(test_function(q, width, batch_size, linspace_weight)); }
+    for (int batch_size : batch_sizes) {
+        for (int width : widths) {
+            for (bool linspace_weight : linspace_weights) {
+                std::string testName = "WIDTH " + std::to_string(width) +
+                                       " - Linspaced weights: " + (linspace_weight ? "true" : "false") +
+                                       " - Batch size: " + std::to_string(batch_size);
+                SUBCASE(testName.c_str()) { CHECK_NOTHROW(test_function(q, width, batch_size, linspace_weight)); }
+            }
         }
     }
-}
 }
 #endif
