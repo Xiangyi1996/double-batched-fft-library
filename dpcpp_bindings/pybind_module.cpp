@@ -15,7 +15,7 @@
 // #include <pybind11/stl.h>
 // #include <torch/extension.h>
 
-#include "tnn_api.h"
+// #include "tnn_api.h"
 
 #include "json/json.hpp"
 

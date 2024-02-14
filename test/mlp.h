@@ -20,23 +20,6 @@ template <typename T> std::vector<T> repeat_inner_vectors(const std::vector<std:
 
     return result;
 }
-// Sigmoid function
-double sigmoid(double x) { return 1.0 / (1.0 + exp(-x)); }
-
-// Derivative of the sigmoid function
-double dsigmoid(double x) {
-    double sig = sigmoid(x);
-    return sig * (1 - sig);
-}
-
-// Mean squared error loss
-double mse(Eigen::VectorXd y, Eigen::VectorXd y_pred) { return (y - y_pred).array().pow(2).mean(); }
-
-// Convert Eigen::VectorXd to std::vector
-template <typename T> std::vector<T> eigenToStdVector(const Eigen::VectorXd &eigenVector) {
-    std::vector<T> stdVector(eigenVector.data(), eigenVector.data() + eigenVector.size());
-    return stdVector;
-}
 
 template <typename T> void printVector(std::string name, const std::vector<T> &vec) {
     std::cout << name << std::endl;
@@ -130,7 +113,13 @@ double linear(double x) {
 double drelu(double x) { return x > 0 ? 1 : 0; }
 
 double dlinear(double x) { return 1; }
+double sigmoid(double x) { return 1.0 / (1.0 + std::exp(-x)); }
 
+double dsigmoid(double x) {
+    // Calculating the derivative of the sigmoid function using its output
+    double s = sigmoid(x);
+    return s * (1 - s);
+}
 // MLP class using 'Matrix' struct for matrix operations
 template <typename T> class MLP {
   private:
@@ -163,7 +152,7 @@ template <typename T> class MLP {
 
   public:
     MLP(int inputDim_, int hiddenDim, int outputDim_, int n_hidden_layers_, int batch_size_, std::string activation_,
-        std::string output_activation_, std::string weight_init_mode)
+        std::string output_activation_, std::string weight_init_mode = "random")
         : n_hidden_layers(n_hidden_layers_), activation(activation_), output_activation(output_activation_),
           inputDim(inputDim_), outputDim(outputDim_), batch_size(batch_size_) {
         /// TODO: normalisation of batch_size is only necessary because this is the implementation for batches of
@@ -211,16 +200,27 @@ template <typename T> class MLP {
 
             // Apply activation function for hidden layers
             for (T &val : layer_outputs[i + 1]) {
-                val = activation == "relu" ? relu(val) : linear(val);
+                if (activation == "relu") {
+                    val = relu(val);
+                } else if (activation == "sigmoid") {
+                    val = sigmoid(val);
+                } else {
+                    val = linear(val);
+                }
             }
         }
 
         // Hidden layer to output layer
         layer_outputs[n_hidden_layers] = weights[n_hidden_layers - 1] * layer_outputs[n_hidden_layers - 1];
 
-        // Apply activation function to the output layer
         for (T &val : layer_outputs[n_hidden_layers]) {
-            val = output_activation == "relu" ? relu(val) : linear(val);
+            if (output_activation == "relu") {
+                val = relu(val);
+            } else if (output_activation == "sigmoid") {
+                val = sigmoid(val);
+            } else { // This covers "linear" or any unspecified activation, which defaults to linear
+                val = linear(val);
+            }
         }
 
         if (get_interm_fwd) {
@@ -238,20 +238,21 @@ template <typename T> class MLP {
 
         // Vectors to hold the gradients of the loss with respect to the activations
         std::vector<std::vector<T>> delta(layer_outputs.begin() + 1, layer_outputs.end());
-
         // Calculate the gradient for the output layer
         // Also, compute the MSE loss for the given batch
         for (std::size_t i = 0; i < delta.back().size(); ++i) {
             T error = (layer_outputs.back()[i] - target[i]);
             loss.push_back(error * error / (delta.back().size() * batch_size)); // Squared error for MSE
             delta.back()[i] = loss_scale * 2 * error / (delta.back().size());   // dLoss/dOutput
+
             if (output_activation == "relu") {
                 delta.back()[i] *= drelu(layer_outputs.back()[i]); // ReLU derivative
+            } else if (output_activation == "sigmoid") {
+                delta.back()[i] *= dsigmoid(layer_outputs.back()[i]); // Sigmoid derivative
             } else {
                 delta.back()[i] *= dlinear(layer_outputs.back()[i]); // Linear derivative
             }
         }
-
         // Go through layers in reverse order to propagate the error
         for (int i = n_hidden_layers - 2; i >= 0; --i) {
             // Calculate delta for next layer (i.e., previous in terms of forward pass)
@@ -261,11 +262,13 @@ template <typename T> class MLP {
                     new_delta[col] += delta[i + 1][row] * weights[i + 1].data[row][col];
                 }
             }
-
             // Apply derivative of the activation function
             for (std::size_t j = 0; j < layer_outputs[i + 1].size(); ++j) {
+
                 if (activation == "relu") {
                     new_delta[j] *= drelu(layer_outputs[i + 1][j]);
+                } else if (activation == "sigmoid") {
+                    new_delta[j] *= dsigmoid(layer_outputs[i + 1][j]);
                 } else {
                     new_delta[j] *= dlinear(layer_outputs[i + 1][j]);
                 }

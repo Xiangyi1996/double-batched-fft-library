@@ -161,6 +161,8 @@ class EsimdKernels {
                 if constexpr (output_activation != Activation::None && output_activation != Activation::ReLU) {
                     // applyBackwardActivation<output_activation, TM, WIDTH>(
                     //     sg, A_sg_start, forward_loc + layer_offset_A + M * WIDTH, A_sg_start);
+
+                    //     intermediate_forward.GetElementPointer(layer, loc_row_offset, 0), Cs, As);
                 }
 
                 // store activated in intermediate output
@@ -380,29 +382,21 @@ class EsimdKernels {
 #endif
     }
 
-    // Sigmoid function: f(x) = 1 / (1 + exp(-x))
-    template <typename T, int N> SYCL_ESIMD_FUNCTION simd<T, N> sigmoid(simd<T, N> x) {
-        simd<T, N> one(1.0f);
-        return one / (one + exp(-x));
-    }
-
-    // Derivative of sigmoid function: f'(x) = f(x) * (1 - f(x))
-    template <typename T, int N> SYCL_ESIMD_FUNCTION simd<T, N> sigmoid_derivative(simd<T, N> sigmoid_x) {
-        return sigmoid_x * (1.0f - sigmoid_x);
-    }
-
     template <Activation act, int TM, int TK, int N, typename Tsrc, typename Tdest>
     SYCL_ESIMD_FUNCTION static void applyActivation(simd<Tsrc, N> &Src, simd<Tdest, N> &Dest) {
         static_assert(TM >= 1 && TM <= 8);
         static_assert(TN == 16 || TN == 8);
         static_assert(TK == 8 || TK == 16 || TK == 32 || TK == 64);
 
-        if constexpr (act == Activation::None)
+        if constexpr (act == Activation::None) {
             reBlock<TM, TK>(convert<Tdest, Tsrc>(Src), Dest);
-        else if constexpr (act == Activation::ReLU)
+        } else if constexpr (act == Activation::ReLU) {
             reBlock<TM, TK>(max<Tdest>(convert<Tdest, Tsrc>(Src), simd<Tdest, N>(static_cast<Tdest>(0))), Dest);
-        else if constexpr (act == Activation::Sigmoid)
-            reBlock<TM, TK>(sigmoid<Tdest, N>(convert<Tdest, Tsrc>(Src)), Dest);
+        } else if constexpr (act == Activation::Sigmoid) {
+            // Convert bfloat16 vectors to float to perform arithmetic operations.
+            simd<float, N> sigmoid_result_float = 1.0f / (1.0f + esimd::exp(-convert<float>(Src)));
+            reBlock<TM, TK>(convert<Tdest>(sigmoid_result_float), Dest);
+        }
     }
 
     template <Activation act, int TM, int TK, int N, typename Tdec, typename Tsrc, typename Tdest>
@@ -413,20 +407,20 @@ class EsimdKernels {
         static_assert(TK == 8 || TK == 16 || TK == 32 || TK == 64);
         static_assert(N == TM * WIDTH);
 
-        if constexpr (act == Activation::None)
+        if constexpr (act == Activation::None) {
             reBlock<TM, TK>(convert<Tdest, Tsrc>(Src), Dest);
-        else if constexpr (act == Activation::ReLU) {
+        } else if constexpr (act == Activation::ReLU) {
             simd<Tdec, N> loc_dec;
             loadRow<TM, TN, cache_hint::uncached, cache_hint::uncached>(Dec, loc_dec);
             simd_mask<N> m = loc_dec <= simd<Tdec, N>(0);
             Src.merge(simd<Tsrc, N>(0), m); // ATTENTION: this changes Src.
             reBlock<TM, TK>(convert<Tdest, Tsrc>(Src), Dest);
         } else if constexpr (act == Activation::Sigmoid) {
-            simd<Tdec, N> loc_dec;
-            loadRow<TM, TN, cache_hint::uncached, cache_hint::uncached>(Dec, loc_dec);
-            simd<Tdest, N> sigmoid_x = sigmoid<Tdest, N>(convert<Tdest, Tsrc>(loc_dec));
-            simd<Tdest, N> dsigmoid_x = sigmoid_derivative<Tdest, N>(sigmoid_x);
-            reBlock<TM, TK>(dsigmoid_x * convert<Tdest, Tsrc>(Src), Dest);
+            // The derivative of the sigmoid is sigmoid(x) * (1 - sigmoid(x))
+            simd<float, N> sigmoid_result = 1.0f / (1.0f + esimd::exp(-convert<float>(Src)));
+            simd<float, N> sigmoid_derivative = sigmoid_result * (1.0f - sigmoid_result);
+            simd<float, N> Src_with_derivative = convert<Tdest, float>(Src) * sigmoid_derivative;
+            reBlock<TM, TK>(convert<Tdest>(Src_with_derivative), Dest);
         }
     }
 
