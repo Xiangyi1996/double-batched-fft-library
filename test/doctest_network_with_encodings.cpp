@@ -123,7 +123,9 @@ void test_network_with_encoding_identity_inference(sycl::queue &q) {
                                   input_val * std::pow(WIDTH * (double)weight_val, n_hidden_layers + 1), 1.0e-3));
 }
 
-void test_network_with_encoding_identity_forward_backward(sycl::queue &q) {
+void test_network_with_encoding_identity_forward(sycl::queue &q) {
+    // main functionalities of backward and forward are tested in doctest_swifnet
+    // here, we test only if the combination of encoding (tested in doctest_encoding) and swifnet works
     constexpr int n_hidden_layers = 1;
     constexpr int WIDTH = 64;
     constexpr int batch_size = 8;
@@ -132,40 +134,42 @@ void test_network_with_encoding_identity_forward_backward(sycl::queue &q) {
     constexpr int encoding_input_width = 64;
     constexpr int encoding_output_width = input_width;
 
+    std::string activation = "linear";
+
     const float input_val = 1.0f;
     const float target_val = 0.1;
-
-    Eigen::VectorXd input_ref = Eigen::VectorXd::Ones(input_width) * static_cast<float>(input_val);
-
-    Eigen::VectorXd target_ref = Eigen::VectorXd::Ones(output_width) * static_cast<float>(target_val);
-    std::vector<float> input_vec = eigenToStdVector<float>(input_ref);
+    std::vector<float> input_ref(input_width, input_val);
 
     CHECK(input_width == output_width); // this is not a hard requirement, but currently the loop over the
                                         // mlp reference (batch size = 1) assumes this. if this is changed, ensure the
                                         // checks are still correct
     CHECK(input_width == WIDTH);
-
+    Activation network_activation;
+    if (activation == "relu") {
+        network_activation = Activation::ReLU;
+    } else if (activation == "linear") {
+        network_activation = Activation::None;
+    }
     // Define the parameters for creating IdentityEncoding
     const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, encoding_input_width},
                                {EncodingParams::SCALE, 1.0},
                                {EncodingParams::OFFSET, 0.0},
                                {EncodingParams::ENCODING, EncodingNames::IDENTITY}};
+
     auto Net = create_network_with_encoding<float, bf16, WIDTH>(q, input_width, output_width, n_hidden_layers,
-                                                                Activation::ReLU, Activation::None, encoding_config);
+                                                                network_activation, Activation::None, encoding_config);
 
-    MLP<float> mlp(input_width, WIDTH, output_width, n_hidden_layers + 2, batch_size, false);
-    std::vector<float> unpacked_weights_float = mlp.getUnpackedWeights();
-
-    std::vector<bf16> unpacked_weights(unpacked_weights_float.size());
-
-    std::transform(unpacked_weights_float.begin(), unpacked_weights_float.end(), unpacked_weights.begin(),
-                   [](float val) { return static_cast<bf16>(val); });
+    MLP<float> mlp(input_width, WIDTH, output_width, n_hidden_layers + 1, batch_size, activation, "linear", "random");
+    std::vector<bf16> unpacked_weights = convert_vector<float, bf16>(mlp.getUnpackedWeights());
 
     Net->get_network()->set_weights_matrices(
         io::get_packed_weights<bf16, WIDTH>(unpacked_weights, n_hidden_layers, input_width, output_width));
 
     DeviceMatrix<float> input_encoding(batch_size, encoding_input_width, q);
-    input_encoding.fill(input_val).wait();
+
+    // Repeat source vector N times
+    std::vector<float> input_full = stack_vector(input_ref, batch_size);
+    input_encoding.copy_from_host(input_full).wait();
 
     DeviceMatrix<float> output_encoding = Net->GenerateEncodingOutputMatrix(batch_size);
     output_encoding.fill(0.0f).wait();
@@ -185,59 +189,108 @@ void test_network_with_encoding_identity_forward_backward(sycl::queue &q) {
 
     Net->forward_pass(input_encoding, input_network, output_encoding, interm_forw, {});
     q.wait();
+
+    std::vector<std::vector<float>> fwd_result_ref = mlp.forward(input_ref, true);
+    auto interm_forw_ref = repeat_inner_vectors<float>(fwd_result_ref, batch_size);
     std::vector<bf16> interm_forw_vec = interm_forw.copy_to_host();
-    std::vector<bf16> output_network(interm_forw_vec.end() - (batch_size * output_width), interm_forw_vec.end());
 
-    DeviceMatrix<bf16> dL_doutput(batch_size, Net->get_network()->get_output_width(), q);
-    DeviceMatrix<float> loss(batch_size, Net->get_network()->get_output_width(), q);
-    DeviceMatrix<float> targets(batch_size, Net->get_network()->get_output_width(), q);
-    targets.fill(target_val).wait();
-    loss.fill(0.0).wait();
-    dL_doutput.fill(0.0).wait();
-
-    L2Loss<bf16> l2_loss;
-    bf16 loss_scale = 1.0;
-    sycl::event sycl_event = l2_loss.evaluate(q, loss_scale, interm_forw.Back(), targets, loss, dL_doutput);
-    std::vector<sycl::event> es;
-    es.push_back(sycl_event);
-    Net->get_network()->backward_pass(dL_doutput, network_backward_output, interm_backw, interm_forw, es);
-    q.wait();
-    std::vector<bf16> interm_backw_host = interm_backw.copy_to_host();
-    std::vector<bf16> grad = network_backward_output.copy_to_host();
-    q.wait();
-
-    // reference implementation
-    std::vector<float> fwd_result_ref = mlp.forward(input_ref);
-    std::vector<std::vector<float>> weights_ref, loss_grads_ref;
-    mlp.backward(input_ref, target_ref, weights_ref, loss_grads_ref);
-
-    // checking over entire batch whether it's correct
-    for (int batch_idx = 0; batch_idx < batch_size; batch_idx++) {
-        // note that mlp is only implemented for batch size = 1, thus checking
-        // the outputs and grads against that (as the inputs are all the same
-        // for all batch size, the grads and output are as well)
-        CHECK(areVectorsWithinTolerance(std::vector<bf16>(interm_forw_vec.end() - WIDTH * batch_idx - WIDTH,
-                                                          interm_forw_vec.end() - WIDTH * batch_idx),
-                                        fwd_result_ref, 3.0e-2)); // comparing only output
-        for (int idx = 0; idx < loss_grads_ref.size(); idx++) {
-
-            CHECK(areVectorsWithinTolerance(
-                std::vector<bf16>(interm_backw_host.begin() + batch_idx * WIDTH + idx * batch_size * WIDTH,
-                                  interm_backw_host.begin() + WIDTH + batch_idx * WIDTH + idx * batch_size * WIDTH),
-                loss_grads_ref[idx], 3.0e-2));
-            // here, we don't distinguish between WIDTH, input_width and
-            // output_width.If the values are not the same, we need to separate
-        }
-        for (int i = 0; i < weights_ref.size(); i++) {
-            CHECK(areVectorsWithinTolerance(
-                std::vector<bf16>(grad.begin() + WIDTH * WIDTH * i, grad.begin() + WIDTH * WIDTH * i + WIDTH * WIDTH),
-                weights_ref[i], 3.0e-2));
-            // here, we don't distinguish between WIDTH, input_width and output_width. If the
-            // values are not the same, we need to separate
-        }
-    }
+    CHECK(interm_forw_vec.size() == interm_forw_ref.size());
+    CHECK(areVectorsWithinTolerance(interm_forw_vec, interm_forw_ref, 1.0e-2));
 }
 
+void test_network_with_encoding_identity_backward(sycl::queue &q) {
+    // main functionalities of backward and forward are tested in doctest_swifnet
+    // here, we test only if the combination of encoding (tested in doctest_encoding) and swifnet works
+    constexpr int n_hidden_layers = 1;
+    constexpr int WIDTH = 64;
+    constexpr int batch_size = 8;
+    constexpr int input_width = WIDTH;
+    constexpr int output_width = WIDTH;
+    constexpr int encoding_input_width = 64;
+    constexpr int encoding_output_width = input_width;
+    std::string activation = "linear";
+
+    const float input_val = 1.0f;
+    const float target_val = 0.1;
+    std::vector<float> input_ref(input_width, input_val);
+    std::vector<float> target_ref(output_width, target_val);
+
+    CHECK(input_width == output_width); // this is not a hard requirement, but currently the loop over the
+    // mlp reference (batch size = 1) assumes this. if this is changed, ensure checks are still correct
+    CHECK(input_width == WIDTH);
+    Activation network_activation;
+    if (activation == "relu") {
+        network_activation = Activation::ReLU;
+    } else if (activation == "linear") {
+        network_activation = Activation::None;
+    }
+    // Define the parameters for creating IdentityEncoding
+    const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, encoding_input_width},
+                               {EncodingParams::SCALE, 1.0},
+                               {EncodingParams::OFFSET, 0.0},
+                               {EncodingParams::ENCODING, EncodingNames::IDENTITY}};
+
+    MLP<float> mlp(input_width, WIDTH, output_width, n_hidden_layers + 1, batch_size, activation, "linear", "random");
+    auto Net = create_network_with_encoding<float, bf16, WIDTH>(q, input_width, output_width, n_hidden_layers,
+                                                                network_activation, Activation::None, encoding_config);
+
+    std::vector<bf16> unpacked_weights = convert_vector<float, bf16>(mlp.getUnpackedWeights());
+    Net->get_network()->set_weights_matrices(
+        io::get_packed_weights<bf16, WIDTH>(unpacked_weights, n_hidden_layers, input_width, output_width));
+
+    std::vector<Matrix<float>> grad_matrices_ref(n_hidden_layers + 1, Matrix<float>(1, 1));
+    std::vector<std::vector<float>> loss_grads_ref;
+    std::vector<float> loss_ref;
+
+    mlp.backward(input_ref, target_ref, grad_matrices_ref, loss_grads_ref, loss_ref, 1.0);
+
+    DeviceMatrices<bf16> interm_forw(
+        Net->get_network()->get_n_hidden_layers() + 2, batch_size, Net->get_network()->get_input_width(), batch_size,
+        Net->get_network()->get_network_width(), batch_size, Net->get_network()->get_output_width(), q);
+
+    DeviceMatrices<bf16> interm_backw(
+        Net->get_network()->get_n_hidden_layers() + 1, batch_size, Net->get_network()->get_network_width(), batch_size,
+        Net->get_network()->get_network_width(), batch_size, Net->get_network()->get_output_width(), q);
+
+    DeviceMatrices<bf16> network_backward_output(Net->get_network()->get_n_hidden_layers() + 1,
+                                                 Net->get_network()->get_network_width(), WIDTH, WIDTH, WIDTH, WIDTH,
+                                                 Net->get_network()->get_output_width(), q);
+    DeviceMatrix<bf16> dL_doutput(batch_size, Net->get_network()->get_output_width(), q);
+
+    network_backward_output.fill(0.0).wait();
+    dL_doutput.fill(0.0).wait();
+
+    std::vector<std::vector<float>> fwd_result_ref = mlp.forward(input_ref, true);
+    std::vector<float> interm_forw_ref = repeat_inner_vectors<float>(fwd_result_ref, batch_size);
+    interm_forw.copy_from_host(convert_vector<float, bf16>(interm_forw_ref)).wait();
+
+    std::vector<float> stacked_loss_grads_back_ref = stack_vector(loss_grads_ref.back(), batch_size);
+    dL_doutput.copy_from_host(convert_vector<float, bf16>(stacked_loss_grads_back_ref)).wait();
+
+    Net->get_network()->backward_pass(dL_doutput, network_backward_output, interm_backw, interm_forw, {});
+    q.wait();
+    std::vector<bf16> interm_backw_vec = interm_backw.copy_to_host();
+    q.wait();
+
+    for (int i = 0; i < loss_grads_ref.size(); i++) {
+        std::vector<float> interm_backw_ref;
+        std::vector<bf16> interm_backw_sliced_actual(interm_backw_vec.begin() + i * batch_size * WIDTH,
+                                                     interm_backw_vec.begin() + i * batch_size * WIDTH +
+                                                         batch_size * WIDTH);
+        auto inner_stacked = stack_vector(loss_grads_ref[i], batch_size);
+        for (bf16 value : inner_stacked) {
+            interm_backw_ref.push_back(value); // Add each element to the flattened vector
+        }
+
+        bool interm_backw_within_tolerance =
+            areVectorsWithinTolerance(interm_backw_sliced_actual, interm_backw_ref, 1.0e-2);
+        if (!interm_backw_within_tolerance) {
+            printVector("interm_backw_ref: ", interm_backw_ref);
+            printVector("interm_backw_vec: ", interm_backw_sliced_actual);
+        }
+        CHECK(interm_backw_within_tolerance);
+    }
+}
 // Create a shared pointer of network with encoding using create_network_with_encoding
 template <typename T_enc, typename T_net, int WIDTH = 64>
 std::shared_ptr<NetworkWithEncoding<T_enc, T_net>>
@@ -275,7 +328,8 @@ TEST_CASE("tinydpcppnn::network_with_encoding step-by-step") {
     //     test_create_network_with_encoding_as_shared_ptr<float, bf16, 64>(q, encoding_input_width, encoding_config);
     // }
     // SUBCASE("Identity encoding inference") { test_network_with_encoding_identity_inference(q); }
-    SUBCASE("Identity encoding fwd bwd") { test_network_with_encoding_identity_forward_backward(q); }
+    // SUBCASE("Identity encoding fwd") { test_network_with_encoding_identity_forward(q); }
+    SUBCASE("Identity encoding bwd") { test_network_with_encoding_identity_backward(q); }
 
     // #ifdef TEST_PATH
 

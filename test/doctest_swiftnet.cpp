@@ -111,7 +111,6 @@ void test_grads(sycl::queue &q, const int input_width, const int output_width, c
 
     MLP<double> mlp(input_width, WIDTH, output_width, n_hidden_layers + 1, batch_size, activation, "linear",
                     weight_init_mode);
-    mlp.getUnpackedWeights();
     std::vector<std::vector<double>> fwd_result_ref = mlp.forward(input_ref, false);
     std::vector<double> network_output_ref = repeat_inner_vectors<double>(fwd_result_ref, batch_size);
 
@@ -215,7 +214,6 @@ void test_interm_backw(sycl::queue &q, const int input_width, const int output_w
 
     MLP<double> mlp(input_width, WIDTH, output_width, n_hidden_layers + 1, batch_size, activation, "linear",
                     weight_init_mode);
-    mlp.getUnpackedWeights();
     std::vector<std::vector<double>> fwd_result_ref = mlp.forward(input_ref, false);
     std::vector<double> network_output_ref = repeat_inner_vectors<double>(fwd_result_ref, batch_size);
 
@@ -684,7 +682,7 @@ TEST_CASE("Swiftnet - test loss") {
 
     auto test_function = [=](sycl::queue &q, const int width, const int batch_size, std::string activation,
                              std::string weight_init_mode) {
-        typedef double T;
+        typedef float T; // double is ok too, but not supported on arc
         if (width == 16)
             test_loss<T, 16>(q, 16, 16, n_hidden_layers, batch_size, activation, weight_init_mode);
         else if (width == 32)
