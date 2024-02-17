@@ -1,37 +1,30 @@
 import numpy as np
+
 from modules import Encoding, Network, NetworkWithInputEncoding
 
 scale = 1
 N_min = 16
 L = 16
 
-xyz_encoder = NetworkWithInputEncoding(
-    n_input_dims=3,
-    n_output_dims=16,
-    encoding_config={
-        "otype": "Grid",
-        "type": "Hash",
-        "n_levels": 16,
-        "n_features_per_level": 2,
-        "log2_hashmap_size": 19,
-        "base_resolution": N_min,
-        "per_level_scale": np.exp(np.log(2048 * scale / N_min) / (L - 1)),
-        "interpolation": "Linear",
-    },
-    network_config={
-        "otype": "FullyFusedMLP",
-        "activation": "ReLU",
-        "output_activation": "None",
-        "n_neurons": 64,
-        "n_hidden_layers": 1,
-    },
-)
-
-# dir_encoder = Encoding(
+# xyz_encoder = NetworkWithInputEncoding(
 #     n_input_dims=3,
+#     n_output_dims=16,
 #     encoding_config={
-#         "otype": "SphericalHarmonics",
-#         "degree": 4,
+#         "otype": "Grid",
+#         "type": "Hash",
+#         "n_levels": 16,
+#         "n_features_per_level": 2,
+#         "log2_hashmap_size": 19,
+#         "base_resolution": N_min,
+#         "per_level_scale": np.exp(np.log(2048 * scale / N_min) / (L - 1)),
+#         "interpolation": "Linear",
+#     },
+#     network_config={
+#         "otype": "FullyFusedMLP",
+#         "activation": "ReLU",
+#         "output_activation": "None",
+#         "n_neurons": 64,
+#         "n_hidden_layers": 1,
 #     },
 # )
 
@@ -70,3 +63,11 @@ xyz_encoder = NetworkWithInputEncoding(
 #         "n_hidden_layers": 1,
 #     },
 # )
+
+dir_encoder = Encoding(
+    n_input_dims=3,
+    encoding_config={
+        "otype": "SphericalHarmonics",
+        "degree": 4,
+    },
+)

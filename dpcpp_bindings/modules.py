@@ -2,7 +2,7 @@ import gc
 import warnings
 
 import torch
-
+import json
 import intel_extension_for_pytorch
 
 import tiny_nn as tnn
@@ -41,13 +41,6 @@ def from_packed_layout_coord(idx, rows, cols):
         return (i * 2) * cols + j // 2
     else:
         return (i * 2 + 1) * cols + (j - 1) // 2
-
-
-def free_temporary_memory():
-    # Ensure all Python objects (potentially pointing
-    # to temporary TNN allocations) are cleaned up.
-    gc.collect()
-    tnn.free_temporary_memory()
 
 
 class _module_function(torch.autograd.Function):
@@ -195,9 +188,6 @@ class Module(torch.nn.Module):
         # return output[:batch_size, :]
         return output
 
-    def free_memory(self):
-        self.tnn_module.free_memory()
-
 
 class Network(Module):
     def __init__(
@@ -270,14 +260,14 @@ class NetworkWithInputEncoding(Module):
         if self.encoding_config is None:
             self.encoding_config = {
                 "otype": "Identity",
-                "n_dims_to_encode": str(self.n_input_dims),
-                "scale": "1.0",
-                "offset": "0.0",
+                "n_dims_to_encode": self.n_input_dims,
+                "scale": 1.0,
+                "offset": 0.0,
             }
         self.encoding_name = self.encoding_config["otype"]
 
         if "n_dims_to_encode" not in self.encoding_config:
-            self.encoding_config["n_dims_to_encode"] = str(self.n_input_dims)
+            self.encoding_config["n_dims_to_encode"] = self.n_input_dims
 
         super().__init__(device=device)
 
@@ -288,7 +278,6 @@ class NetworkWithInputEncoding(Module):
             self.n_hidden_layers,
             self.activation,
             self.output_activation,
-            self.encoding_name,
             self.encoding_config,
             self.device,
         )
@@ -306,21 +295,16 @@ class Encoding(Module):
         if self.encoding_config is None:
             self.encoding_config = {
                 "otype": "Identity",
-                "n_dims_to_encode": str(self.n_input_dims),
-                "scale": "1.0",
-                "offset": "0.0",
+                "n_dims_to_encode": self.n_input_dims,
+                "scale": 1.0,
+                "offset": 0.0,
             }
         self.encoding_name = self.encoding_config["otype"]
 
         if "n_dims_to_encode" not in self.encoding_config:
-            self.encoding_config["n_dims_to_encode"] = str(self.n_input_dims)
-
-        for value in self.encoding_config.values():
-            assert isinstance(value, str), "Not all values are of type str"
+            self.encoding_config["n_dims_to_encode"] = self.n_input_dims
 
         super().__init__(device=device)
-
-        self.n_output_dims = self.tnn_module.n_output_dims()
 
     def create_module(self):
         return tnn.create_encoding(

@@ -5,10 +5,10 @@
 
 find_package(IntelSYCL REQUIRED)
 find_package(Torch REQUIRED PATHS ${TORCH_CMAKE_PREFIX_PATH})
+# Add include directories
 
-# include_directories(${TORCH_INCLUDE_DIRS})
-# include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../include)
-
+include_directories(${TORCH_INCLUDE_DIRS})
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../include)
 # Set source files for the Python bindings
 set(PYBIND_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/pybind_module.cpp
@@ -19,8 +19,8 @@ pybind11_add_module(tiny_nn ${PYBIND_SOURCES})
 find_library(TORCH_PYTHON_LIBRARY torch_python PATH "${TORCH_CMAKE_PREFIX_PATH}/../../lib")
 
 # Link any required libraries
-# target_link_libraries(tiny_nn PRIVATE network ${TORCH_LIBRARIES} ${TORCH_PYTHON_LIBRARY})
-
+target_link_libraries(tiny_nn PRIVATE network ${TORCH_LIBRARIES} ${TORCH_PYTHON_LIBRARY})
+target_include_directories(tiny_nn PRIVATE "${PROJECT_SOURCE_DIR}/extern/json" "${PROJECT_SOURCE_DIR}/extern/pybind11_json")
 add_sycl_to_target(TARGET tiny_nn SOURCES ${PYBIND_SOURCES})
 
 target_compile_definitions(tiny_nn

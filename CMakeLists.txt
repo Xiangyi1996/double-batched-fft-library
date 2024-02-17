@@ -33,20 +33,20 @@ endif()
 
 message(WARNING "cmake build system is still WIP.")
 
-# add_subdirectory(source)
+add_subdirectory(source)
 
-# enable_testing()
+enable_testing()
 
-# if(BUILD_TEST)
-#     add_subdirectory(test)
-# endif()
+if(BUILD_TEST)
+    add_subdirectory(test)
+endif()
 
-# if(BUILD_BENCHMARK)
-#     add_subdirectory(benchmarks)
-# endif()
+if(BUILD_BENCHMARK)
+    add_subdirectory(benchmarks)
+endif()
 
 if(BUILD_PYBIND)
     # Include Pybind11
-    # add_subdirectory(extern/pybind11)
+    add_subdirectory(extern/pybind11)
     add_subdirectory(dpcpp_bindings)
 endif()

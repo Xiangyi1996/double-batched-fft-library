@@ -24,6 +24,12 @@ const std::unordered_map<std::string, InterpolationType> interpolationTypeMap{
     {"Linear", InterpolationType::Linear},
     {"Smoothstep", InterpolationType::Smoothstep}};
 
+const std::unordered_map<std::string, GradientMode> gradientModeMap{
+    {"Ignore", GradientMode::Ignore}, {"Overwrite", GradientMode::Overwrite}, {"Accumulate", GradientMode::Accumulate}};
+
+const std::unordered_map<std::string, ReductionType> reductionTypeMap{
+    {"Concatenation", ReductionType::Concatenation}, {"Sum", ReductionType::Sum}, {"Product", ReductionType::Product}};
+
 // Helper function to convert string to enum
 template <typename T> T stringToEnum(const std::string &value, const std::unordered_map<std::string, T> &enumMap) {
     auto it = enumMap.find(value);
@@ -52,6 +58,25 @@ json loadJsonConfig(const std::string &filename) {
     }
 
     return config;
+}
+
+// Function to validate and copy encoding_config with correct enums
+json validateAndCopyEncodingConfig(const json &encodingConfig) {
+    json encodingConfigCopy = encodingConfig; // Start by making a copy of the entire input JSON
+
+    auto convertIfString = [&encodingConfigCopy](const auto &enumMap, const std::string &key) {
+        if (encodingConfigCopy.contains(key) && encodingConfigCopy[key].is_string()) {
+            // Convert string to enum
+            encodingConfigCopy[key] = stringToEnum(encodingConfigCopy[key].get<std::string>(), enumMap);
+        }
+    };
+
+    // Convert string values to enums if they are strings
+    convertIfString(gridTypeMap, EncodingParams::GRID_TYPE);
+    convertIfString(hashTypeMap, EncodingParams::HASH);
+    convertIfString(interpolationTypeMap, EncodingParams::INTERPOLATION_METHOD);
+
+    return encodingConfigCopy;
 }
 
 template <typename T, int WIDTH>
