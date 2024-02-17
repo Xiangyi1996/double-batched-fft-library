@@ -13,9 +13,9 @@ list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 
 include(CMakeDependentOption)
 
-option(BUILD_TEST "Build tests in 'test' directory" OFF)
+option(BUILD_TEST "Build tests in 'test' directory" ON)
 option(BUILD_PYBIND "Build pybindings in 'dpcpp_bindings' directory" OFF)
-option(BUILD_BENCHMARK "Build benchmarks in 'benchmark' directory" OFF)
+option(BUILD_BENCHMARK "Build benchmarks in 'benchmark' directory" ON)
 option(BUILD_REF_TEST "Use reference tests from downloaded data for test" OFF)
 option(BUILD_DOCUMENTATION "Build the documentation which is online available" OFF)
 option(BUILD_EXAMPLE "Build the examples" OFF)
