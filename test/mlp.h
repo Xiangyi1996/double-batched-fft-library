@@ -152,7 +152,7 @@ template <typename T> class MLP {
 
   public:
     MLP(int inputDim_, int hiddenDim, int outputDim_, int n_hidden_layers_, int batch_size_, std::string activation_,
-        std::string output_activation_, std::string weight_init_mode = "random")
+        std::string output_activation_, std::string weight_init_mode)
         : n_hidden_layers(n_hidden_layers_), activation(activation_), output_activation(output_activation_),
           inputDim(inputDim_), outputDim(outputDim_), batch_size(batch_size_) {
         /// TODO: normalisation of batch_size is only necessary because this is the implementation for batches of
@@ -232,7 +232,8 @@ template <typename T> class MLP {
 
     // Implement the backward pass to compute gradients
     void backward(const std::vector<T> &input, const std::vector<T> &target, std::vector<Matrix<T>> &weight_gradients,
-                  std::vector<std::vector<T>> &loss_grads, std::vector<T> &loss, T loss_scale) {
+                  std::vector<std::vector<T>> &loss_grads, std::vector<T> &loss, std::vector<T> &dL_doutput,
+                  T loss_scale) {
         // Forward pass to get intermediate activations
         auto layer_outputs = forward(input, true);
 
@@ -243,8 +244,16 @@ template <typename T> class MLP {
         for (std::size_t i = 0; i < delta.back().size(); ++i) {
             T error = (layer_outputs.back()[i] - target[i]);
             loss.push_back(error * error / (delta.back().size() * batch_size)); // Squared error for MSE
-            delta.back()[i] = loss_scale * 2 * error / (delta.back().size());   // dLoss/dOutput
+            delta.back()[i] = loss_scale * 2 * error / (delta.back().size());   // dLoss/dOutput;
+        }
 
+        dL_doutput = delta.back();
+        for (int idx = 0; idx < delta.back().size(); idx++) {
+            dL_doutput[idx] /= batch_size;
+        }
+
+        // calculate the interm_back (activated) backward pass for the last layer
+        for (std::size_t i = 0; i < delta.back().size(); ++i) {
             if (output_activation == "relu") {
                 delta.back()[i] *= drelu(layer_outputs.back()[i]); // ReLU derivative
             } else if (output_activation == "sigmoid") {
@@ -253,6 +262,7 @@ template <typename T> class MLP {
                 delta.back()[i] *= dlinear(layer_outputs.back()[i]); // Linear derivative
             }
         }
+
         // Go through layers in reverse order to propagate the error
         for (int i = n_hidden_layers - 2; i >= 0; --i) {
             // Calculate delta for next layer (i.e., previous in terms of forward pass)
@@ -262,6 +272,7 @@ template <typename T> class MLP {
                     new_delta[col] += delta[i + 1][row] * weights[i + 1].data[row][col];
                 }
             }
+
             // Apply derivative of the activation function
             for (std::size_t j = 0; j < layer_outputs[i + 1].size(); ++j) {
 

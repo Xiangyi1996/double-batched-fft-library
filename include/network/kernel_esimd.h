@@ -156,13 +156,13 @@ class EsimdKernels {
                 loadRow<TM, TK, cache_hint::uncached, cache_hint::uncached>(input.GetPointer(loc_row_offset, 0), As);
 
                 // store backward activated input to the last intermediate output
-                // note that output_activation == ReLU does not need any work since that means
-                // forward >= 0
-                if constexpr (output_activation != Activation::None && output_activation != Activation::ReLU) {
-                    // applyBackwardActivation<output_activation, TM, WIDTH>(
-                    //     sg, A_sg_start, forward_loc + layer_offset_A + M * WIDTH, A_sg_start);
-
-                    //     intermediate_forward.GetElementPointer(layer, loc_row_offset, 0), Cs, As);
+                if constexpr (output_activation == Activation::None) {
+                } else {
+                    // Compute derivative of activation function
+                    applyBackwardActivation<output_activation, TM, TK, TM * WIDTH>(
+                        intermediate_forward.GetElementPointer(n_hidden_layers + 1, loc_row_offset, 0), As, As);
+                    // n_hidden_layers +1 because the first (0 index) matrix in intermediate_forward (view of
+                    // DeviceMatrices object) is input
                 }
 
                 // store activated in intermediate output
@@ -417,9 +417,11 @@ class EsimdKernels {
             reBlock<TM, TK>(convert<Tdest, Tsrc>(Src), Dest);
         } else if constexpr (act == Activation::Sigmoid) {
             // The derivative of the sigmoid is sigmoid(x) * (1 - sigmoid(x))
-            simd<float, N> sigmoid_result = 1.0f / (1.0f + esimd::exp(-convert<float>(Src)));
+            simd<Tdec, N> loc_dec;
+            loadRow<TM, TN, cache_hint::uncached, cache_hint::uncached>(Dec, loc_dec);
+            simd<float, N> sigmoid_result = 1.0f / (1.0f + esimd::exp(-convert<float>(loc_dec)));
             simd<float, N> sigmoid_derivative = sigmoid_result * (1.0f - sigmoid_result);
-            simd<float, N> Src_with_derivative = convert<Tdest, float>(Src) * sigmoid_derivative;
+            simd<float, N> Src_with_derivative = convert<float>(Src) * sigmoid_derivative;
             reBlock<TM, TK>(convert<Tdest>(Src_with_derivative), Dest);
         }
     }
@@ -514,10 +516,8 @@ class EsimdKernels {
 
                 // if not inference activate and store in intermediate output
                 if constexpr (!INFERENCE) {
-                    simd<T, TM * WIDTH> tmpA;
-                    applyActivation<activation, TM, TK>(As, tmpA);
                     storeRow<TM, TK, cache_hint::uncached, cache_hint::uncached>(
-                        tmpA, intermediate_output.GetElementPointer(0, loc_row_offset, 0));
+                        As, intermediate_output.GetElementPointer(0, loc_row_offset, 0)); // saving non-activated input
                 }
 
                 simd<Tc, TM * WIDTH> Cs;
