@@ -74,7 +74,9 @@ template <typename T_enc, typename T_net> class NetworkWithEncoding {
                                            DeviceMatrices<T_net> &intermediate_backward,
                                            const DeviceMatrices<T_net> &intermediate_forward,
                                            const std::vector<sycl::event> &deps) {
-        return network_->backward_pass(input_backward, output, intermediate_backward, intermediate_forward, deps);
+         auto event = network_->backward_pass(input_backward, output, intermediate_backward, intermediate_forward, deps);
+
+         return event;
     }
 
     // functions which simplify the usage by generating the intermediate arrays

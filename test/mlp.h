@@ -233,7 +233,7 @@ template <typename T> class MLP {
     // Implement the backward pass to compute gradients
     void backward(const std::vector<T> &input, const std::vector<T> &target, std::vector<Matrix<T>> &weight_gradients,
                   std::vector<std::vector<T>> &loss_grads, std::vector<T> &loss, std::vector<T> &dL_doutput,
-                  T loss_scale) {
+                  std::vector<T> &dL_dinput, T loss_scale) {
         // Forward pass to get intermediate activations
         auto layer_outputs = forward(input, true);
 
@@ -292,6 +292,7 @@ template <typename T> class MLP {
             for (int idx = 0; idx < loss_grad_el.size(); idx++) {
                 loss_grad_el[idx] /= batch_size;
             }
+            printVector("loss_grad_el", loss_grad_el);
             loss_grads.push_back(loss_grad_el);
         }
 
@@ -309,6 +310,28 @@ template <typename T> class MLP {
             }
             weight_gradients[i] = layer_gradient;
         }
+
+        // Calculate dL_dinput separately for clarity
+        // Calculate delta for next layer (i.e., previous in terms of forward pass)
+        std::vector<T> delta_input(weights[0].cols(), T(0));
+        for (std::size_t col = 0; col < weights[0].cols(); ++col) {
+            for (std::size_t row = 0; row < weights[0].rows(); ++row) {
+                delta_input[col] += delta[0][row] * weights[0].data[row][col];
+            }
+        }
+
+        // Apply derivative of the activation function
+        for (std::size_t j = 0; j < layer_outputs[0].size(); ++j) {
+
+            if (activation == "relu") {
+                delta_input[j] *= drelu(layer_outputs[0][j]) / batch_size;
+            } else if (activation == "sigmoid") {
+                delta_input[j] *= dsigmoid(layer_outputs[0][j]) / batch_size;
+            } else {
+                delta_input[j] *= dlinear(layer_outputs[0][j]) / batch_size;
+            }
+        }
+        dL_dinput = delta_input;
     }
     std::vector<T> getUnpackedWeights() const {
         std::vector<T> all_weights;
