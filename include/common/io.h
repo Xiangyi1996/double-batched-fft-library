@@ -80,34 +80,6 @@ json validateAndCopyEncodingConfig(const json &encodingConfig) {
 }
 
 template <typename T, int WIDTH>
-std::vector<T> load_weights_as_packed_from_file(std::string filename, int m_n_hidden_layers, int input_width,
-                                                int output_width) {
-    // Read each value from the file and set it as a bf16 value in weights matrices
-    std::vector<T> data_vec;
-    std::ifstream file(filename);
-
-    if (!file.is_open()) {
-        std::cerr << "Error opening file: " << filename << std::endl;
-    }
-
-    std::string line;
-    while (std::getline(file, line)) {
-        try {
-            float value = std::stod(line);
-            data_vec.push_back((T)(value));
-        } catch (const std::invalid_argument &e) {
-            std::cerr << "Invalid argument: " << e.what() << std::endl;
-        } catch (const std::out_of_range &e) {
-            std::cerr << "Out of range: " << e.what() << std::endl;
-        }
-    }
-
-    file.close();
-
-    return get_packed_weights<T, WIDTH>(data_vec, m_n_hidden_layers, input_width, output_width);
-}
-
-template <typename T, int WIDTH>
 std::vector<T> get_packed_weights(std::vector<T> unpacked_weights, int m_n_hidden_layers, int input_width,
                                   int output_width) {
     std::vector<T> weights_packed(unpacked_weights.size(), 0.0);
@@ -143,6 +115,34 @@ std::vector<T> get_packed_weights(std::vector<T> unpacked_weights, int m_n_hidde
     }
 
     return weights_packed;
+}
+
+template <typename T, int WIDTH>
+std::vector<T> load_weights_as_packed_from_file(std::string filename, int m_n_hidden_layers, int input_width,
+                                                int output_width) {
+    // Read each value from the file and set it as a bf16 value in weights matrices
+    std::vector<T> data_vec;
+    std::ifstream file(filename);
+
+    if (!file.is_open()) {
+        std::cerr << "Error opening file: " << filename << std::endl;
+    }
+
+    std::string line;
+    while (std::getline(file, line)) {
+        try {
+            float value = std::stod(line);
+            data_vec.push_back((T)(value));
+        } catch (const std::invalid_argument &e) {
+            std::cerr << "Invalid argument: " << e.what() << std::endl;
+        } catch (const std::out_of_range &e) {
+            std::cerr << "Out of range: " << e.what() << std::endl;
+        }
+    }
+
+    file.close();
+
+    return get_packed_weights<T, WIDTH>(data_vec, m_n_hidden_layers, input_width, output_width);
 }
 
 template <typename T> std::vector<T> loadVectorFromCSV(const std::string &filename) {

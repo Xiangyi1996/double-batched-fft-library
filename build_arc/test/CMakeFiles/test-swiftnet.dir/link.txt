@@ -1,1 +1,0 @@
-/opt/intel/oneapi/2024.0/bin/mpiicpx -fsycl -qmkl "CMakeFiles/test-swiftnet.dir/doctest_swiftnet.cpp.o" -o test-swiftnet   -L/opt/intel/oneapi/mpi/2021.11/lib  -Wl,-rpath,/opt/intel/oneapi/mpi/2021.11/lib libtest-lib.a ../source/common/libcommon.a ../source/common/libcommon.a /opt/intel/oneapi/tbb/2021.11/lib/libtbb.so.12 -fsycl 

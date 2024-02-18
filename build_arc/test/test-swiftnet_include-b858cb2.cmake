@@ -1,5 +1,0 @@
-if(EXISTS "/nfs/site/home/yuankai/code/tiny-dpcpp-nn/build_arc/test/test-swiftnet_tests-b858cb2.cmake")
-  include("/nfs/site/home/yuankai/code/tiny-dpcpp-nn/build_arc/test/test-swiftnet_tests-b858cb2.cmake")
-else()
-  add_test(test-swiftnet_NOT_BUILT-b858cb2 test-swiftnet_NOT_BUILT-b858cb2)
-endif()

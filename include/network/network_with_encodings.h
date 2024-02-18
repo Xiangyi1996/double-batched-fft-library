@@ -20,6 +20,7 @@
 template <typename T_enc, typename T_net> class NetworkWithEncoding {
   public:
     NetworkWithEncoding() = delete;
+
     NetworkWithEncoding(std::shared_ptr<Encoding<T_enc>> encoding, std::shared_ptr<Network<T_net>> network)
         : encoding_(encoding), network_(network) {
         SanityCheck();
@@ -43,8 +44,13 @@ template <typename T_enc, typename T_net> class NetworkWithEncoding {
 
         auto ctxt = encoding_->forward_impl(&network_->get_queue(), input, &encoding_output);
         network_->get_queue().wait();
+
         network_input.copy_from_device(encoding_output.data());
-        return network_->inference(network_input, network_output, {});
+        network_->get_queue().wait();
+        network_->inference(network_input, network_output, {});
+        network_->get_queue().wait();
+
+        return {};
     }
 
     DeviceMatrixView<T_net> forward_pass(const DeviceMatrix<float> &input, DeviceMatrix<T_net> &network_input,
@@ -70,13 +76,27 @@ template <typename T_enc, typename T_net> class NetworkWithEncoding {
         return intermediate_forward.Back();
     }
 
-    std::vector<sycl::event> backward_pass(const DeviceMatrix<T_net> &input_backward, DeviceMatrices<T_net> &output,
+    std::vector<sycl::event> backward_pass(const DeviceMatrix<T_net> &input_backward,
+                                           DeviceMatrices<T_net> &network_gradient,
                                            DeviceMatrices<T_net> &intermediate_backward,
                                            const DeviceMatrices<T_net> &intermediate_forward,
-                                           const std::vector<sycl::event> &deps) {
-         auto event = network_->backward_pass(input_backward, output, intermediate_backward, intermediate_forward, deps);
+                                           const std::vector<sycl::event> &deps, DeviceMatrixView<T_net> &dL_dinput) {
+        auto event = network_->backward_pass(input_backward, network_gradient, intermediate_backward,
+                                             intermediate_forward, deps, dL_dinput);
+        const int batch_size = input_backward.m();
 
-         return event;
+        if (encoding_->n_params()) {
+            std::unique_ptr<Context> model_ctx = nullptr;
+
+            DeviceMatrix<float> output_float(batch_size, encoding_->padded_output_width(), network_->get_queue());
+            output_float.fill(0.0f).wait(); // fill with something to check if it is written to
+
+            DeviceMatrix<float> dL_doutput(batch_size, encoding_->padded_output_width(), network_->get_queue());
+            dL_doutput.fill(0.0f).wait();
+
+            encoding_->backward_impl(&network_->get_queue(), *model_ctx, dL_dinput, dL_doutput);
+        }
+        return event;
     }
 
     // functions which simplify the usage by generating the intermediate arrays
@@ -108,7 +128,26 @@ template <typename T_enc, typename T_net> class NetworkWithEncoding {
     }
 
     std::shared_ptr<Encoding<T_enc>> get_encoding() { return encoding_; }
+
     std::shared_ptr<Network<T_net>> get_network() { return network_; }
+
+    void set_network_params(std::vector<T_net> network_params) { network_->set_weights_matrices(network_params); }
+
+    void set_encoding_params(DeviceMem<T_enc> &encoding_params_device_mem,
+                             DeviceMem<T_enc> &encoding_gradients_device_mem,
+                             std::vector<T_enc> *encoding_params = nullptr) {
+        encoding_->set_params_helper(encoding_params_device_mem, encoding_gradients_device_mem, encoding_params);
+    }
+
+    void initialize_params(DeviceMem<T_enc> &encoding_params_device_mem,
+                           DeviceMem<T_enc> &encoding_gradients_device_mem,
+                           std::vector<T_enc> *encoding_params = nullptr,
+                           std::vector<T_net> *network_params = nullptr) {
+        set_encoding_params(encoding_params_device_mem, encoding_gradients_device_mem, encoding_params);
+        if (network_params != nullptr) {
+            set_network_params(*network_params);
+        }
+    }
 
   private:
     void SanityCheck() const {

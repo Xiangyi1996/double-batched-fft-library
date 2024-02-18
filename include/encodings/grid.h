@@ -813,9 +813,9 @@ class GridEncodingTemplated : public GridEncoding<T> {
         m_n_to_pad = padded_output_width - m_n_output_dims;
     }
 
-    void set_params_impl(T *params, T *inference_params,
-                         T *gradients) // TODO: override
-    {}
+    // void set_params_impl(T *params, T *inference_params,
+    //                      T *gradients) // TODO: override
+    // {}
 
     void initialize_params(float *params_full_precision, float scale = 1) override {
         // // Initialize the hashgrid from the GPU, because the number of parameters

@@ -13,11 +13,13 @@
 #pragma once
 
 #include <common.h>
+#include <type_traits> // for std::is_same
 
 #include <cstdint>
 #include <sycl/sycl.hpp>
 
 #include "DeviceMatrix.h"
+#include "DeviceMem.h"
 #include "common.h"
 #include "json.hpp"
 
@@ -78,6 +80,12 @@ enum class ReductionType {
     Product,
 };
 
+// Type trait to detect bf16 type
+template <typename T> struct is_bf16 : std::false_type {};
+
+// Specialization for actual bf16 type, if bf16 type is available
+template <> struct is_bf16<sycl::ext::oneapi::bfloat16> : std::true_type {};
+
 template <typename T> class Encoding {
   public:
     Encoding() : m_n_params(0) {}
@@ -113,10 +121,25 @@ template <typename T> class Encoding {
     size_t n_params() const { return m_n_params; }
 
     void set_params(T *params, T *inference_params, T *gradients) {
-        // std::cout << "Set params got called" << std::endl;
         m_params = params;
         m_inference_params = inference_params;
         m_gradients = gradients;
+    }
+
+    void set_params_helper(DeviceMem<T> &params_full_precision, DeviceMem<T> &gradients,
+                           std::vector<T> *params = nullptr) {
+
+        if constexpr (!is_bf16<T>::value) {
+
+            if (params == nullptr) {
+                initialize_params(params_full_precision.data());
+            } else {
+                CHECK(params->size() == this->n_params());
+                params_full_precision.copy_from_host(*params).wait();
+            }
+
+            this->set_params(params_full_precision.data(), params_full_precision.data(), gradients.data());
+        }
     }
 
   private:

@@ -93,11 +93,8 @@ template <typename T> class EncodingFactoryRegistry {
     }
 
     std::shared_ptr<Encoding<T>> create(const json &config) const {
-        std::cout << "In create config: " << config << std::endl;
-
         std::string encoding_name = config[EncodingParams::ENCODING];
         if (!contains(encoding_name)) throw std::invalid_argument("Unknown encoding type: " + encoding_name);
-        std::cout << "About to create encodig: " << encoding_name << std::endl;
         return factories_.at(encoding_name)->create(config);
     }
 

@@ -27,9 +27,9 @@
 
 // Unique identifier for each activation pair
 constexpr int ActivationPairCode(Activation act, Activation out_act) {
-    return static_cast<int>(act) * 100 +
-           static_cast<int>(out_act); // just has to be larger than the maximum amount of enumerations (3 with None,
-                                      // Relu, and Sigmoid activation)
+    return static_cast<int>(act) * 100 + static_cast<int>(out_act);
+    // just has to be larger than the maximum amount of enumerations (3 with None,
+    // Relu, and Sigmoid activation)
 }
 
 template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
@@ -290,8 +290,8 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
             m_activation != Activation::Sigmoid) {
             throw std::runtime_error("m_activation must be ReLU or None or Sigmoid for now.");
         }
-        if (m_activation != Activation::ReLU && m_activation != Activation::None &&
-            m_activation != Activation::Sigmoid) {
+        if (m_output_activation != Activation::ReLU && m_output_activation != Activation::None &&
+            m_output_activation != Activation::Sigmoid) {
             throw std::runtime_error("m_output_activation must be ReLU or None or Sigmoid for now.");
         }
 
