@@ -292,7 +292,6 @@ template <typename T> class MLP {
             for (int idx = 0; idx < loss_grad_el.size(); idx++) {
                 loss_grad_el[idx] /= batch_size;
             }
-            printVector("loss_grad_el", loss_grad_el);
             loss_grads.push_back(loss_grad_el);
         }
 

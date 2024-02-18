@@ -37,7 +37,8 @@ template <typename T> class NetworkBase {
     virtual std::vector<sycl::event> backward_pass(const DeviceMatrix<T> &input, DeviceMatrices<T> &output,
                                                    DeviceMatrices<T> &intermediate_output_backward,
                                                    const DeviceMatrices<T> &intermediate_output_forward,
-                                                   const std::vector<sycl::event> &deps) = 0;
+                                                   const std::vector<sycl::event> &deps,
+                                                   DeviceMatrixView<T> &dL_dinput) = 0;
 };
 
 // Network Base class for all networks with weights matrices and width restrictions

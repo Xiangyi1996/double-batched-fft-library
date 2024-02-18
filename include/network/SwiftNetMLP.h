@@ -195,7 +195,8 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
     std::vector<sycl::event> backward_pass(const DeviceMatrix<T> &input, DeviceMatrices<T> &output,
                                            DeviceMatrices<T> &intermediate_output_backward,
                                            const DeviceMatrices<T> &intermediate_output_forward,
-                                           const std::vector<sycl::event> &deps) override {
+                                           const std::vector<sycl::event> &deps,
+                                           DeviceMatrixView<T> &dL_dinput) override {
         using namespace tinydpcppnn::kernels::esimd;
         SanityCheckBackward(input, output, intermediate_output_backward, intermediate_output_forward);
 
@@ -204,55 +205,55 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
             return EsimdKernels<T, WIDTH, WIDTH, WIDTH, Activation::None, Activation::None>::backward_impl(
                 Network<T>::get_queue(), Network<T>::get_weightsT_matrices().GetViews(), input.GetView(),
                 output.GetViews(), intermediate_output_backward.GetViews(), intermediate_output_forward.GetViews(),
-                Network<T>::get_n_hidden_layers(), deps);
+                Network<T>::get_n_hidden_layers(), deps, dL_dinput);
             break;
         case ActivationPairCode(Activation::ReLU, Activation::None):
             return EsimdKernels<T, WIDTH, WIDTH, WIDTH, Activation::ReLU, Activation::None>::backward_impl(
                 Network<T>::get_queue(), Network<T>::get_weightsT_matrices().GetViews(), input.GetView(),
                 output.GetViews(), intermediate_output_backward.GetViews(), intermediate_output_forward.GetViews(),
-                Network<T>::get_n_hidden_layers(), deps);
+                Network<T>::get_n_hidden_layers(), deps, dL_dinput);
             break;
         case ActivationPairCode(Activation::Sigmoid, Activation::None):
             return EsimdKernels<T, WIDTH, WIDTH, WIDTH, Activation::Sigmoid, Activation::None>::backward_impl(
                 Network<T>::get_queue(), Network<T>::get_weightsT_matrices().GetViews(), input.GetView(),
                 output.GetViews(), intermediate_output_backward.GetViews(), intermediate_output_forward.GetViews(),
-                Network<T>::get_n_hidden_layers(), deps);
+                Network<T>::get_n_hidden_layers(), deps, dL_dinput);
             break;
         case ActivationPairCode(Activation::None, Activation::ReLU):
             return EsimdKernels<T, WIDTH, WIDTH, WIDTH, Activation::None, Activation::ReLU>::backward_impl(
                 Network<T>::get_queue(), Network<T>::get_weightsT_matrices().GetViews(), input.GetView(),
                 output.GetViews(), intermediate_output_backward.GetViews(), intermediate_output_forward.GetViews(),
-                Network<T>::get_n_hidden_layers(), deps);
+                Network<T>::get_n_hidden_layers(), deps, dL_dinput);
             break;
         case ActivationPairCode(Activation::ReLU, Activation::ReLU):
             return EsimdKernels<T, WIDTH, WIDTH, WIDTH, Activation::ReLU, Activation::ReLU>::backward_impl(
                 Network<T>::get_queue(), Network<T>::get_weightsT_matrices().GetViews(), input.GetView(),
                 output.GetViews(), intermediate_output_backward.GetViews(), intermediate_output_forward.GetViews(),
-                Network<T>::get_n_hidden_layers(), deps);
+                Network<T>::get_n_hidden_layers(), deps, dL_dinput);
             break;
         case ActivationPairCode(Activation::Sigmoid, Activation::ReLU):
             return EsimdKernels<T, WIDTH, WIDTH, WIDTH, Activation::Sigmoid, Activation::ReLU>::backward_impl(
                 Network<T>::get_queue(), Network<T>::get_weightsT_matrices().GetViews(), input.GetView(),
                 output.GetViews(), intermediate_output_backward.GetViews(), intermediate_output_forward.GetViews(),
-                Network<T>::get_n_hidden_layers(), deps);
+                Network<T>::get_n_hidden_layers(), deps, dL_dinput);
             break;
         case ActivationPairCode(Activation::None, Activation::Sigmoid):
             return EsimdKernels<T, WIDTH, WIDTH, WIDTH, Activation::None, Activation::Sigmoid>::backward_impl(
                 Network<T>::get_queue(), Network<T>::get_weightsT_matrices().GetViews(), input.GetView(),
                 output.GetViews(), intermediate_output_backward.GetViews(), intermediate_output_forward.GetViews(),
-                Network<T>::get_n_hidden_layers(), deps);
+                Network<T>::get_n_hidden_layers(), deps, dL_dinput);
             break;
         case ActivationPairCode(Activation::ReLU, Activation::Sigmoid):
             return EsimdKernels<T, WIDTH, WIDTH, WIDTH, Activation::ReLU, Activation::Sigmoid>::backward_impl(
                 Network<T>::get_queue(), Network<T>::get_weightsT_matrices().GetViews(), input.GetView(),
                 output.GetViews(), intermediate_output_backward.GetViews(), intermediate_output_forward.GetViews(),
-                Network<T>::get_n_hidden_layers(), deps);
+                Network<T>::get_n_hidden_layers(), deps, dL_dinput);
             break;
         case ActivationPairCode(Activation::Sigmoid, Activation::Sigmoid):
             return EsimdKernels<T, WIDTH, WIDTH, WIDTH, Activation::Sigmoid, Activation::Sigmoid>::backward_impl(
                 Network<T>::get_queue(), Network<T>::get_weightsT_matrices().GetViews(), input.GetView(),
                 output.GetViews(), intermediate_output_backward.GetViews(), intermediate_output_forward.GetViews(),
-                Network<T>::get_n_hidden_layers(), deps);
+                Network<T>::get_n_hidden_layers(), deps, dL_dinput);
             break;
         default:
             throw std::logic_error("Invalid activation should have been caught earlier.");

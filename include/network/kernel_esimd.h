@@ -132,7 +132,7 @@ class EsimdKernels {
                                                   DeviceMatricesView<T> intermediate_backward,
                                                   const DeviceMatricesView<T> &intermediate_forward,
                                                   const int n_hidden_layers, const std::vector<sycl::event> &deps,
-                                                  DeviceMatrix<T> *dL_dinput = nullptr) {
+                                                  DeviceMatrixView<T> &dL_dinput) {
 
         // make sure there is no remainder and no out of bounds accesses
         static_assert(WIDTH % TN == 0);
@@ -171,13 +171,8 @@ class EsimdKernels {
                     As, intermediate_backward.GetElementPointer(n_hidden_layers, loc_row_offset, 0));
                 simd<Tc, TM * WIDTH> Cs;
                 // we are also doing output->last hidden layer
-                int layer_idx = 1;
 
-                if (dL_dinput != nullptr) {
-                    layer_idx = 0; // save the input derivative as well
-                }
-
-                for (int layer = n_hidden_layers; layer >= layer_idx; layer--) {
+                for (int layer = n_hidden_layers; layer > 0; layer--) {
                     Cs = static_cast<Tc>(0);
 
                     MAD<TM, TK>(As, weights.GetMatrixPointer(layer), Cs);
@@ -185,15 +180,20 @@ class EsimdKernels {
                     applyBackwardActivation<activation, TM, TK>(
                         intermediate_forward.GetElementPointer(layer, loc_row_offset, 0), Cs, As);
 
-                    if (layer == 0) {
-                        // storeRow<TM, TK, cache_hint::uncached, cache_hint::uncached>(
-                        //     As, dL_dinput->GetView().GetPointer(loc_row_offset, 0));
-                    } else {
-                        // store intermediate_backward every time but for first layer. For first layer, we store in
-                        // dL_dinput
-                        storeRow<TM, TK, cache_hint::uncached, cache_hint::uncached>(
-                            As, intermediate_backward.GetElementPointer(layer - 1, loc_row_offset, 0));
-                    }
+                    storeRow<TM, TK, cache_hint::uncached, cache_hint::uncached>(
+                        As, intermediate_backward.GetElementPointer(layer - 1, loc_row_offset, 0));
+                }
+                {
+                    /// TODO: make this optional again as it decreases performance and is only used in gridencoding
+                    Cs = static_cast<Tc>(0);
+
+                    MAD<TM, TK>(As, weights.GetMatrixPointer(0), Cs);
+
+                    applyBackwardActivation<activation, TM, TK>(
+                        intermediate_forward.GetElementPointer(0, loc_row_offset, 0), Cs, As);
+
+                    storeRow<TM, TK, cache_hint::uncached, cache_hint::uncached>(
+                        As, dL_dinput.GetPointer(loc_row_offset, 0));
                 }
             });
         });

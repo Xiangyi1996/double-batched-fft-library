@@ -142,6 +142,10 @@ void test_grads(sycl::queue &q, const int input_width, const int output_width, c
     DeviceMatrix<float> targets(batch_size, output_width, q);
     targets.fill(target_val).wait();
 
+    DeviceMatrix<T> dL_dinput(batch_size, input_width, q);
+    dL_dinput.fill(0.0f).wait();
+    auto dL_dinput_view = dL_dinput.GetView();
+
     L2Loss<T> l2_loss;
     sycl::event sycl_event = l2_loss.evaluate(q, loss_scale, network_output.GetView(), targets, loss, dL_doutput);
     q.wait();
@@ -173,12 +177,19 @@ void test_grads(sycl::queue &q, const int input_width, const int output_width, c
     dL_doutput.copy_from_host(convert_vector<double, T>(stacked_dL_doutput_ref)).wait();
 
     // up until here, we load only reference values to test only grads (and interm_backw)
-    network.backward_pass(dL_doutput, grads, interm_backw, interm_forw, {});
+    network.backward_pass(dL_doutput, grads, interm_backw, interm_forw, {}, dL_dinput_view);
+    q.wait();
+
     q.wait();
 
     std::vector<T> interm_backw_vec = interm_backw.copy_to_host();
+    std::vector<T> dL_dinput_vec = dL_dinput.copy_to_host();
     std::vector<T> grad_vec = grads.copy_to_host();
     q.wait();
+
+    // Sanity check, already tested in test_interm_back
+    auto dL_dinput_ref_stacked = stack_vector(dL_dinput_ref, batch_size);
+    CHECK(areVectorsWithinTolerance(dL_dinput_ref_stacked, dL_dinput_vec, 1.0e-2));
 
     // flatten reference grad matrices
     std::vector<double> grads_ref;
@@ -228,11 +239,10 @@ void test_interm_backw(sycl::queue &q, const int input_width, const int output_w
     std::vector<Matrix<double>> grad_matrices_ref(n_hidden_layers + 1, Matrix<double>(1, 1));
     std::vector<std::vector<double>> loss_grads_ref;
     std::vector<double> loss_ref;
-    std::vector<double> dL_dinput;
+    std::vector<double> dL_dinput_ref;
     std::vector<double> dL_doutput_ref;
-    mlp.backward(input_ref, target_ref, grad_matrices_ref, loss_grads_ref, loss_ref, dL_doutput_ref, dL_dinput,
+    mlp.backward(input_ref, target_ref, grad_matrices_ref, loss_grads_ref, loss_ref, dL_doutput_ref, dL_dinput_ref,
                  loss_scale);
-    printVector("dL_dinput", dL_dinput);
 
     DeviceMatrix<T> network_output(batch_size, output_width, q);
     network_output.fill(0.0f).wait();
@@ -246,6 +256,10 @@ void test_interm_backw(sycl::queue &q, const int input_width, const int output_w
 
     DeviceMatrix<float> targets(batch_size, output_width, q);
     targets.fill(target_val).wait();
+
+    DeviceMatrix<T> dL_dinput(batch_size, input_width, q);
+    dL_dinput.fill(0.0f).wait();
+    auto dL_dinput_view = dL_dinput.GetView();
 
     L2Loss<T> l2_loss;
     sycl::event sycl_event = l2_loss.evaluate(q, loss_scale, network_output.GetView(), targets, loss, dL_doutput);
@@ -277,11 +291,20 @@ void test_interm_backw(sycl::queue &q, const int input_width, const int output_w
     dL_doutput.copy_from_host(convert_vector<double, T>(stacked_dL_doutput_ref)).wait();
 
     // up until here, we load only reference values to test only interm_backw (and grads)
-    network.backward_pass(dL_doutput, grads, interm_backw, interm_forw, {});
+
+    network.backward_pass(dL_doutput, grads, interm_backw, interm_forw, {}, dL_dinput_view);
     q.wait();
 
     std::vector<T> interm_backw_vec = interm_backw.copy_to_host();
+    std::vector<T> dL_dinput_vec = dL_dinput.copy_to_host();
     q.wait();
+
+    auto dL_dinput_ref_stacked = stack_vector(dL_dinput_ref, batch_size);
+    if (!areVectorsWithinTolerance(dL_dinput_ref_stacked, dL_dinput_vec, 1.0e-2)) {
+        printVector("dL_dinput_ref_stacked: ", dL_dinput_ref_stacked);
+        printVector("dL_dinput_vec: ", dL_dinput_vec);
+    }
+    CHECK(areVectorsWithinTolerance(dL_dinput_ref_stacked, dL_dinput_vec, 1.0e-2));
 
     for (int i = 0; i < loss_grads_ref.size(); i++) {
         std::vector<double> interm_backw_ref;
@@ -293,9 +316,7 @@ void test_interm_backw(sycl::queue &q, const int input_width, const int output_w
             interm_backw_ref.push_back(value); // Add each element to the flattened vector
         }
 
-        bool interm_backw_within_tolerance =
-            areVectorsWithinTolerance(interm_backw_sliced_actual, interm_backw_ref, 1.0e-2);
-        if (!interm_backw_within_tolerance) {
+        if (!areVectorsWithinTolerance(interm_backw_sliced_actual, interm_backw_ref, 1.0e-2)) {
             printVector("interm_backw_ref: ", interm_backw_ref);
             printVector("interm_backw_vec: ", interm_backw_sliced_actual);
         }
@@ -784,7 +805,6 @@ void test_interm_fwd(sycl::queue &q, const int input_width, const int output_wid
 TEST_CASE("Swiftnet - test interm bwd") {
     sycl::queue q(sycl::gpu_selector_v);
     const int n_hidden_layers = 1;
-    test_interm_backw<sycl::ext::oneapi::bfloat16, 16>(q, 16, 16, n_hidden_layers, 8, "relu", "relu", "linspace");
     //     auto test_function = [=](sycl::queue &q, const int width, const int batch_size, std::string activation,
     //                              std::string output_activation, std::string weight_init_mode) {
     //         typedef sycl::ext::oneapi::bfloat16 T;
