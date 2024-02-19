@@ -47,7 +47,7 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
      */
     SwiftNetMLP(sycl::queue &q, const int input_width, const int output_width, const int n_hidden_layers,
                 Activation activation, Activation output_activation,
-                const Network<T>::WeightInitMode mode = Network<T>::WeightInitMode::none)
+                const Network<T>::WeightInitMode mode = Network<T>::WeightInitMode::xavier_normal)
         : Network<T>(q, n_hidden_layers, input_width, WIDTH, output_width, mode), m_activation{activation},
           m_output_activation{output_activation} {
 

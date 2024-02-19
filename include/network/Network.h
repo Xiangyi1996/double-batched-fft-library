@@ -14,6 +14,7 @@
 
 #include "DeviceMatrix.h"
 #include "common.h"
+#include <random>
 
 // completely generic Network.
 template <typename T> class NetworkBase {
@@ -45,7 +46,7 @@ template <typename T> class NetworkBase {
 template <typename T> class Network : public NetworkBase<T> {
 
   public:
-    enum WeightInitMode { arange, constant_pos, constant_negative, he_normal, none };
+    enum WeightInitMode { arange, constant_pos, constant_negative, xavier_normal, none };
 
     Network(sycl::queue &q, const int n_hidden_layers, const int input_width, const int network_width,
             const int output_width, const WeightInitMode mode)
@@ -189,8 +190,9 @@ template <typename T> class Network : public NetworkBase<T> {
             initialize_constant(m_weights_matrices, 0.01);
         } else if (mode == WeightInitMode::constant_negative) {
             initialize_constant(m_weights_matrices, -0.01);
-        } else if (mode == WeightInitMode::he_normal) {
-            throw std::invalid_argument("he_normal not supported");
+        } else if (mode == WeightInitMode::xavier_normal) {
+            initialize_xavier_normal(m_weights_matrices);
+
         } else if (mode == WeightInitMode::none) {
             initialize_constant(m_weights_matrices, 1.0);
         } else {
@@ -205,6 +207,19 @@ template <typename T> class Network : public NetworkBase<T> {
 
     // Initialize memory with constant values
     static void initialize_constant(DeviceMatrices<T> &ms, const T &constant) { ms.fill(constant); }
+    void initialize_xavier_normal(DeviceMatrices<T> &ms, const double weight_val_scaling_factor = 1.0) {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        double xavier_stddev = std::sqrt(2.0 / (network_width_ + network_width_));
+        std::uniform_real_distribution<> dis(-weight_val_scaling_factor * xavier_stddev,
+                                             weight_val_scaling_factor * xavier_stddev);
+        std::vector<T> weight_matrix_vec(ms.nelements());
+
+        for (T &val : weight_matrix_vec) {
+            val = static_cast<T>(dis(gen));
+        }
+        ms.copy_from_host(weight_matrix_vec).wait();
+    }
 
     static int PadWidths(const int width, const int base) {
         if (width <= 0) throw std::invalid_argument("width <= 0 cannot be padded.");
