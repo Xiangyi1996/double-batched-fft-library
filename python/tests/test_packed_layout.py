@@ -1,5 +1,10 @@
 import pytest
-from modules import to_packed_layout_coord
+from modules import (
+    to_packed_layout_coord,
+    unpack_vector,
+    pack_vector,
+    from_packed_layout_coord,
+)
 
 # Test cases for to_packed_layout_coord
 to_packed_test_cases = [
@@ -4105,3 +4110,112 @@ to_packed_test_cases = [
 @pytest.mark.parametrize("idx, rows, cols, expected", to_packed_test_cases)
 def test_to_packed_layout_coord(idx, rows, cols, expected):
     assert to_packed_layout_coord(idx, rows, cols) == expected
+
+
+def test_unpack_vector():
+    # Test configuration
+    input_dim = 4
+    output_dim = 4
+    width = 4
+    N = 2  # Number of hidden matrices
+
+    # Create sample matrices
+    input_matrix = list(range(input_dim * width))
+    hidden_matrices = [
+        list(range(n * width * width, (n + 1) * width * width)) for n in range(N)
+    ]
+    output_matrix = list(
+        range(N * width * width, N * width * width + width * output_dim)
+    )
+
+    # Pack the matrices into a single vector
+    packed_vector = []
+    for idx in range(len(input_matrix)):
+        packed_vector.append(
+            input_matrix[to_packed_layout_coord(idx, input_dim, width)]
+        )
+
+    unpacked_vector = []
+
+    for h_matrix in hidden_matrices:
+        for idx in range(len(h_matrix)):
+            packed_vector.append(h_matrix[to_packed_layout_coord(idx, width, width)])
+
+    for idx in range(len(output_matrix)):
+        packed_vector.append(
+            output_matrix[to_packed_layout_coord(idx, width, output_dim)]
+        )
+    # Unpack the vector
+    unpacked_vector = unpack_vector(packed_vector, N, input_dim, output_dim, width)
+
+    # Construct the supposed original matrices vector
+    supposed_original_vector = (
+        input_matrix
+        + [item for sublist in hidden_matrices for item in sublist]
+        + output_matrix
+    )
+
+    # Debug: Print vectors if assertion is about to fail
+    if unpacked_vector != supposed_original_vector:
+        print("Unpacked vector:", unpacked_vector)
+        print("Supposed original vector:", supposed_original_vector)
+
+    # Assert if unpacked vector matches the original data
+    assert (
+        unpacked_vector == supposed_original_vector
+    ), "Unpacking did not yield the original matrices."
+
+
+def test_pack_vector():
+    # Test configuration
+    input_dim = 4
+    output_dim = 4
+    width = 4
+    N = 2  # Number of hidden matrices
+
+    # Create sample matrices
+    input_matrix = list(range(input_dim * width))
+    hidden_matrices = [
+        list(range(n * width * width, (n + 1) * width * width)) for n in range(N)
+    ]
+    output_matrix = list(
+        range(N * width * width, N * width * width + width * output_dim)
+    )
+
+    # Pack the matrices into a single vector
+    packed_vector = []
+    for idx in range(len(input_matrix)):
+        packed_vector.append(
+            input_matrix[to_packed_layout_coord(idx, input_dim, width)]
+        )
+
+    for h_matrix in hidden_matrices:
+        for idx in range(len(h_matrix)):
+            packed_vector.append(h_matrix[to_packed_layout_coord(idx, width, width)])
+
+    for idx in range(len(output_matrix)):
+        packed_vector.append(
+            output_matrix[to_packed_layout_coord(idx, width, output_dim)]
+        )
+    # Construct the supposed original matrices vector
+    unpacked_vector = (
+        input_matrix
+        + [item for sublist in hidden_matrices for item in sublist]
+        + output_matrix
+    )
+    packed_vector_alg = pack_vector(unpacked_vector, N, input_dim, output_dim, width)
+    # Debug: Print vectors if assertion is about to fail
+    if packed_vector != packed_vector_alg:
+        print("Packed vector:", packed_vector)
+        print("Packed vector from alg:", packed_vector_alg)
+
+    # Assert if unpacked vector matches the original data
+    assert (
+        packed_vector == packed_vector_alg
+    ), "Packing did not yield the original matrices."
+
+
+# Run the test
+if __name__ == "__main__":
+    # test_unpack_vector()
+    test_pack_vector()

@@ -300,7 +300,11 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
 
     void SanityCheckInference(const DeviceMatrix<T> &input, DeviceMatrix<T> &output) const {
         if ((input.m() % 8) != 0) throw std::invalid_argument("Batch size is not divisible by 8.");
-        if (input.n() < Network<T>::get_input_width()) throw std::invalid_argument("Input array too small");
+
+        if (input.n() != Network<T>::get_input_width()) {
+            throw std::invalid_argument("Input array too small. Input n: " + std::to_string(input.n()) +
+                                        " != input width " + std::to_string(Network<T>::get_input_width()));
+        }
         if (output.m() != input.m() || output.n() < Network<T>::get_output_width())
             throw std::invalid_argument("Output array too small");
     }
@@ -308,53 +312,118 @@ template <typename T, int WIDTH> class SwiftNetMLP : public Network<T> {
     void SanityCheckForward(const DeviceMatrix<T> &input, DeviceMatrices<T> &intermediate_output_forward) const {
         // Static assertion and assertion checks
         if ((input.m() % 8) != 0) throw std::invalid_argument("Batch size is not divisible by 8.");
-        if (input.n() != Network<T>::get_input_width())
+
+        if (input.n() != Network<T>::get_input_width()) {
             throw std::invalid_argument("Input array too small. Input n: " + std::to_string(input.n()) +
                                         " != input width " + std::to_string(Network<T>::get_input_width()));
-        if (intermediate_output_forward.input_m() != input.m() || intermediate_output_forward.input_n() != input.n())
-            throw std::invalid_argument("intermediate_output_forward array too small for input");
-        if (intermediate_output_forward.middle_m() != input.m() || intermediate_output_forward.middle_n() != WIDTH)
-            throw std::invalid_argument("intermediate_output_forward array too small for middle results");
+        }
+
+        if (intermediate_output_forward.input_m() != input.m() || intermediate_output_forward.input_n() != input.n()) {
+            throw std::invalid_argument("intermediate_output_forward dim wrong doesn't match input shape, expected: (" +
+                                        std::to_string(input.m()) + ", " + std::to_string(input.n()) + "), but got: (" +
+                                        std::to_string(intermediate_output_forward.input_m()) + ", " +
+                                        std::to_string(intermediate_output_forward.input_n()) + ")");
+        }
+
+        if (intermediate_output_forward.middle_m() != input.m() || intermediate_output_forward.middle_n() != WIDTH) {
+            throw std::invalid_argument("intermediate_output_forward array too small for middle results, expected: (" +
+                                        std::to_string(input.m()) + ", " + std::to_string(WIDTH) + "), but got: (" +
+                                        std::to_string(intermediate_output_forward.middle_m()) + ", " +
+                                        std::to_string(intermediate_output_forward.middle_n()) + ")");
+        }
+
         if (intermediate_output_forward.output_m() != input.m() ||
-            intermediate_output_forward.output_n() != Network<T>::get_output_width())
-            throw std::invalid_argument("intermediate_output_forward array too small for output");
-        if (intermediate_output_forward.GetNumberOfMatrices() != Network<T>::get_n_hidden_layers() + 2)
-            throw std::invalid_argument("not enough matrices in intermediate_output_forward array");
+            intermediate_output_forward.output_n() != Network<T>::get_output_width()) {
+            throw std::invalid_argument("intermediate_output_forward array too small for output, expected: (" +
+                                        std::to_string(input.m()) + ", " +
+                                        std::to_string(Network<T>::get_output_width()) + "), but got: (" +
+                                        std::to_string(intermediate_output_forward.output_m()) + ", " +
+                                        std::to_string(intermediate_output_forward.output_n()) + ")");
+        }
+
+        if (intermediate_output_forward.GetNumberOfMatrices() != Network<T>::get_n_hidden_layers() + 2) {
+            throw std::invalid_argument("Not enough matrices in intermediate_output_forward array, expected: " +
+                                        std::to_string(Network<T>::get_n_hidden_layers() + 2) + " but got: " +
+                                        std::to_string(intermediate_output_forward.GetNumberOfMatrices()));
+        }
     }
 
     void SanityCheckBackward(const DeviceMatrix<T> &input, DeviceMatrices<T> &output,
                              DeviceMatrices<T> &intermediate_output_backward,
                              const DeviceMatrices<T> &intermediate_output_forward) const {
         if ((input.m() % 8) != 0) throw std::invalid_argument("Batch size is not divisible by 8.");
+
         if (input.m() != intermediate_output_forward.input_m() || input.n() != Network<T>::get_output_width())
-            throw std::invalid_argument("Input array in backward pass too small");
+            throw std::invalid_argument("Input array in backward pass too small. Input shape: " +
+                                        std::to_string(input.m()) + " x " + std::to_string(input.n()) +
+                                        ", but should be: " + std::to_string(intermediate_output_forward.input_m()) +
+                                        " x " + std::to_string(Network<T>::get_output_width()));
 
         if (intermediate_output_forward.input_m() != input.m() || intermediate_output_forward.middle_m() != input.m() ||
             intermediate_output_forward.output_m() != input.m())
-            throw std::invalid_argument("intermediate_output_forward m too small");
+            throw std::invalid_argument(
+                "Intermediate_output_forward m dimension mismatch. Expected: " + std::to_string(input.m()) +
+                " for all sizes, but got input_m=" + std::to_string(intermediate_output_forward.input_m()) +
+                ", middle_m=" + std::to_string(intermediate_output_forward.middle_m()) +
+                ", output_m=" + std::to_string(intermediate_output_forward.output_m()));
+
         if (intermediate_output_forward.input_n() != Network<T>::get_input_width() ||
             intermediate_output_forward.middle_n() != WIDTH ||
             intermediate_output_forward.output_n() != Network<T>::get_output_width())
-            throw std::invalid_argument("intermediate_output_forward n too small");
+            throw std::invalid_argument("Intermediate_output_forward n dimension mismatch. Expected: (" +
+                                        std::to_string(Network<T>::get_input_width()) + ", " + std::to_string(WIDTH) +
+                                        ", " + std::to_string(Network<T>::get_output_width()) +
+                                        ") for (input_n, middle_n, output_n), " + "but got (" +
+                                        std::to_string(intermediate_output_forward.input_n()) + ", " +
+                                        std::to_string(intermediate_output_forward.middle_n()) + ", " +
+                                        std::to_string(intermediate_output_forward.output_n()) + ")");
+
         if (intermediate_output_forward.GetNumberOfMatrices() != Network<T>::get_n_hidden_layers() + 2)
-            throw std::invalid_argument("intermediate_output_forward not enough matrices");
+            throw std::invalid_argument("Not enough matrices in intermediate_output_forward array. Required: " +
+                                        std::to_string(Network<T>::get_n_hidden_layers() + 2) + ", available: " +
+                                        std::to_string(intermediate_output_forward.GetNumberOfMatrices()));
 
         if (intermediate_output_backward.input_m() != input.m() ||
             intermediate_output_backward.middle_m() != input.m() ||
             intermediate_output_backward.output_m() != input.m())
-            throw std::invalid_argument("intermediate_output_backward m too small");
+            throw std::invalid_argument(
+                "Intermediate_output_backward m too small. Expected: " + std::to_string(input.m()) +
+                " for all m sizes, but got input_m=" + std::to_string(intermediate_output_backward.input_m()) +
+                ", middle_m=" + std::to_string(intermediate_output_backward.middle_m()) +
+                ", output_m=" + std::to_string(intermediate_output_backward.output_m()));
+
         if (intermediate_output_backward.input_n() != WIDTH || intermediate_output_backward.middle_n() != WIDTH ||
             intermediate_output_backward.output_n() != Network<T>::get_output_width())
-            throw std::invalid_argument("intermediate_output_backward n too small");
+            throw std::invalid_argument("Intermediate_output_backward n dimension mismatch. Expected: (" +
+                                        std::to_string(WIDTH) + ", " + std::to_string(WIDTH) + ", " +
+                                        std::to_string(Network<T>::get_output_width()) +
+                                        ") for (input_n, middle_n, output_n), but got (" +
+                                        std::to_string(intermediate_output_backward.input_n()) + ", " +
+                                        std::to_string(intermediate_output_backward.middle_n()) + ", " +
+                                        std::to_string(intermediate_output_backward.output_n()) + ")");
+
         if (intermediate_output_backward.GetNumberOfMatrices() != Network<T>::get_n_hidden_layers() + 1)
-            throw std::invalid_argument("intermediate_output_backward not enough matrices");
+            throw std::invalid_argument("Not enough matrices in intermediate_output_backward array. Required: " +
+                                        std::to_string(Network<T>::get_n_hidden_layers() + 1) + ", available: " +
+                                        std::to_string(intermediate_output_backward.GetNumberOfMatrices()));
 
         if (output.input_m() != Network<T>::get_input_width() || output.input_n() != WIDTH)
-            throw std::invalid_argument("Output of backward pass too small for input.");
+            throw std::invalid_argument("Output of backward pass too small for input. Expected: (" +
+                                        std::to_string(Network<T>::get_input_width()) + ", " + std::to_string(WIDTH) +
+                                        "), but got (" + std::to_string(output.input_m()) + ", " +
+                                        std::to_string(output.input_n()) + ")");
+
         if (output.middle_m() != WIDTH || output.middle_n() != WIDTH)
-            throw std::invalid_argument("Output of backward pass too small for middle.");
+            throw std::invalid_argument("Output of backward pass too small for middle. Expected: (" +
+                                        std::to_string(WIDTH) + ", " + std::to_string(WIDTH) + "), but got (" +
+                                        std::to_string(output.middle_m()) + ", " + std::to_string(output.middle_n()) +
+                                        ")");
+
         if (output.output_m() != WIDTH || output.output_n() != Network<T>::get_output_width())
-            throw std::invalid_argument("Output of backward pass too small for output.");
+            throw std::invalid_argument("Output of backward pass too small for output. Expected: (" +
+                                        std::to_string(WIDTH) + ", " + std::to_string(Network<T>::get_output_width()) +
+                                        "), but got (" + std::to_string(output.output_m()) + ", " +
+                                        std::to_string(output.output_n()) + ")");
     }
 
     Activation m_activation;

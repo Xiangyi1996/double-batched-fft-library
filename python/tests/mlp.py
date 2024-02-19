@@ -16,8 +16,10 @@ class MLP(torch.nn.Module):
         output_activation=None,
         use_batchnorm=False,
         save_outputs=False,
+        dtype=torch.float,
     ):
         super().__init__()
+        self.dtype = dtype
         self.save_outputs = save_outputs
         # Used for gradecheck and naming consistency with modules.py (Swiftnet)
         self.input_width = input_size
@@ -30,51 +32,63 @@ class MLP(torch.nn.Module):
         self.activation_func = activation_func
         self.output_activation = output_activation
         self.use_batchnorm = use_batchnorm
-        self.network_width = hidden_sizes[0]
 
         # Input layer
         input_dim = hidden_sizes[0] if input_size <= 64 else input_size
-        self.layers.append(torch.nn.Linear(input_dim, hidden_sizes[0], bias=BIAS))
+        self.layers.append(
+            torch.nn.Linear(input_dim, hidden_sizes[0], bias=BIAS).to(self.dtype)
+        )
         # if input_size < 16:
         #     # the encoding in the current implementaiton doesn't have grad.
         #     # Set requires_grad to False for the parameters of the first layer (layers[0])
         #     self.layers[0].weight.requires_grad = False
 
         if self.use_batchnorm:
-            self.layers.append(torch.nn.BatchNorm1d(hidden_sizes[0]))
+            self.layers.append(torch.nn.BatchNorm1d(hidden_sizes[0]).to(self.dtype))
 
         # Hidden layers
         for i in range(1, len(hidden_sizes)):
             self.layers.append(
-                torch.nn.Linear(hidden_sizes[i - 1], hidden_sizes[i], bias=False)
+                torch.nn.Linear(hidden_sizes[i - 1], hidden_sizes[i], bias=False).to(
+                    self.dtype
+                )
             )
 
             # BatchNorm layer for hidden layers (if enabled)
             if self.use_batchnorm:
-                self.layers.append(torch.nn.BatchNorm1d(hidden_sizes[i]))
+                self.layers.append(torch.nn.BatchNorm1d(hidden_sizes[i]).to(self.dtype))
 
         # Output layer
-        self.layers.append(torch.nn.Linear(hidden_sizes[-1], output_size, bias=False))
+        self.layers.append(
+            torch.nn.Linear(hidden_sizes[-1], output_size, bias=False).to(self.dtype)
+        )
 
     def forward(self, x):
-        batch_size = x.size(0)
+        x_changed_dtype = x.to(self.dtype)
+        assert x_changed_dtype.dtype == self.dtype
+        batch_size = x_changed_dtype.size(0)
         ones = torch.ones(
             (batch_size, self.layers[0].in_features - self.input_width),
-            dtype=x.dtype,
-            device=x.device,
+            dtype=x_changed_dtype.dtype,
+            device=x_changed_dtype.device,
         )
-        # print(ones)
-        x = torch.cat((x, ones), dim=1)
+        x_changed_dtype = torch.cat((x_changed_dtype, ones), dim=1)
 
         if self.save_outputs:
-            layer_outputs = [x[0, :].cpu().detach().numpy()[None,]]
+            layer_outputs = [x_changed_dtype[0, :].cpu().detach().numpy()[None,]]
         for i, layer in enumerate(self.layers):
             if i == len(self.layers) - 1:
-                x = self._apply_activation(layer(x), self.output_activation)
+                x_changed_dtype = self._apply_activation(
+                    layer(x_changed_dtype), self.output_activation
+                )
             else:
-                x = self._apply_activation(layer(x), self.activation_func)
+                x_changed_dtype = self._apply_activation(
+                    layer(x_changed_dtype), self.activation_func
+                )
             if self.save_outputs:
-                layer_outputs.append(x[0, :].cpu().detach().numpy()[None,])
+                layer_outputs.append(
+                    x_changed_dtype[0, :].cpu().detach().numpy()[None,]
+                )
 
         if self.save_outputs:
             # Specify the file path where you want to save the CSV file
@@ -85,7 +99,7 @@ class MLP(torch.nn.Module):
                 delimiter=",",
                 fmt="%f",
             )
-        return x
+        return x_changed_dtype
 
     def _apply_activation(self, x, activation_func):
         if activation_func == "relu":
@@ -106,9 +120,8 @@ class MLP(torch.nn.Module):
             raise ValueError("Invalid activation function")
 
     def set_weights(self, parameters):
-        offset = 0
-
-        # if "middle_weights" in parameters:
         for i, weight in enumerate(parameters):
-            assert self.layers[i + offset].weight.shape == weight.shape
-            self.layers[i + offset].weight = copy.deepcopy(torch.nn.Parameter(weight))
+            # mlp_weight = weight.to(self.dtype)
+            assert weight.dtype == self.dtype
+            assert self.layers[i].weight.shape == weight.shape
+            self.layers[i].weight = torch.nn.Parameter(weight)

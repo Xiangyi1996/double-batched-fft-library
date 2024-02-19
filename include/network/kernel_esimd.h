@@ -197,7 +197,7 @@ class EsimdKernels {
                 }
             });
         });
-        // NOTE: MKL gemm_batch is slower. Rescale with 1/M for stability.
+        // NOTE: MKL gemm_batch is slower.
         std::vector<sycl::event> events(n_hidden_layers + 1);
         if constexpr (std::is_same<T, sycl::ext::oneapi::bfloat16>::value) { // need to cast to onemkls bf16 type.
             for (int iter = 0; iter < n_hidden_layers + 1; iter++) {

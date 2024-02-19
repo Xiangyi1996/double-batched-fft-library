@@ -809,7 +809,11 @@ class GridEncodingTemplated : public GridEncoding<T> {
     uint32_t output_width() const override { return padded_output_width(); }
 
     void set_padded_output_width(uint32_t padded_output_width) override {
-        if (padded_output_width < m_n_output_dims) throw std::invalid_argument("Invalid padding.");
+        if (padded_output_width < m_n_output_dims) {
+            throw std::invalid_argument(
+                "Padded width has to be larger than unpadded. m_n_output_dims: " + std::to_string(m_n_output_dims) +
+                ", padded_output_width: " + std::to_string(padded_output_width));
+        };
         m_n_to_pad = padded_output_width - m_n_output_dims;
     }
 

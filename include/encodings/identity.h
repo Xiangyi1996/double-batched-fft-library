@@ -104,7 +104,9 @@ template <typename T> class IdentityEncoding : public Encoding<T> {
 
     void set_padded_output_width(const uint32_t padded_output_width) override {
         if (padded_output_width < m_n_dims_to_encode)
-            throw std::invalid_argument("Padded width has to be larger than unpadded.");
+            throw std::invalid_argument("Padded width has to be larger than unpadded. m_n_dims_to_encode: " +
+                                        std::to_string(m_n_dims_to_encode) +
+                                        ", padded_output_width: " + std::to_string(padded_output_width));
 
         m_n_to_pad = padded_output_width - m_n_dims_to_encode;
     }

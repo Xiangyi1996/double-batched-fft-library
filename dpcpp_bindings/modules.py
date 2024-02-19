@@ -2,11 +2,34 @@ import gc
 import warnings
 
 import torch
+import math
 import json
 import intel_extension_for_pytorch
 
 import tiny_nn as tnn
 from tiny_nn import Activation
+import pdb
+
+
+def pad_tensor_to_width(tensor, width):
+    batch_size, input_dim = tensor.shape
+    if input_dim >= width:
+        raise ValueError("input_dim must be less than width to pad")
+
+    padding_size = width - input_dim
+    pad_tensor = torch.nn.functional.pad(tensor, (0, padding_size), "constant", 0)
+    return pad_tensor
+
+
+def unpad_tensor_to_input_dim(padded_tensor, output_dim):
+    batch_size, current_width = padded_tensor.shape
+    if output_dim > current_width:
+        raise ValueError(
+            "input_dim must be less than or equal to the current width of the tensor"
+        )
+
+    unpadded_tensor = padded_tensor[:, :output_dim]
+    return unpadded_tensor
 
 
 def get_dpcpp_activation(name):
@@ -22,6 +45,80 @@ def get_dpcpp_activation(name):
         raise NotImplementedError(f"Activation: {name} not defined")
 
     return activation
+
+
+def pack_vector(unpacked_vector, n_hidden_layers, input_dim, output_dim, width):
+    # Initialize the starting index of the current matrix within the packed vector
+    current_idx = 0
+    # The vector to hold all unpacked matrices
+    packed_matrices = []
+
+    # Unpack the input matrix
+    total_elements = input_dim * width
+    packed_input_matrix = [0] * total_elements
+    for idx in range(total_elements):
+        packed_index = to_packed_layout_coord(idx, input_dim, width)
+        packed_input_matrix[idx] = unpacked_vector[current_idx + packed_index]
+    packed_matrices.append(packed_input_matrix)
+    current_idx += total_elements
+
+    # Unpack N hidden matrices
+    for _ in range(n_hidden_layers):
+        total_elements = width * width
+        packed_hidden_matrix = [0] * total_elements
+        for idx in range(total_elements):
+            packed_index = to_packed_layout_coord(idx, width, width)
+            packed_hidden_matrix[idx] = unpacked_vector[current_idx + packed_index]
+        packed_matrices.append(packed_hidden_matrix)
+        current_idx += total_elements
+
+    # Unpack the output matrix
+    total_elements = width * output_dim
+    packed_output_matrix = [0] * total_elements
+    for idx in range(total_elements):
+        packed_index = to_packed_layout_coord(idx, width, output_dim)
+        packed_output_matrix[idx] = unpacked_vector[current_idx + packed_index]
+    packed_matrices.append(packed_output_matrix)
+
+    # Return the unpacked matrices as a flat list (one long vector in unpacked format)
+    return [item for sublist in packed_matrices for item in sublist]
+
+
+def unpack_vector(packed_vector, n_hidden_layers, input_dim, output_dim, width):
+    # Initialize the starting index of the current matrix within the packed vector
+    current_idx = 0
+    # The vector to hold all unpacked matrices
+    unpacked_matrices = []
+
+    # Unpack the input matrix
+    total_elements = input_dim * width
+    unpacked_input_matrix = [0] * total_elements
+    for idx in range(total_elements):
+        unpacked_index = from_packed_layout_coord(idx, input_dim, width)
+        unpacked_input_matrix[idx] = packed_vector[current_idx + unpacked_index]
+    unpacked_matrices.append(unpacked_input_matrix)
+    current_idx += total_elements
+
+    # Unpack N hidden matrices
+    for _ in range(n_hidden_layers):
+        total_elements = width * width
+        unpacked_hidden_matrix = [0] * total_elements
+        for idx in range(total_elements):
+            unpacked_index = from_packed_layout_coord(idx, width, width)
+            unpacked_hidden_matrix[idx] = packed_vector[current_idx + unpacked_index]
+        unpacked_matrices.append(unpacked_hidden_matrix)
+        current_idx += total_elements
+
+    # Unpack the output matrix
+    total_elements = width * output_dim
+    unpacked_output_matrix = [0] * total_elements
+    for idx in range(total_elements):
+        unpacked_index = from_packed_layout_coord(idx, width, output_dim)
+        unpacked_output_matrix[idx] = packed_vector[current_idx + unpacked_index]
+    unpacked_matrices.append(unpacked_output_matrix)
+
+    # Return the unpacked matrices as a flat list (one long vector in unpacked format)
+    return [item for sublist in unpacked_matrices for item in sublist]
 
 
 def to_packed_layout_coord(idx, rows, cols):
@@ -56,13 +153,21 @@ class _module_function(torch.autograd.Function):
     @staticmethod
     def backward(ctx, doutput):
         _, _, params = ctx.saved_tensors
-
-        doutput = doutput.to(dtype=torch.float)
+        # print("doutput: ", doutput)
+        loss_scale = 128.0  # because half precision
+        # loss_scale = 1  # because half precision
+        doutput = doutput.to(dtype=torch.float) * loss_scale
 
         with torch.no_grad():
             grad = ctx.native_tcnn_module.bwd(doutput, params)
         grad = grad.to("xpu")
+        grad = None if grad is None else (grad / loss_scale)
         # 3 inputs to forward, so need 3 grads
+        grad = (
+            torch.tensor(unpack_vector(grad, 0, 64, 64, 64))
+            .to("xpu")
+            .to(torch.bfloat16)
+        )
         return (None, None, grad)
 
 
@@ -89,11 +194,39 @@ class Module(torch.nn.Module):
         self.device = device
 
         self.tnn_module = self.create_module()
+
         if self.tnn_module.n_params():
-            # torch_params = torch.rand(self.tnn_module.n_params(), dtype=torch.bfloat16)
-            torch_params = torch.ones(self.tnn_module.n_params(), dtype=torch.bfloat16)
+            # CONSTANT = True
+            CONSTANT = False
+            if CONSTANT:
+                assert (self.tnn_module.n_params() / 2) % 2 == 0
+                torch_params = torch.hstack(
+                    [
+                        torch.linspace(
+                            -0.2,
+                            0.1,
+                            int(self.tnn_module.n_params() / 2),
+                            dtype=torch.bfloat16,
+                        ),
+                        torch.linspace(
+                            -0.4,
+                            0.2,
+                            int(self.tnn_module.n_params() / 2),
+                            dtype=torch.bfloat16,
+                        ),
+                    ]
+                )
+            else:
+                std = math.sqrt(2.0 / float(self.width + self.width))
+
+                torch_params = torch.normal(
+                    torch.zeros(self.tnn_module.n_params()), std
+                ).to(torch.bfloat16)
+
+            # Set the initial parameters based on the transformed torch_params
             initial_params = self.tnn_module.initial_params(torch_params)
 
+            # Creating the torch.nn.Parameter object with the initialized tensor
             self.params = torch.nn.Parameter(
                 initial_params.to(device), requires_grad=True
             )
@@ -103,7 +236,9 @@ class Module(torch.nn.Module):
             )
             self.params = torch.nn.Parameter(torch.zeros(1), requires_grad=False)
 
-    def get_reshaped_params(self, weights=None):
+    def get_reshaped_params(
+        self, weights=None, datatype=torch.float, is_packed_format=True
+    ):
         all_weights = []
         if weights is None:
             weights = self.params
@@ -113,13 +248,18 @@ class Module(torch.nn.Module):
         n_input_dims = (
             self.width if self.n_input_dims <= self.width else self.n_input_dims
         )  # because we pad
-        input_matrix = torch.zeros(self.width, n_input_dims)
+        input_matrix = (
+            torch.zeros(self.width, n_input_dims).to(datatype).to(self.device)
+        )
 
         for i in range(n_input_dims):
             for j in range(self.width):
-                idx = to_packed_layout_coord(
-                    i * self.width + j, n_input_dims, self.width
-                )
+                if is_packed_format:
+                    idx = to_packed_layout_coord(
+                        i * self.width + j, n_input_dims, self.width
+                    )
+                else:
+                    idx = i * self.width + j
                 input_matrix[j, i] = weights[idx]
 
         len_input_matrix = input_matrix.shape[0] * input_matrix.shape[1]
@@ -127,24 +267,34 @@ class Module(torch.nn.Module):
         hidden_matrices = []
 
         for nth_hidden in range(self.n_hidden_layers - 1):
-            hidden_matrix = torch.zeros(self.width, self.width)
+            hidden_matrix = (
+                torch.zeros(self.width, self.width).to(datatype).to(self.device)
+            )
 
             for i in range(self.width):
                 for j in range(self.width):
-                    idx = to_packed_layout_coord(
-                        i * self.width + j, self.width, self.width
-                    )
+                    if is_packed_format:
+                        idx = to_packed_layout_coord(
+                            i * self.width + j, self.width, self.width
+                        )
+                    else:
+                        idx = i * self.width + j
                     hidden_matrix[j, i] = weights[
                         len_input_matrix + nth_hidden * hidden_layer_size + idx
                     ]
             hidden_matrices.append(hidden_matrix)
 
-        output_matrix = torch.zeros(self.n_output_dims, self.width)
+        output_matrix = (
+            torch.zeros(self.n_output_dims, self.width).to(datatype).to(self.device)
+        )
         for i in range(self.width):
             for j in range(self.n_output_dims):
-                idx = to_packed_layout_coord(
-                    i * self.n_output_dims + j, self.width, self.n_output_dims
-                )
+                if is_packed_format:
+                    idx = to_packed_layout_coord(
+                        i * self.n_output_dims + j, self.width, self.n_output_dims
+                    )
+                else:
+                    idx = i * self.n_output_dims + j
                 output_matrix[j, i] = weights[
                     len_input_matrix
                     + (self.n_hidden_layers - 1) * hidden_layer_size
@@ -152,40 +302,22 @@ class Module(torch.nn.Module):
                 ]
         all_weights.append(input_matrix)
         all_weights.extend(hidden_matrices)
+        # all_weights.append(hidden_matrices)
         all_weights.append(output_matrix)
 
         return all_weights
 
     def forward(self, x):
         # Input is batch_size, feature_size
+        # print("Input weights: ", self.params)
 
-        batch_size = x.shape[0]
-
-        # # batch_size needs to be % 64 == 0
-        # padding_rows = (64 - (batch_size % 64)) % 64
-
-        # # Create a tensor of zeros to pad with
-        # padding_shape = (
-        #     x.size(0),
-        #     padding_rows,
-        # )  # Assuming the second dimension (N) remains the same
-        # padding_tensor = torch.zeros(padding_shape, dtype=x.dtype, device=x.device)
-
-        # Concatenate the original tensor and the padding tensor along the batch dimension
-        # padded_tensor = torch.cat((x, padding_tensor), dim=1)
-        # print(self.params.to(torch.float).dtype)
-        padded_tensor = x
+        # padded_tensor = pad_tensor_to_width(x, self.width)
         output = _module_function.apply(
             # self.tnn_module, padded_tensor, self.params.to(torch.float)
             self.tnn_module,
-            padded_tensor,
+            x,
             self.params,
         )
-        # zero_vals = int((output == 0).sum())
-        # if zero_vals > 2:
-        #     print(f"{zero_vals} values are exactly zero. Check if intended behaviour.")
-
-        # return output[:batch_size, :]
         return output
 
 

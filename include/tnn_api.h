@@ -34,6 +34,14 @@ using json = nlohmann::json;
 
 using bf16 = sycl::ext::oneapi::bfloat16;
 
+template <typename T> void printVector(std::string name, const std::vector<T> &vec) {
+    std::cout << name << std::endl;
+    for (const T &value : vec) {
+        std::cout << value << ", ";
+    }
+    std::cout << std::endl;
+}
+
 // Function to convert torch::Tensor to std::vector
 template <typename T> std::vector<T> convertTensorToVector(const torch::Tensor &tensor) {
     static_assert(std::is_same<T, float>::value || std::is_same<T, double>::value || std::is_same<T, int>::value ||
@@ -176,8 +184,8 @@ template <typename T_enc, typename T_net, int WIDTH> class NetworkWithEncodingMo
 
         json encoding_config = io::loadJsonConfig(filename);
         encoding_config[EncodingParams::N_DIMS_TO_ENCODE] = input_width;
-        network = create_network_with_encoding<T_enc, T_net, WIDTH>(
-            this->sycl_queue, m_width, output_width, n_hidden_layers, activation, output_activation, encoding_config);
+        network = create_network_with_encoding<T_enc, T_net, WIDTH>(this->sycl_queue, output_width, n_hidden_layers,
+                                                                    activation, output_activation, encoding_config);
     }
 
     NetworkWithEncodingModule(int input_width, int output_width, int n_hidden_layers, Activation activation,
@@ -185,9 +193,8 @@ template <typename T_enc, typename T_net, int WIDTH> class NetworkWithEncodingMo
         : Module(device_name), m_input_width(input_width), m_output_width(output_width), m_width(WIDTH),
           m_n_hidden_layers(n_hidden_layers) {
         const json encoding_config_validated = io::validateAndCopyEncodingConfig(encoding_config);
-        network =
-            create_network_with_encoding<T_enc, T_net, WIDTH>(this->sycl_queue, m_width, output_width, n_hidden_layers,
-                                                              activation, output_activation, encoding_config_validated);
+        network = create_network_with_encoding<T_enc, T_net, WIDTH>(
+            this->sycl_queue, output_width, n_hidden_layers, activation, output_activation, encoding_config_validated);
     }
 
     ~NetworkWithEncodingModule() { delete interm_forw; }
@@ -224,7 +231,18 @@ template <typename T_enc, typename T_net, int WIDTH> class NetworkWithEncodingMo
         set_params(params);
 
         int batch_size = grad_output.sizes()[0];
-        DeviceMatrix<T_net> dL_doutput(batch_size, m_output_width, this->sycl_queue);
+        DeviceMatrix<T_net> dL_doutput(batch_size, network->get_network()->get_output_width(), this->sycl_queue);
+        // we need to pad grad_output to network_output_width firstsd
+        int64_t pad_right = network->get_network()->get_output_width() - grad_output.size(1);
+
+        if (pad_right > 0) {
+            // Applying padding, only on the right side (column wise)
+            // std::cout << "Grad before: " << grad_output << std::endl;
+            torch::nn::functional::PadFuncOptions pad_options({0, pad_right, 0, 0});
+            grad_output = torch::nn::functional::pad(grad_output, pad_options);
+            // std::cout << "Grad after: " << grad_output << std::endl;
+        }
+
         dL_doutput.copy_from_device(grad_output.data_ptr<float>());
 
         DeviceMatrices<T_net> grads(network->get_network()->get_n_hidden_layers() + 1,
@@ -236,7 +254,10 @@ template <typename T_enc, typename T_net, int WIDTH> class NetworkWithEncodingMo
                                            network->get_network()->get_network_width(), batch_size,
                                            network->get_network()->get_output_width(), this->sycl_queue);
         interm_backw.fill(0.0).wait();
-        network->backward_pass(dL_doutput, grads, interm_backw, *interm_forw, {});
+
+        DeviceMatrix<T_net> dL_dinput(batch_size, network->get_network()->get_input_width(), this->sycl_queue);
+        network->backward_pass(dL_doutput, grads, interm_backw, *interm_forw, {}, dL_dinput);
+
         return convertDeviceMatricesToTensor(grads);
     }
 

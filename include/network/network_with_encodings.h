@@ -17,6 +17,27 @@
 #include "SwiftNetMLP.h"
 #include "encoding_factory.h"
 
+template <typename SrcType, typename DstType>
+DeviceMatrix<DstType> convert_matrix(const DeviceMatrix<SrcType> &src, sycl::queue &q) {
+    // Create a new DeviceMatrix of the destination type with the
+    // same dimensions as the source matrix.
+    DeviceMatrix<DstType> dest(src.rows(), src.cols(), q);
+
+    // Get the pointers to the underlying data of the source and destination matrices.
+    SrcType const *src_data = src.data();
+    DstType *dest_data = dest.data();
+
+    // Compute the number of elements to convert.
+    size_t num_elements = src.size();
+
+    // Launch the SYCL kernel to perform the conversion.
+    q.parallel_for(num_elements, [=](sycl::id<1> idx) {
+         dest_data[idx] = static_cast<DstType>(src_data[idx]); // Conversion from SrcType to DstType
+     }).wait(); // Wait for the kernel to complete before returning the new matrix.
+
+    return dest;
+}
+
 template <typename T_enc, typename T_net> class NetworkWithEncoding {
   public:
     NetworkWithEncoding() = delete;
@@ -80,12 +101,15 @@ template <typename T_enc, typename T_net> class NetworkWithEncoding {
                                            DeviceMatrices<T_net> &network_gradient,
                                            DeviceMatrices<T_net> &intermediate_backward,
                                            const DeviceMatrices<T_net> &intermediate_forward,
-                                           const std::vector<sycl::event> &deps, DeviceMatrixView<T_net> &dL_dinput) {
+                                           const std::vector<sycl::event> &deps, DeviceMatrix<T_net> &dL_dinput) {
+        auto dL_dinput_view = dL_dinput.GetView(); // Store the view in a local variable
         auto event = network_->backward_pass(input_backward, network_gradient, intermediate_backward,
-                                             intermediate_forward, deps, dL_dinput);
-        const int batch_size = input_backward.m();
+                                             intermediate_forward, deps, dL_dinput_view);
+
+        network_->get_queue().wait();
 
         if (encoding_->n_params()) {
+            const int batch_size = input_backward.m();
             std::unique_ptr<Context> model_ctx = nullptr;
 
             DeviceMatrix<float> output_float(batch_size, encoding_->padded_output_width(), network_->get_queue());
@@ -93,8 +117,10 @@ template <typename T_enc, typename T_net> class NetworkWithEncoding {
 
             DeviceMatrix<float> dL_doutput(batch_size, encoding_->padded_output_width(), network_->get_queue());
             dL_doutput.fill(0.0f).wait();
+            DeviceMatrix<float> dL_dinput_float = convert_matrix<T_net, float>(dL_dinput, network_->get_queue());
 
-            encoding_->backward_impl(&network_->get_queue(), *model_ctx, dL_dinput, dL_doutput);
+            encoding_->backward_impl(&network_->get_queue(), *model_ctx, dL_dinput_float, output_float, dL_doutput);
+            network_->get_queue().wait();
         }
         return event;
     }
@@ -152,7 +178,12 @@ template <typename T_enc, typename T_net> class NetworkWithEncoding {
   private:
     void SanityCheck() const {
         /// TODO: check that the queues of the encoding and network coincide.
-        // Check that the dimensions of network and encoding match
+
+        if (encoding_->padded_output_width() != network_->get_input_width())
+            throw std::invalid_argument("Encoding output dim and network input dim mismatch. Expected: " +
+                                        std::to_string(encoding_->padded_output_width()) +
+                                        " for encoding padded output width, but got network input width: " +
+                                        std::to_string(network_->get_input_width()));
     }
 
     std::shared_ptr<Encoding<T_enc>> encoding_;
@@ -161,10 +192,14 @@ template <typename T_enc, typename T_net> class NetworkWithEncoding {
 
 template <typename T_enc, typename T_net, int WIDTH>
 std::shared_ptr<NetworkWithEncoding<T_enc, T_net>>
-create_network_with_encoding(sycl::queue &q, const int input_width, const int output_width, const int n_hidden_layers,
-                             Activation activation, Activation output_activation, const json &encoding_config) {
-    std::shared_ptr<SwiftNetMLP<T_net, WIDTH>> net = std::make_shared<SwiftNetMLP<T_net, WIDTH>>(
-        q, input_width, output_width, n_hidden_layers, activation, output_activation);
+create_network_with_encoding(sycl::queue &q, const int output_width, const int n_hidden_layers, Activation activation,
+                             Activation output_activation, const json &encoding_config) {
+    // input width is encoding_config as EncodingParams::N_DIMS_TO_ENCODE
     std::shared_ptr<Encoding<T_enc>> enc = create_encoding<T_enc>(encoding_config);
+    if (enc->output_width() < WIDTH) {
+        enc->set_padded_output_width(WIDTH);
+    }
+    std::shared_ptr<SwiftNetMLP<T_net, WIDTH>> net = std::make_shared<SwiftNetMLP<T_net, WIDTH>>(
+        q, WIDTH, output_width, n_hidden_layers, activation, output_activation);
     return std::make_shared<NetworkWithEncoding<T_enc, T_net>>(enc, net);
 }

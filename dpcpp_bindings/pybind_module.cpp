@@ -85,13 +85,32 @@ template <typename T_enc, typename T_net, int WIDTH>
 PybindingModule create_networkwithencoding_module(int input_width, int output_width, int n_hidden_layers,
                                                   Activation activation, Activation output_activation,
                                                   const json &encoding_config, std::string device_name) {
-    std::cout << "This function took an nlohmann::json instance as argument: " << encoding_config << std::endl;
     tnn::NetworkWithEncodingModule<T_enc, T_net, WIDTH> *networkwithencoding_module =
         new tnn::NetworkWithEncodingModule<T_enc, T_net, WIDTH>(input_width, output_width, n_hidden_layers, activation,
                                                                 output_activation, encoding_config, device_name);
     return PybindingModule{networkwithencoding_module};
 }
 
+// C++ factory function
+PybindingModule create_networkwithencoding_factory(int input_width, int output_width, int n_hidden_layers,
+                                                   Activation activation, Activation output_activation,
+                                                   const json &encoding_config, std::string device_name, int width) {
+    if (width == 16) {
+        return create_networkwithencoding_module<float, bf16, 16>(
+            input_width, output_width, n_hidden_layers, activation, output_activation, encoding_config, device_name);
+    } else if (width == 32) {
+        return create_networkwithencoding_module<float, bf16, 32>(
+            input_width, output_width, n_hidden_layers, activation, output_activation, encoding_config, device_name);
+    } else if (width == 64) {
+        return create_networkwithencoding_module<float, bf16, 64>(
+            input_width, output_width, n_hidden_layers, activation, output_activation, encoding_config, device_name);
+    } else if (width == 128) {
+        return create_networkwithencoding_module<float, bf16, 128>(
+            input_width, output_width, n_hidden_layers, activation, output_activation, encoding_config, device_name);
+    } else {
+        throw std::runtime_error("Unsupported width.");
+    }
+}
 PYBIND11_MODULE(tiny_nn, m) {
     pybind11::enum_<Activation>(m, "Activation")
         .value("ReLU", Activation::ReLU)
@@ -116,6 +135,8 @@ PYBIND11_MODULE(tiny_nn, m) {
 
     m.def("create_network", &create_network_module<bf16, 64>);
     m.def("create_encoding", &create_encoding_module<float>);
-    m.def("create_networkwithencoding",
-          &create_networkwithencoding_module<float, bf16, 64>); /// TODO: this needs to be a factory for widths
+    m.def("create_networkwithencoding", &create_networkwithencoding_factory, pybind11::arg("input_width"),
+          pybind11::arg("output_width"), pybind11::arg("n_hidden_layers"), pybind11::arg("activation"),
+          pybind11::arg("output_activation"), pybind11::arg("encoding_config"), pybind11::arg("device_name"),
+          pybind11::arg("width"));
 }
