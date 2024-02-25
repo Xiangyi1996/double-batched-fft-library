@@ -1,14 +1,13 @@
-import gc
-import warnings
-
 import torch
 import math
-import json
 import intel_extension_for_pytorch
 
-import tiny_nn as tnn
-from tiny_nn import Activation
-import pdb
+from tiny_dpcpp_nn_pybind_module import (
+    Activation,
+    create_network,
+    create_encoding,
+    create_networkwithencoding,
+)
 
 
 def pad_tensor_to_width(tensor, width):
@@ -33,6 +32,7 @@ def unpad_tensor_to_input_dim(padded_tensor, output_dim):
 
 
 def get_dpcpp_activation(name):
+
     if name.lower() == "relu":
         activation = Activation.ReLU
     elif name.lower() == "tanh":
@@ -157,35 +157,18 @@ class _module_function(torch.autograd.Function):
         loss_scale = 128.0  # because half precision
         # loss_scale = 1  # because half precision
         doutput = doutput.to(dtype=torch.float) * loss_scale
-
         with torch.no_grad():
             grad = ctx.native_tcnn_module.bwd(doutput, params)
         grad = grad.to("xpu")
         grad = None if grad is None else (grad / loss_scale)
+
         # 3 inputs to forward, so need 3 grads
         grad = (
             torch.tensor(unpack_vector(grad, 0, 64, 64, 64))
             .to("xpu")
             .to(torch.bfloat16)
-        )
+        )  # grad is in unpacked format, but we need pack it.
         return (None, None, grad)
-
-
-class Embedding(torch.nn.Module):
-    def __init__(self, input_dim, output_dim, requires_grad=False):
-        super(Embedding, self).__init__()
-
-        self.embedding = torch.nn.Linear(input_dim, output_dim, bias=False)
-        if not requires_grad:
-            # Initialize the parameters with the specified value
-            torch.nn.init.constant_(self.embedding.weight, 0.1)
-
-        for param in self.embedding.parameters():
-            param.requires_grad = requires_grad
-
-    def forward(self, x):
-        x = self.embedding(x)
-        return x
 
 
 class Module(torch.nn.Module):
@@ -350,7 +333,8 @@ class Network(Module):
         super().__init__(device=device)
 
     def create_module(self):
-        return tnn.create_network(
+
+        return create_network(
             self.n_input_dims,
             self.n_output_dims,
             self.n_hidden_layers,
@@ -404,7 +388,8 @@ class NetworkWithInputEncoding(Module):
         super().__init__(device=device)
 
     def create_module(self):
-        return tnn.create_networkwithencoding(
+
+        return create_networkwithencoding(
             self.n_input_dims,
             self.n_output_dims,
             self.n_hidden_layers,
@@ -412,6 +397,7 @@ class NetworkWithInputEncoding(Module):
             self.output_activation,
             self.encoding_config,
             self.device,
+            self.width,
         )
 
 
@@ -439,7 +425,7 @@ class Encoding(Module):
         super().__init__(device=device)
 
     def create_module(self):
-        return tnn.create_encoding(
+        return create_encoding(
             self.n_input_dims,
             self.encoding_name,
             self.encoding_config,

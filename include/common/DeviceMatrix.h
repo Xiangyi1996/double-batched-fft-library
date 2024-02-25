@@ -171,7 +171,9 @@ template <typename T, MatrixLayout _layout = MatrixLayout::RowMajor> class Devic
     }
 
     sycl::event copy_from_host(const std::vector<T> &vec) {
-        if (vec.size() != n_elements()) throw std::invalid_argument("Vector not same size as matrix.");
+        if (vec.size() != n_elements())
+            throw std::invalid_argument("Vector not same size as matrix. Input: " + std::to_string(vec.size()) +
+                                        ", n_elements: " + std::to_string(n_elements()));
         return m_q.memcpy(data(), vec.data(), n_bytes());
     }
 

@@ -189,7 +189,7 @@ class EsimdKernels {
 
                     MAD<TM, TK>(As, weights.GetMatrixPointer(0), Cs);
 
-                    applyBackwardActivation<activation, TM, TK>(
+                    applyBackwardActivation<Activation::None, TM, TK>(
                         intermediate_forward.GetElementPointer(0, loc_row_offset, 0), Cs, As);
 
                     storeRow<TM, TK, cache_hint::uncached, cache_hint::uncached>(

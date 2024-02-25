@@ -202,23 +202,23 @@ template <typename T_enc, typename T_net, int WIDTH> class NetworkWithEncodingMo
     torch::Tensor forward_pass(torch::Tensor input_tensor, torch::Tensor params, const bool use_inference) override {
         set_params(params);
         int batch_size = input_tensor.sizes()[0];
-        DeviceMatrix<T_enc> input_encoding(batch_size, m_input_width, this->sycl_queue);
-        this->sycl_queue.memcpy(input_encoding.data(), input_tensor.data_ptr<T_enc>(),
-                                input_encoding.size() * sizeof(T_enc));
+        input_encoding = new DeviceMatrix<T_enc>(batch_size, m_input_width, this->sycl_queue);
+        this->sycl_queue.memcpy(input_encoding->data(), input_tensor.data_ptr<T_enc>(),
+                                input_encoding->size() * sizeof(T_enc));
         this->sycl_queue.wait();
 
         DeviceMatrix<T_enc> output_encoding(batch_size, m_width, this->sycl_queue);
         DeviceMatrix<T_net> output_network(batch_size, m_output_width, this->sycl_queue);
         DeviceMatrix<T_net> input_network(batch_size, WIDTH, this->sycl_queue);
         if (use_inference) {
-            network->inference(input_encoding, input_network, output_encoding, output_network, {});
+            network->inference(*input_encoding, input_network, output_encoding, output_network, {});
             return convertDeviceMatrixToTensor(output_network);
         } else {
             interm_forw = new DeviceMatrices<T_net>(network->get_network()->get_n_hidden_layers() + 2, batch_size,
                                                     network->get_network()->get_input_width(), batch_size,
                                                     network->get_network()->get_network_width(), batch_size,
                                                     network->get_network()->get_output_width(), this->sycl_queue);
-            network->forward_pass(input_encoding, input_network, output_encoding, *interm_forw, {});
+            network->forward_pass(*input_encoding, input_network, output_encoding, *interm_forw, {});
 
             std::vector<T_net> interm_forw_vec = interm_forw->copy_to_host();
             std::vector<T_net> output_network_vec(interm_forw_vec.end() - (batch_size * m_output_width),
@@ -237,6 +237,7 @@ template <typename T_enc, typename T_net, int WIDTH> class NetworkWithEncodingMo
 
         if (pad_right > 0) {
             // Applying padding, only on the right side (column wise)
+
             // std::cout << "Grad before: " << grad_output << std::endl;
             torch::nn::functional::PadFuncOptions pad_options({0, pad_right, 0, 0});
             grad_output = torch::nn::functional::pad(grad_output, pad_options);
@@ -248,15 +249,15 @@ template <typename T_enc, typename T_net, int WIDTH> class NetworkWithEncodingMo
         DeviceMatrices<T_net> grads(network->get_network()->get_n_hidden_layers() + 1,
                                     network->get_network()->get_network_width(), WIDTH, WIDTH, WIDTH, WIDTH,
                                     network->get_network()->get_output_width(), this->sycl_queue);
-        grads.fill(0.0).wait();
+        grads.fill(0.0f).wait();
         DeviceMatrices<T_net> interm_backw(network->get_network()->get_n_hidden_layers() + 1, batch_size,
                                            network->get_network()->get_network_width(), batch_size,
                                            network->get_network()->get_network_width(), batch_size,
                                            network->get_network()->get_output_width(), this->sycl_queue);
-        interm_backw.fill(0.0).wait();
+        interm_backw.fill(0.0f).wait();
 
         DeviceMatrix<T_net> dL_dinput(batch_size, network->get_network()->get_input_width(), this->sycl_queue);
-        network->backward_pass(dL_doutput, grads, interm_backw, *interm_forw, {}, dL_dinput);
+        network->backward_pass(dL_doutput, grads, interm_backw, *interm_forw, {}, *input_encoding, dL_dinput);
 
         return convertDeviceMatricesToTensor(grads);
     }
@@ -291,7 +292,8 @@ template <typename T_enc, typename T_net, int WIDTH> class NetworkWithEncodingMo
     int m_output_width;
     int m_width;
     int m_n_hidden_layers;
-    DeviceMatrices<T_net> *interm_forw = nullptr; // allocated in forward_pass, deallocated in deconstructor
+    DeviceMatrices<T_net> *interm_forw = nullptr;  // allocated in forward_pass, deallocated in deconstructor
+    DeviceMatrix<T_enc> *input_encoding = nullptr; // allocated in forward_pass, deallocated in deconstructor
 };
 
 } // namespace tnn

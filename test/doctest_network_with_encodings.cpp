@@ -167,15 +167,15 @@ void test_network_with_encoding_training_loaded(sycl::queue &q, std::string file
     Net->set_network_params(network_params);
     std::unique_ptr<DeviceMem<T_enc>> gradients_ptr;
     std::unique_ptr<DeviceMem<T_enc>> params_full_precision_ptr;
-    if (encoding_params_ref.size()) {
 
+    if (encoding_params_ref.size()) {
         gradients_ptr = std::make_unique<DeviceMem<T_enc>>(Net->get_encoding()->n_params(), q);
         params_full_precision_ptr = std::make_unique<DeviceMem<T_enc>>(Net->get_encoding()->n_params(), q);
 
-        gradients_ptr->fill(1.0f).wait();
-        params_full_precision_ptr->fill(1.0f).wait();
+        gradients_ptr->fill(1.234f).wait();
+        params_full_precision_ptr->fill(0.0f).wait();
 
-        Net->initialize_params(*gradients_ptr, *params_full_precision_ptr, &encoding_params_ref);
+        Net->initialize_params(*params_full_precision_ptr, *gradients_ptr, &encoding_params_ref);
     }
 
     DeviceMatrix<float> input_encoding(batch_size, encoding_input_width, q);
@@ -192,7 +192,6 @@ void test_network_with_encoding_training_loaded(sycl::queue &q, std::string file
 
     Net->forward_pass(input_encoding, input_network, output_encoding, interm_forw, {});
     q.wait();
-
     auto interm_forw_vec = interm_forw.copy_to_host();
 
     std::vector<T_enc> output_encoding_vec = output_encoding.copy_to_host();
@@ -201,14 +200,10 @@ void test_network_with_encoding_training_loaded(sycl::queue &q, std::string file
 
     std::vector<T_enc> encoding_output_ref = io::loadVectorFromCSV<T_enc>(filepath + "output_encoding.csv");
     std::vector<T_net> network_output_ref = io::loadVectorFromCSV<T_net>(filepath + "output_network.csv");
-
     CHECK(areVectorsWithinTolerance(output_encoding_vec, encoding_output_ref, epsilon));
     CHECK(areVectorsWithinTolerance(output_network_vec, network_output_ref, epsilon));
-
     // load loss here and calculate
-
     L2Loss<T_net> l2_loss;
-
     // using network_output_ref as network_output as they passed tolerance test (< 1%)
     DeviceMatrix<T_net> network_output(batch_size, Net->get_network()->get_output_width(), q);
     network_output.fill(0.0f).wait();
@@ -230,6 +225,15 @@ void test_network_with_encoding_training_loaded(sycl::queue &q, std::string file
     sycl::event sycl_event = l2_loss.evaluate(q, loss_scale, network_output.GetView(), targets, loss, dL_doutput);
     q.wait();
 
+    std::vector<T_net> dL_doutput_ref = io::loadVectorFromCSV<T_net>(filepath + "dL_doutput.csv");
+    std::vector<T_net> dL_doutput_vec = dL_doutput.copy_to_host();
+
+    if (!areVectorsWithinTolerance(dL_doutput_ref, dL_doutput_vec, epsilon)) {
+        printVector("dL_doutput_ref", dL_doutput_ref);
+        printVector("dL_doutput_vec", dL_doutput_vec);
+    }
+    CHECK(areVectorsWithinTolerance(dL_doutput_ref, dL_doutput_vec, epsilon));
+
     DeviceMatrices<T_net> network_gradient(Net->get_network()->get_n_hidden_layers() + 1,
                                            Net->get_network()->get_network_width(), WIDTH, WIDTH, WIDTH, WIDTH,
                                            Net->get_network()->get_output_width(), q);
@@ -238,47 +242,81 @@ void test_network_with_encoding_training_loaded(sycl::queue &q, std::string file
         Net->get_network()->get_n_hidden_layers() + 1, batch_size, Net->get_network()->get_input_width(), batch_size,
         Net->get_network()->get_network_width(), batch_size, Net->get_network()->get_output_width(), q);
 
-    DeviceMatrix<T_net> dL_dinput(batch_size, Net->get_network()->get_input_width(),
-                                  q); // saving intermediate dL_dinput of swiftnet here, that is input to grid encoding
+    // saving intermediate dL_dinput of swiftnet here, that is input to grid
+    DeviceMatrix<T_net> dL_dinput(batch_size, Net->get_network()->get_input_width(), q);
     network_gradient.fill(0.0f).wait();
     interm_backw.fill(0.0f).wait();
-    dL_dinput.fill(0.0f).wait();
+    dL_dinput.fill(1.234f).wait();
 
     // CHECK params before backward pass
     std::vector<T_enc> enc_params(Net->get_encoding()->n_params());
     q.memcpy(enc_params.data(), Net->get_encoding()->params(), Net->get_encoding()->n_params() * sizeof(T_enc)).wait();
     CHECK(areVectorsWithinTolerance(enc_params, encoding_params_ref, epsilon));
 
-    Net->backward_pass(dL_doutput, network_gradient, interm_backw, interm_forw, {}, dL_dinput);
+    Net->backward_pass(dL_doutput, network_gradient, interm_backw, interm_forw, {}, input_encoding, dL_dinput);
+
+    std::vector<T_net> dL_dinput_ref = io::loadVectorFromCSV<T_net>(filepath + "dL_dinput.csv");
+    std::vector<T_net> dL_dinput_vec = dL_dinput.copy_to_host();
+
+    if (!areVectorsWithinTolerance(dL_dinput_ref, dL_dinput_vec, epsilon)) {
+        double sum_vec = 0.0;
+        double sum_ref = 0.0;
+        for (auto &val : dL_dinput_ref) {
+            sum_ref += val;
+        }
+        for (auto &val : dL_dinput_vec) {
+            sum_vec += val;
+        }
+        std::cout << "dL_dinput_ref sum: " << sum_ref << std::endl;
+        std::cout << "dL_dinput_vec sum: " << sum_vec << std::endl;
+    }
+    CHECK(areVectorsWithinTolerance(dL_dinput_ref, dL_dinput_vec, epsilon));
 
     // network param grad
     std::vector<T_net> network_params_grad_vec = network_gradient.copy_to_host();
     std::vector<T_net> network_params_grad_ref = io::loadVectorFromCSV<T_net>(filepath + "network_params_grad.csv");
 
-    // if (!areVectorsWithinTolerance(network_params_grad_ref, network_params_grad_vec, epsilon)) {
-    //     printVector("network_params_grad_ref", network_params_grad_ref);
-    //     printVector("network_params_grad_vec", network_params_grad_vec);
-    // }
+    if (!areVectorsWithinTolerance(network_params_grad_ref, network_params_grad_vec, epsilon)) {
+        double sum_vec = 0.0;
+        double sum_ref = 0.0;
+        for (auto &val : network_params_grad_ref) {
+            sum_ref += val;
+        }
+        for (auto &val : network_params_grad_vec) {
+            sum_vec += val;
+        }
+        std::cout << "network_params_grad_ref sum: " << sum_ref << std::endl;
+        std::cout << "network_params_grad_vec sum: " << sum_vec << std::endl;
+    }
     CHECK(areVectorsWithinTolerance(network_params_grad_ref, network_params_grad_vec, epsilon));
 
-    // encoding param grad
-    q.memcpy(enc_params.data(), Net->get_encoding()->params(), Net->get_encoding()->n_params() * sizeof(T_enc)).wait();
-    // if (!areVectorsWithinTolerance(enc_params, encoding_params_ref, epsilon)) {
-    //     printVector("enc_params", enc_params);
-    //     printVector("encoding_params_ref", encoding_params_ref);
-    // }
-    CHECK(areVectorsWithinTolerance(enc_params, encoding_params_ref, epsilon));
+    if (encoding_config[EncodingParams::ENCODING] == EncodingNames::GRID) {
+        // encoding param grad
+        q.memcpy(enc_params.data(), Net->get_encoding()->params(), Net->get_encoding()->n_params() * sizeof(T_enc))
+            .wait();
+        CHECK(areVectorsWithinTolerance(enc_params, encoding_params_ref, epsilon));
 
-    // CHECK params after backward pass it shouldn't have changed because no optimise step
-    std::vector<T_enc> encoding_params_grad = io::loadVectorFromCSV<T_enc>(filepath + "encoding_params_grad.csv");
-    std::vector<float> enc_grads(Net->get_encoding()->n_params());
-    q.memcpy(enc_grads.data(), Net->get_encoding()->gradients(), Net->get_encoding()->n_params() * sizeof(T_enc))
-        .wait();
-    // if (!areVectorsWithinTolerance(enc_grads, encoding_params_grad, epsilon)) {
-    //     printVector("enc_grads", enc_grads);
-    //     printVector("encoding_params_grad", encoding_params_grad);
-    // }
-    CHECK(areVectorsWithinTolerance(enc_grads, encoding_params_grad, epsilon));
+        // CHECK params after backward pass it shouldn't have changed because no optimise step
+        std::vector<T_enc> encoding_params_grad_ref =
+            io::loadVectorFromCSV<T_enc>(filepath + "encoding_params_grad.csv");
+        std::vector<float> encoding_params_grad_vec(Net->get_encoding()->n_params());
+        q.memcpy(encoding_params_grad_vec.data(), Net->get_encoding()->gradients(),
+                 Net->get_encoding()->n_params() * sizeof(T_enc))
+            .wait();
+        if (!areVectorsWithinTolerance(encoding_params_grad_vec, encoding_params_grad_ref, epsilon)) {
+            double sum_vec = 0.0;
+            double sum_ref = 0.0;
+            for (auto &val : encoding_params_grad_ref) {
+                sum_ref += val;
+            }
+            for (auto &val : encoding_params_grad_vec) {
+                sum_vec += val;
+            }
+            std::cout << "encoding_params_grad_ref sum: " << sum_ref << std::endl;
+            std::cout << "encoding_params_grad_ref sum: " << sum_vec << std::endl;
+        }
+        CHECK(areVectorsWithinTolerance(encoding_params_grad_vec, encoding_params_grad_ref, epsilon));
+    }
 }
 
 template <int WIDTH>
@@ -389,9 +427,9 @@ void test_network_with_encoding_identity_forward(sycl::queue &q, const int input
 }
 
 template <typename T, int WIDTH>
-void test_network_with_encoding_identity_backward(sycl::queue &q, const int input_width, const int output_width,
-                                                  const int n_hidden_layers, const int batch_size,
-                                                  std::string activation, std::string weight_init_mode) {
+void test_network_with_encoding_backward(sycl::queue &q, const int input_width, const int output_width,
+                                         const int n_hidden_layers, const int batch_size, std::string activation,
+                                         std::string weight_init_mode, const json &encoding_config) {
     // main functionalities of backward and forward are tested in doctest_swifnet
     // here, we test only if the combination of encoding (tested in doctest_encoding) and swifnet works
 
@@ -409,13 +447,9 @@ void test_network_with_encoding_identity_backward(sycl::queue &q, const int inpu
     } else if (activation == "linear") {
         network_activation = Activation::None;
     }
-    // Define the parameters for creating IdentityEncoding
-    const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, input_width},
-                               {EncodingParams::SCALE, 1.0},
-                               {EncodingParams::OFFSET, 0.0},
-                               {EncodingParams::ENCODING, EncodingNames::IDENTITY}};
 
-    MLP<float> mlp(input_width, WIDTH, output_width, n_hidden_layers + 1, batch_size, activation, "linear", "random");
+    MLP<float> mlp(input_width, WIDTH, output_width, n_hidden_layers + 1, batch_size, activation, "linear",
+                   weight_init_mode);
     auto Net = create_network_with_encoding<float, T, WIDTH>(q, output_width, n_hidden_layers, network_activation,
                                                              Activation::None, encoding_config);
 
@@ -474,13 +508,11 @@ void test_network_with_encoding_identity_backward(sycl::queue &q, const int inpu
             interm_backw_ref.push_back(value); // Add each element to the flattened vector
         }
 
-        bool interm_backw_within_tolerance =
-            areVectorsWithinTolerance(interm_backw_sliced_actual, interm_backw_ref, 1.0e-2);
-        // if (!interm_backw_within_tolerance) {
-        //     printVector("interm_backw_ref: ", interm_backw_ref);
-        //     printVector("interm_backw_vec: ", interm_backw_sliced_actual);
-        // }
-        CHECK(interm_backw_within_tolerance);
+        if (!areVectorsWithinTolerance(interm_backw_sliced_actual, interm_backw_ref, 1.0e-2)) {
+            printVector("interm_backw_ref: ", interm_backw_ref);
+            printVector("interm_backw_vec: ", interm_backw_sliced_actual);
+        }
+        CHECK(areVectorsWithinTolerance(interm_backw_sliced_actual, interm_backw_ref, 1.0e-2));
     }
 }
 // Create a shared pointer of network with encoding using create_network_with_encoding
@@ -551,24 +583,43 @@ TEST_CASE("Network with Identity Encoding - test fwd") {
 TEST_CASE("Network with Identity Encoding - test bwd") {
     sycl::queue q(sycl::gpu_selector_v);
     const int n_hidden_layers = 1;
-    test_network_with_encoding_identity_backward<sycl::ext::oneapi::bfloat16, 16>(q, 16, 16, n_hidden_layers, 8,
-                                                                                  "linear", "constant");
+
     auto test_function = [=](sycl::queue &q, const int width, const int batch_size, std::string activation,
                              std::string weight_init_mode) {
         typedef sycl::ext::oneapi::bfloat16 T;
-        if (width == 16)
-            test_network_with_encoding_identity_backward<T, 16>(q, 16, 16, n_hidden_layers, batch_size, activation,
-                                                                weight_init_mode);
-        else if (width == 32)
-            test_network_with_encoding_identity_backward<T, 32>(q, 32, 32, n_hidden_layers, batch_size, activation,
-                                                                weight_init_mode);
-        else if (width == 64)
-            test_network_with_encoding_identity_backward<T, 64>(q, 64, 64, n_hidden_layers, batch_size, activation,
-                                                                weight_init_mode);
-        else if (width == 128)
-            test_network_with_encoding_identity_backward<T, 128>(q, 128, 128, n_hidden_layers, batch_size, activation,
-                                                                 weight_init_mode);
-        else
+        if (width == 16) {
+            // Define the parameters for creating IdentityEncoding
+            const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, width},
+                                       {EncodingParams::SCALE, 1.0},
+                                       {EncodingParams::OFFSET, 0.0},
+                                       {EncodingParams::ENCODING, EncodingNames::IDENTITY}};
+            test_network_with_encoding_backward<T, 16>(q, 16, 16, n_hidden_layers, batch_size, activation,
+                                                       weight_init_mode, encoding_config);
+        } else if (width == 32) {
+            // Define the parameters for creating IdentityEncoding
+            const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, width},
+                                       {EncodingParams::SCALE, 1.0},
+                                       {EncodingParams::OFFSET, 0.0},
+                                       {EncodingParams::ENCODING, EncodingNames::IDENTITY}};
+            test_network_with_encoding_backward<T, 32>(q, 32, 32, n_hidden_layers, batch_size, activation,
+                                                       weight_init_mode, encoding_config);
+        } else if (width == 64) {
+            // Define the parameters for creating IdentityEncoding
+            const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, width},
+                                       {EncodingParams::SCALE, 1.0},
+                                       {EncodingParams::OFFSET, 0.0},
+                                       {EncodingParams::ENCODING, EncodingNames::IDENTITY}};
+            test_network_with_encoding_backward<T, 64>(q, 64, 64, n_hidden_layers, batch_size, activation,
+                                                       weight_init_mode, encoding_config);
+        } else if (width == 128) {
+            // Define the parameters for creating IdentityEncoding
+            const json encoding_config{{EncodingParams::N_DIMS_TO_ENCODE, width},
+                                       {EncodingParams::SCALE, 1.0},
+                                       {EncodingParams::OFFSET, 0.0},
+                                       {EncodingParams::ENCODING, EncodingNames::IDENTITY}};
+            test_network_with_encoding_backward<T, 128>(q, 128, 128, n_hidden_layers, batch_size, activation,
+                                                        weight_init_mode, encoding_config);
+        } else
             throw std::invalid_argument("Unsupported width");
     };
     const int widths[] = {16, 32, 64, 128};
@@ -592,6 +643,59 @@ TEST_CASE("Network with Identity Encoding - test bwd") {
     }
 }
 
+TEST_CASE("Network with Grid Encoding - test network bwd only") {
+    sycl::queue q(sycl::gpu_selector_v);
+    const int n_hidden_layers = 1;
+    const int input_width = 2;
+    const json grid_encoding_config{
+        {EncodingParams::N_DIMS_TO_ENCODE, input_width}, {EncodingParams::ENCODING, EncodingNames::GRID},
+        {EncodingParams::GRID_TYPE, GridType::Hash},     {EncodingParams::N_LEVELS, 16},
+        {EncodingParams::N_FEATURES_PER_LEVEL, 2},       {EncodingParams::LOG2_HASHMAP_SIZE, 19},
+        {EncodingParams::BASE_RESOLUTION, 16},           {EncodingParams::PER_LEVEL_SCALE, 2.0}};
+
+    auto test_function = [=](sycl::queue &q, const int width, const int batch_size, std::string activation,
+                             std::string weight_init_mode) {
+        typedef sycl::ext::oneapi::bfloat16 T;
+        if (width == 32)
+            test_network_with_encoding_backward<T, 32>(q, 32, 32, n_hidden_layers, batch_size, activation,
+                                                       weight_init_mode, grid_encoding_config);
+        else if (width == 64)
+            test_network_with_encoding_backward<T, 64>(q, 64, 64, n_hidden_layers, batch_size, activation,
+                                                       weight_init_mode, grid_encoding_config);
+        else if (width == 128)
+            test_network_with_encoding_backward<T, 128>(q, 128, 128, n_hidden_layers, batch_size, activation,
+                                                        weight_init_mode, grid_encoding_config);
+        else
+            throw std::invalid_argument("Unsupported width");
+    };
+    const int widths[] = {16, 32, 64, 128};
+    const int batch_sizes[] = {8, 16, 32, 64};
+    std::string activations[] = {"linear", "relu"};
+    std::string weight_init_modes[] = {"constant", "random"};
+
+    for (int batch_size : batch_sizes) {
+        for (int width : widths) {
+            for (std::string activation : activations) {
+                for (std::string weight_init_mode : weight_init_modes) {
+                    std::string testName = "Testing grad WIDTH " + std::to_string(width) +
+                                           " - activation: " + activation + " - weight_init_mode: " + weight_init_mode +
+                                           " - Batch size: " + std::to_string(batch_size);
+                    if (width == 16) { // grid encoding outputs dim 32, which cannot be the input dim for 16 widths
+                        SUBCASE(testName.c_str()) {
+                            CHECK_THROWS(test_network_with_encoding_backward<sycl::ext::oneapi::bfloat16, 16>(
+                                q, 16, 16, n_hidden_layers, batch_size, activation, weight_init_mode,
+                                grid_encoding_config));
+                        }
+                    } else {
+                        SUBCASE(testName.c_str()) {
+                            CHECK_NOTHROW(test_function(q, width, batch_size, activation, weight_init_mode));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 TEST_CASE("tinydpcppnn::network_with_encoding step-by-step") {
     sycl::queue q(gpu_selector_v);
     std::shared_ptr<NetworkWithEncoding<float, bf16>> net;
@@ -639,33 +743,101 @@ TEST_CASE("tinydpcppnn::network_with_encoding step-by-step") {
         test_network_with_encoding_inference_loaded<float, bf16, 64>(q, filepath, n_hidden_layers, batch_size,
                                                                      unpadded_output_width, encoding_input_width);
     }
-    SUBCASE("Grid encoding forward, loaded data") {
-        std::string filepath =
-            std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/nwe_hashgrid/";
-        const int n_hidden_layers = 2;
-        const int batch_size = 256;
-        const int encoding_input_width = 2;
-        const int unpadded_output_width = 64;
-        test_network_with_encoding_forward_loaded<float, bf16, 64>(q, filepath, n_hidden_layers, batch_size,
-                                                                   unpadded_output_width, encoding_input_width);
-    }
+
     SUBCASE("Identity encoding inference, loaded data") {
         std::string filepath =
             std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/nwe_identity/";
         const int n_hidden_layers = 2;
         const int batch_size = 256;
-        const int encoding_input_width = 32;
+        const int encoding_input_width = 16;
         const int unpadded_output_width = 64;
         test_network_with_encoding_inference_loaded<float, bf16, 64>(q, filepath, n_hidden_layers, batch_size,
                                                                      unpadded_output_width, encoding_input_width);
     }
 
-    SUBCASE("Grid encoding forward, loaded data") {
+    SUBCASE("Grid encoding training, constant weights, loaded data") {
         std::string filepath =
-            std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/nwe_hashgrid/";
+            std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/nwe_hashgrid_constant/";
         const int n_hidden_layers = 2;
         const int batch_size = 256;
         const int encoding_input_width = 2;
+        const int unpadded_output_width = 64;
+        test_network_with_encoding_training_loaded<float, bf16, 64>(q, filepath, n_hidden_layers, batch_size,
+                                                                    unpadded_output_width, encoding_input_width);
+    }
+
+    SUBCASE("Grid encoding training, random weights, loaded data") {
+        std::string filepath =
+            std::string(TEST_PATH) + "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/nwe_hashgrid_random/";
+        const int n_hidden_layers = 2;
+        const int batch_size = 256;
+        const int encoding_input_width = 2;
+        const int unpadded_output_width = 64;
+        test_network_with_encoding_training_loaded<float, bf16, 64>(q, filepath, n_hidden_layers, batch_size,
+                                                                    unpadded_output_width, encoding_input_width);
+    }
+    SUBCASE("Identity encoding training, linspace weights, loaded data") {
+        std::string filepath =
+            std::string(TEST_PATH) +
+            "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/nwe_identity_linspace_paddedFalse/";
+        const int n_hidden_layers = 2;
+        const int batch_size = 256;
+        const int encoding_input_width = 64;
+        const int unpadded_output_width = 64;
+        test_network_with_encoding_training_loaded<float, bf16, 64>(q, filepath, n_hidden_layers, batch_size,
+                                                                    unpadded_output_width, encoding_input_width);
+    }
+    SUBCASE("Identity encoding training, constant weights, loaded data") {
+        std::string filepath =
+            std::string(TEST_PATH) +
+            "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/nwe_identity_constant_paddedFalse/";
+        const int n_hidden_layers = 2;
+        const int batch_size = 256;
+        const int encoding_input_width = 64;
+        const int unpadded_output_width = 64;
+        test_network_with_encoding_training_loaded<float, bf16, 64>(q, filepath, n_hidden_layers, batch_size,
+                                                                    unpadded_output_width, encoding_input_width);
+    }
+    SUBCASE("Identity encoding training, random weights, loaded data") {
+        std::string filepath =
+            std::string(TEST_PATH) +
+            "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/nwe_identity_random_paddedFalse/";
+        const int n_hidden_layers = 2;
+        const int batch_size = 256;
+        const int encoding_input_width = 64;
+        const int unpadded_output_width = 64;
+        test_network_with_encoding_training_loaded<float, bf16, 64>(q, filepath, n_hidden_layers, batch_size,
+                                                                    unpadded_output_width, encoding_input_width);
+    }
+
+    SUBCASE("Identity encoding training, linspace weights, loaded data") {
+        std::string filepath =
+            std::string(TEST_PATH) +
+            "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/nwe_identity_linspace_paddedTrue/";
+        const int n_hidden_layers = 2;
+        const int batch_size = 256;
+        const int encoding_input_width = 16;
+        const int unpadded_output_width = 64;
+        test_network_with_encoding_training_loaded<float, bf16, 64>(q, filepath, n_hidden_layers, batch_size,
+                                                                    unpadded_output_width, encoding_input_width);
+    }
+    SUBCASE("Identity encoding training, constant weights, loaded data") {
+        std::string filepath =
+            std::string(TEST_PATH) +
+            "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/nwe_identity_constant_paddedTrue/";
+        const int n_hidden_layers = 2;
+        const int batch_size = 256;
+        const int encoding_input_width = 16;
+        const int unpadded_output_width = 64;
+        test_network_with_encoding_training_loaded<float, bf16, 64>(q, filepath, n_hidden_layers, batch_size,
+                                                                    unpadded_output_width, encoding_input_width);
+    }
+    SUBCASE("Identity encoding training, random weights, loaded data") {
+        std::string filepath = std::string(TEST_PATH) +
+                               "/tiny-dpcpp-data/ref_values/network_with_grid_encoding/nwe_identity_random_paddedTrue/";
+        const int n_hidden_layers = 2;
+        const int batch_size = 256;
+        const int encoding_input_width = 16;
         const int unpadded_output_width = 64;
         test_network_with_encoding_training_loaded<float, bf16, 64>(q, filepath, n_hidden_layers, batch_size,
                                                                     unpadded_output_width, encoding_input_width);

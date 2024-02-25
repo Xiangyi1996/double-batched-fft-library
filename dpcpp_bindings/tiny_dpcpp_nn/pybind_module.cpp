@@ -14,9 +14,8 @@
 #include <pybind11/functional.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h> // for automatic conversion
-#include <torch/extension.h>
-
 #include <pybind11_json.hpp>
+#include <torch/extension.h>
 
 using json = nlohmann::json;
 // C++ interface
@@ -73,7 +72,24 @@ PybindingModule create_network_module(int input_width, int output_width, int n_h
                                                             output_activation, encoding_config, device_name);
     return PybindingModule{networkwithencoding_module};
 }
-
+PybindingModule create_network_factory(int input_width, int output_width, int n_hidden_layers, Activation activation,
+                                       Activation output_activation, std::string device_name, int width) {
+    if (width == 16) {
+        return create_network_module<bf16, 16>(input_width, output_width, n_hidden_layers, activation,
+                                               output_activation, device_name);
+    } else if (width == 32) {
+        return create_network_module<bf16, 32>(input_width, output_width, n_hidden_layers, activation,
+                                               output_activation, device_name);
+    } else if (width == 64) {
+        return create_network_module<bf16, 64>(input_width, output_width, n_hidden_layers, activation,
+                                               output_activation, device_name);
+    } else if (width == 128) {
+        return create_network_module<bf16, 128>(input_width, output_width, n_hidden_layers, activation,
+                                                output_activation, device_name);
+    } else {
+        throw std::runtime_error("Unsupported width.");
+    }
+}
 template <typename T>
 PybindingModule create_encoding_module(int input_width, std::string encoding_name, const json &encoding_config,
                                        std::string device_name) {
@@ -111,7 +127,7 @@ PybindingModule create_networkwithencoding_factory(int input_width, int output_w
         throw std::runtime_error("Unsupported width.");
     }
 }
-PYBIND11_MODULE(tiny_nn, m) {
+PYBIND11_MODULE(tiny_dpcpp_nn_pybind_module, m) {
     pybind11::enum_<Activation>(m, "Activation")
         .value("ReLU", Activation::ReLU)
         .value("LeakyReLU", Activation::LeakyReLU)
@@ -132,8 +148,9 @@ PYBIND11_MODULE(tiny_nn, m) {
         .def("initial_params",
              (torch::Tensor(PybindingModule::*)(const torch::Tensor &)) & PybindingModule::initial_params)
         .def("n_params", &PybindingModule::n_params);
-
-    m.def("create_network", &create_network_module<bf16, 64>);
+    m.def("create_network", &create_network_factory, pybind11::arg("input_width"), pybind11::arg("output_width"),
+          pybind11::arg("n_hidden_layers"), pybind11::arg("activation"), pybind11::arg("output_activation"),
+          pybind11::arg("device_name"), pybind11::arg("width"));
     m.def("create_encoding", &create_encoding_module<float>);
     m.def("create_networkwithencoding", &create_networkwithencoding_factory, pybind11::arg("input_width"),
           pybind11::arg("output_width"), pybind11::arg("n_hidden_layers"), pybind11::arg("activation"),

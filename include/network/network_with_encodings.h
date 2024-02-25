@@ -101,11 +101,11 @@ template <typename T_enc, typename T_net> class NetworkWithEncoding {
                                            DeviceMatrices<T_net> &network_gradient,
                                            DeviceMatrices<T_net> &intermediate_backward,
                                            const DeviceMatrices<T_net> &intermediate_forward,
-                                           const std::vector<sycl::event> &deps, DeviceMatrix<T_net> &dL_dinput) {
+                                           const std::vector<sycl::event> &deps,
+                                           const DeviceMatrix<T_enc> &input_encoding, DeviceMatrix<T_net> &dL_dinput) {
         auto dL_dinput_view = dL_dinput.GetView(); // Store the view in a local variable
         auto event = network_->backward_pass(input_backward, network_gradient, intermediate_backward,
                                              intermediate_forward, deps, dL_dinput_view);
-
         network_->get_queue().wait();
 
         if (encoding_->n_params()) {
@@ -113,13 +113,9 @@ template <typename T_enc, typename T_net> class NetworkWithEncoding {
             std::unique_ptr<Context> model_ctx = nullptr;
 
             DeviceMatrix<float> output_float(batch_size, encoding_->padded_output_width(), network_->get_queue());
-            output_float.fill(0.0f).wait(); // fill with something to check if it is written to
-
-            DeviceMatrix<float> dL_doutput(batch_size, encoding_->padded_output_width(), network_->get_queue());
-            dL_doutput.fill(0.0f).wait();
+            output_float.fill(0.0f).wait();
             DeviceMatrix<float> dL_dinput_float = convert_matrix<T_net, float>(dL_dinput, network_->get_queue());
-
-            encoding_->backward_impl(&network_->get_queue(), *model_ctx, dL_dinput_float, output_float, dL_doutput);
+            encoding_->backward_impl(&network_->get_queue(), *model_ctx, input_encoding, output_float, dL_dinput_float);
             network_->get_queue().wait();
         }
         return event;

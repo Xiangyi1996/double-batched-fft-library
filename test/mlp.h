@@ -321,14 +321,13 @@ template <typename T> class MLP {
 
         // Apply derivative of the activation function
         for (std::size_t j = 0; j < layer_outputs[0].size(); ++j) {
-
-            if (activation == "relu") {
-                delta_input[j] *= drelu(layer_outputs[0][j]) / batch_size;
-            } else if (activation == "sigmoid") {
-                delta_input[j] *= dsigmoid(layer_outputs[0][j]) / batch_size;
-            } else {
-                delta_input[j] *= dlinear(layer_outputs[0][j]) / batch_size;
-            }
+            // if (activation == "relu") {
+            //     delta_input[j] *= drelu(layer_outputs[0][j]) / batch_size;
+            // } else if (activation == "sigmoid") {
+            //     delta_input[j] *= dsigmoid(layer_outputs[0][j]) / batch_size;
+            // } else {
+            delta_input[j] *= dlinear(layer_outputs[0][j]) / batch_size;
+            // }
         }
         dL_dinput = delta_input;
     }

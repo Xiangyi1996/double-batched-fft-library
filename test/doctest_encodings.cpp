@@ -32,6 +32,14 @@ template <typename T> void initialize_arange(std::vector<T> &vec) {
     }
 }
 
+template <typename T> void printVector(std::string name, const std::vector<T> &vec) {
+    std::cout << name << std::endl;
+    for (const T &value : vec) {
+        std::cout << value << ", ";
+    }
+    std::cout << std::endl;
+}
+
 template <typename T>
 void test_encoding_forward_from_loaded_file(const int batch_size, const int input_width, const int output_width,
                                             std::string filepath, sycl::queue &q) {
@@ -88,7 +96,7 @@ void test_encoding_training_from_loaded_file(const int batch_size, const int inp
     gradients.fill(0.0).wait();
 
     DeviceMem<T> params_full_precision(params.size(), q);
-    gradients.fill(0.0).wait();
+    params_full_precision.fill(0.0).wait();
 
     // for grid encoding this is true
     encoding->set_params_helper(params_full_precision, gradients, &params);
@@ -305,7 +313,7 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
         DeviceMem<float> gradients(encoding->n_params(), q);
         gradients.fill(0.123f).wait(); // fill with something to check if it is written to
 
-        encoding->set_params_helper(params_full_precision, gradients);
+        encoding->set_params(params_full_precision.data(), params_full_precision.data(), gradients.data());
 
         std::unique_ptr<Context> model_ctx = nullptr;
         DeviceMatrix<float> dL_doutput(batch_size, padded_output_width, q);
@@ -313,7 +321,6 @@ TEST_CASE("tinydpcppnn::encoding Grid Encoding") {
 
         encoding->backward_impl(&q, *model_ctx, input, output_float, dL_doutput);
         q.wait();
-
         CHECK(isVectorWithinTolerance(gradients.copy_to_host(), 0.0f, 1e-3));
         CHECK(isVectorWithinTolerance(params_full_precision.copy_to_host(), 1.0f, 1e-3));
     }
