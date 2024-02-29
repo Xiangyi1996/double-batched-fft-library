@@ -3,10 +3,10 @@
   <head><meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width,initial-scale=1"/>
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html" /><link rel="search" title="Search" href="../search.html" /><link rel="next" title="Contributing" href="contributing.html" /><link rel="prev" title="Encodings" href="encodings.html" />
+<link rel="index" title="Index" href="../genindex.html" /><link rel="search" title="Search" href="../search.html" /><link rel="next" title="PyTorch" href="pytorch.html" /><link rel="prev" title="Examples" href="examples.html" />
 
     <!-- Generated with Sphinx 7.2.6 and Furo 2024.01.29 -->
-        <title>Examples - tiny-dpcpp-nn documentation</title>
+        <title>Contributing - tiny-dpcpp-nn documentation</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=a746c00c" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=135e06be" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=36a5483c" />
@@ -134,7 +134,7 @@
           <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
         </button>
       </div>
-      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
         <div class="visually-hidden">Toggle table of contents sidebar</div>
         <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
       </label>
@@ -158,8 +158,8 @@
 <li class="toctree-l1"><a class="reference internal" href="build.html">Building and linking</a></li>
 <li class="toctree-l1"><a class="reference internal" href="networks.html">Network</a></li>
 <li class="toctree-l1"><a class="reference internal" href="encodings.html">Encodings</a></li>
-<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Examples</a></li>
-<li class="toctree-l1"><a class="reference internal" href="contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples.html">Examples</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Contributing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="pytorch.html">PyTorch</a></li>
 </ul>
 
@@ -189,14 +189,42 @@
               <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
             </button>
           </div>
-          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
             <div class="visually-hidden">Toggle table of contents sidebar</div>
             <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
           </label>
         </div>
         <article role="main">
-          <section id="examples">
-<h1>Examples<a class="headerlink" href="#examples" title="Link to this heading">#</a></h1>
+          <section id="contributing">
+<h1>Contributing<a class="headerlink" href="#contributing" title="Link to this heading">#</a></h1>
+<section id="structure-of-the-repository">
+<h2>Structure of the repository<a class="headerlink" href="#structure-of-the-repository" title="Link to this heading">#</a></h2>
+<p>The repository consists of several directories:
+- benchmarks: Contains codes for default performance benchmarks for inference and training on artificial data.
+- cmake: Contains files required for the cmake build system like common options and .cmake files to find packages.
+- docs: Contains this documentation.
+- dpcpp_bindings: Contains the Python - C++ bindings to use tiny-dpcpp-nn in Python.
+- extern: Contains all extern dependencies either by providing the files directly (like doctest and json) or as submodules.
+- include: All the header files for this project. Most of the code is contained in the headers since it heavily relies on template classes and functions.
+- python: Python code. This will be removed in the future.
+- source: Contains all the .cpp files of the tiny-dpcpp-nn code.
+- test: Directory which contains all of the doctest unitest.</p>
+</section>
+<section id="structure-of-tiny-dpcpp-nn-include">
+<h2>Structure of tiny-dpcpp-nn/include<a class="headerlink" href="#structure-of-tiny-dpcpp-nn-include" title="Link to this heading">#</a></h2>
+<p>The most important parts of the code as of version 0.1 are contained in include/common, include/encodings and include/network.</p>
+<p>The common directory contains small helper functions as well as the containers wrapping device memory,
+namely the classes DeviceMem, DeviceMatrix, and DeviceMatrices, as well as the view classes DeviceMatrixView and DeviceMatricesView.
+These latter two classes may be used in device kernels, whereas the classes DeviceMem, DeviceMatrix, and DeviceMatrices are only usable on</p>
+<blockquote>
+<div><p>the host.</p>
+</div></blockquote>
+<p>The include/encodings directory contains all the available encodings, namely Identity, SphericalHarmonics and Grid. These
+encodings may be used to pad the input data to the required width before running inference or training.</p>
+<p>The include/network directory contains the actual network implementation called SwiftNetMLP. The relevant GPU kernels which facilitate
+the actual training and inference can be found in kernel_* files. As of version 0.1, we only support an esimd verison which can be found in kernel_esimd.h
+The class network_with_encodings wraps a network and an ecoding in a single object. At some point in the future, this should be consolidated.</p>
+</section>
 </section>
 
         </article>
@@ -204,23 +232,23 @@
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="contributing.html">
+          <a class="next-page" href="pytorch.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">Contributing</div>
+                <div class="title">PyTorch</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
-          <a class="prev-page" href="encodings.html">
+          <a class="prev-page" href="examples.html">
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">Encodings</div>
+                <div class="title">Examples</div>
                 
               </div>
             </a>
@@ -242,8 +270,28 @@
         
       </footer>
     </div>
-    <aside class="toc-drawer no-toc">
+    <aside class="toc-drawer">
       
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Contributing</a><ul>
+<li><a class="reference internal" href="#structure-of-the-repository">Structure of the repository</a></li>
+<li><a class="reference internal" href="#structure-of-tiny-dpcpp-nn-include">Structure of tiny-dpcpp-nn/include</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
       
       
     </aside>
