@@ -3,10 +3,10 @@
   <head><meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width,initial-scale=1"/>
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="genindex.html" /><link rel="search" title="Search" href="search.html" /><link rel="next" title="User manual" href="manual/index.html" />
+<link rel="index" title="Index" href="genindex.html" /><link rel="search" title="Search" href="search.html" /><link rel="next" title="&lt;no title&gt;" href="manual/index.html" />
 
     <!-- Generated with Sphinx 7.2.6 and Furo 2024.01.29 -->
-        <title>Double-Batched FFT Library documentation</title>
+        <title>tiny-dpcpp-nn documentation</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=a746c00c" />
     <link rel="stylesheet" type="text/css" href="_static/styles/furo.css?v=135e06be" />
     <link rel="stylesheet" type="text/css" href="_static/styles/furo-extensions.css?v=36a5483c" />
@@ -123,7 +123,7 @@
       </label>
     </div>
     <div class="header-center">
-      <a href="#"><div class="brand">Double-Batched FFT Library  documentation</div></a>
+      <a href="#"><div class="brand">tiny-dpcpp-nn  documentation</div></a>
     </div>
     <div class="header-right">
       <div class="theme-toggle-container theme-toggle-header">
@@ -146,7 +146,7 @@
       <div class="sidebar-sticky"><a class="sidebar-brand" href="#">
   
   
-  <span class="sidebar-brand-text">Double-Batched FFT Library  documentation</span>
+  <span class="sidebar-brand-text">tiny-dpcpp-nn  documentation</span>
   
 </a><form class="sidebar-search-container" method="get" action="search.html" role="search">
   <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
@@ -155,24 +155,12 @@
 </form>
 <div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
   <ul>
-<li class="toctree-l1 has-children"><a class="reference internal" href="manual/index.html">User manual</a><input class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><div class="visually-hidden">Toggle navigation of User manual</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul>
-<li class="toctree-l2"><a class="reference internal" href="manual/build.html">Building and linking</a></li>
-<li class="toctree-l2"><a class="reference internal" href="manual/plans.html">Creating and using plans</a></li>
-<li class="toctree-l2"><a class="reference internal" href="manual/data-layout.html">Understanding data layouts</a></li>
-<li class="toctree-l2"><a class="reference internal" href="manual/examples.html">Examples</a></li>
-<li class="toctree-l2"><a class="reference internal" href="manual/caching.html">Kernel caching</a></li>
-<li class="toctree-l2"><a class="reference internal" href="manual/descriptor.html">Descriptor format</a></li>
-</ul>
-</li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="api/index.html">API reference</a><input class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><div class="visually-hidden">Toggle navigation of API reference</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul>
-<li class="toctree-l2"><a class="reference internal" href="api/configuration.html">Configuration</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/plan.html">Plans</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/generator.html">Offline generation</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/online_compiler.html">Online compiler</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/jit_cache.html">Kernel caching</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/utilities.html">Utilities</a></li>
-</ul>
-</li>
+<li class="toctree-l1"><a class="reference internal" href="manual/build.html">Building and linking</a></li>
+<li class="toctree-l1"><a class="reference internal" href="manual/networks.html">Network</a></li>
+<li class="toctree-l1"><a class="reference internal" href="manual/encodings.html">Encodings</a></li>
+<li class="toctree-l1"><a class="reference internal" href="manual/examples.html">Examples</a></li>
+<li class="toctree-l1"><a class="reference internal" href="manual/contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="manual/pytorch.html">PyTorch</a></li>
 </ul>
 
 </div>
@@ -207,51 +195,44 @@
           </label>
         </div>
         <article role="main">
-          <section id="double-batched-fft-library">
-<h1>Double-Batched FFT Library<a class="headerlink" href="#double-batched-fft-library" title="Link to this heading">#</a></h1>
-<p>The Double-Batched FFT Library is a library for computing the Fast Fourier Transform (FFT).
-The library targets Graphics Processing Units, supporting
-<a class="reference external" href="https://www.khronos.org/opencl/">OpenCL</a>,
-<a class="reference external" href="https://spec.oneapi.io/level-zero/latest/">Level Zero</a>,
-and <a class="reference external" href="https://www.khronos.org/sycl/">SYCL</a>.</p>
-<p>The library supports double-batching.
-That is, let <span class="math notranslate nohighlight">\(x\)</span> be the input tensor of shape <span class="math notranslate nohighlight">\(M \times N_1 \times \dots \times N_D \times K\)</span>,
-with <span class="math notranslate nohighlight">\(D=1,2,3\)</span>. The D-dimensional FFT should be computed over the N-modes for every M-mode and K-mode.
-Think of a two-level nested loop over indices m and k where the FFT is applied on the subtensor
-<span class="math notranslate nohighlight">\(x(m,:,...,:,k)\)</span>.
-Double-batching means the capability to batch both indices m and k in a single kernel call.
-Note that most FFT library for GPUs support single-batching, e.g. for <span class="math notranslate nohighlight">\(M=1\)</span>.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>For all runtimes, the library requires the
-<a class="reference external" href="https://registry.khronos.org/OpenCL/extensions/intel/cl_intel_required_subgroup_size.html">cl_intel_required_subgroup_size</a> extension.
-For the OpenCL runtime, the <a class="reference external" href="https://registry.khronos.org/OpenCL/extensions/intel/cl_intel_unified_shared_memory.html">cl_intel_unified_shared_memory</a> extension is required.</p>
-</div>
+          <section id="tiny-dpcpp-nn">
+<h1>tiny-dpcpp-nn<a class="headerlink" href="#tiny-dpcpp-nn" title="Link to this heading">#</a></h1>
+<p>The tiny-dpcpp-nn library is a library for the fast evaluation of inference and
+training of neural networks in which each layer has the same, small width.
+This implementation utilizes Intel’s DPC++ and, in particular, the joint_matrix
+extension to utilize Intel’s AMX and XMX hardware to maximize performance.</p>
 <section id="license">
 <h2>License<a class="headerlink" href="#license" title="Link to this heading">#</a></h2>
 <p><a class="reference external" href="https://www.opensource.org/licenses/BSD-3-Clause">BSD 3-Clause License</a></p>
-</section>
-<section id="table-of-contents">
-<h2>Table of contents<a class="headerlink" href="#table-of-contents" title="Link to this heading">#</a></h2>
 <div class="toctree-wrapper compound">
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="manual/index.html">User manual</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="manual/build.html">Building and linking</a></li>
-<li class="toctree-l2"><a class="reference internal" href="manual/plans.html">Creating and using plans</a></li>
-<li class="toctree-l2"><a class="reference internal" href="manual/data-layout.html">Understanding data layouts</a></li>
-<li class="toctree-l2"><a class="reference internal" href="manual/examples.html">Examples</a></li>
-<li class="toctree-l2"><a class="reference internal" href="manual/caching.html">Kernel caching</a></li>
-<li class="toctree-l2"><a class="reference internal" href="manual/descriptor.html">Descriptor format</a></li>
+<li class="toctree-l1"><a class="reference internal" href="manual/build.html">Building and linking</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="manual/build.html#dependencies">Dependencies</a></li>
+<li class="toctree-l2"><a class="reference internal" href="manual/build.html#build-from-source-using-oneapi">Build from source using oneAPI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="manual/build.html#build-options">Build options</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="api/index.html">API reference</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="api/configuration.html">Configuration</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/plan.html">Plans</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/generator.html">Offline generation</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/online_compiler.html">Online compiler</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/jit_cache.html">Kernel caching</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/utilities.html">Utilities</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/index.html#indices-and-tables">Indices and tables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="manual/networks.html">Network</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="manual/networks.html#multi-layer-perceptrons">Multi-Layer Perceptrons</a></li>
+<li class="toctree-l2"><a class="reference internal" href="manual/networks.html#fused-mlps">Fused MLPs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="manual/networks.html#esimd-kernels">ESIMD Kernels</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="manual/encodings.html">Encodings</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="manual/encodings.html#identity">Identity</a></li>
+<li class="toctree-l2"><a class="reference internal" href="manual/encodings.html#sphericalharmonics">SphericalHarmonics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="manual/encodings.html#grid">Grid</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="manual/examples.html">Examples</a></li>
+<li class="toctree-l1"><a class="reference internal" href="manual/contributing.html">Contributing</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="manual/contributing.html#structure-of-the-repository">Structure of the repository</a></li>
+<li class="toctree-l2"><a class="reference internal" href="manual/contributing.html#structure-of-tiny-dpcpp-nn-include">Structure of tiny-dpcpp-nn/include</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="manual/pytorch.html">PyTorch</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="manual/pytorch.html#building">Building</a></li>
+<li class="toctree-l2"><a class="reference internal" href="manual/pytorch.html#usage">Usage</a></li>
 </ul>
 </li>
 </ul>
@@ -269,7 +250,7 @@ For the OpenCL runtime, the <a class="reference external" href="https://registry
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">User manual</div>
+                <div class="title">&lt;no title&gt;</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
@@ -278,7 +259,7 @@ For the OpenCL runtime, the <a class="reference external" href="https://registry
         <div class="bottom-of-page">
           <div class="left-details">
             <div class="copyright">
-                Copyright &#169; 2022, Intel Corporation
+                Copyright &#169; 2023, Intel Corporation
             </div>
             Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
             
@@ -304,9 +285,8 @@ For the OpenCL runtime, the <a class="reference external" href="https://registry
         <div class="toc-tree-container">
           <div class="toc-tree">
             <ul>
-<li><a class="reference internal" href="#">Double-Batched FFT Library</a><ul>
+<li><a class="reference internal" href="#">tiny-dpcpp-nn</a><ul>
 <li><a class="reference internal" href="#license">License</a></li>
-<li><a class="reference internal" href="#table-of-contents">Table of contents</a></li>
 </ul>
 </li>
 </ul>
@@ -322,6 +302,5 @@ For the OpenCL runtime, the <a class="reference external" href="https://registry
     <script src="_static/doctools.js?v=888ff710"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/scripts/furo.js?v=32e29ea5"></script>
-    <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     </body>
 </html>
