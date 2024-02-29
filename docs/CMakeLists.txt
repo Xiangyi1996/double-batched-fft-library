@@ -9,6 +9,14 @@ set(SPHINX_INDEX ${SPHINX_BUILD}/index.html)
 
 set(RST_DOC_FILES
     index.rst
+    api/index.rst
+    manual/build.rst
+    manual/contributing.rst
+    manual/encoding.rst
+    manual/example.rst
+    manual/index.rst
+    manual/networks.rst
+    manual/pytorch.rst
 )
 
 add_custom_command(OUTPUT ${SPHINX_INDEX}

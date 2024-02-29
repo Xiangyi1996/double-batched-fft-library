@@ -14,8 +14,8 @@ License
 
 `BSD 3-Clause License <https://www.opensource.org/licenses/BSD-3-Clause>`_
 
-.. Table of contents
-.. -----------------
+Table of contents
+-----------------
 
 .. toctree::
   :includehidden:
